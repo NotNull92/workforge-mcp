@@ -1,0 +1,96 @@
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version 3.0
+
+$ToolRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..") -ErrorAction Stop).Path
+$InstallerPath = Join-Path $PSScriptRoot "Install.ps1"
+$TestRoot = Join-Path ([IO.Path]::GetTempPath()) ("workforge-install-modes-" + [guid]::NewGuid().ToString("N"))
+$WorkspaceRoot = Join-Path $TestRoot "workspace"
+$RegistryPath = Join-Path $TestRoot "runtime\profile_registry.json"
+$Utf8 = [Text.UTF8Encoding]::new($false)
+
+try {
+  & $InstallerPath `
+    -WorkspaceRoot $WorkspaceRoot `
+    -RegistryPath $RegistryPath `
+    -Mode Install `
+    -SkipTunnelDownload `
+    -NoDesktopShortcut
+
+  $ProfilePath = Join-Path $WorkspaceRoot "tools\workforge-mcp\profile.json"
+  $AgentsPath = Join-Path $WorkspaceRoot "AGENTS.md"
+  $TunnelPath = Join-Path $WorkspaceRoot "tools\workforge-mcp\tunnel.local.yaml"
+  $CustomAgents = "# User policy`n`nKeep this exact content.`n"
+  [IO.File]::WriteAllText($AgentsPath, $CustomAgents, $Utf8)
+  [IO.File]::WriteAllText($TunnelPath, "version: 1`nfixture: true`n", $Utf8)
+  $AgentsHashBefore = (Get-FileHash -LiteralPath $AgentsPath -Algorithm SHA256).Hash
+  $TunnelHashBefore = (Get-FileHash -LiteralPath $TunnelPath -Algorithm SHA256).Hash
+
+  $Registry = Get-Content -Raw -LiteralPath $RegistryPath | ConvertFrom-Json
+  $OtherPath = Join-Path $TestRoot "other\tools\workforge-mcp\profile.json"
+  $Registry.profiles = @($Registry.profiles) + [pscustomobject]@{
+    id = "other"
+    profilePath = $OtherPath
+    profileSha256 = ("a" * 64)
+  }
+  [IO.File]::WriteAllText($RegistryPath, ($Registry | ConvertTo-Json -Depth 8) + [Environment]::NewLine, $Utf8)
+
+  & $InstallerPath `
+    -WorkspaceRoot $WorkspaceRoot `
+    -RegistryPath $RegistryPath `
+    -Mode Repair `
+    -SkipTunnelDownload `
+    -NoDesktopShortcut
+
+  if ((Get-FileHash -LiteralPath $AgentsPath -Algorithm SHA256).Hash -ne $AgentsHashBefore) {
+    throw "Repair overwrote the user policy file."
+  }
+  if ((Get-FileHash -LiteralPath $TunnelPath -Algorithm SHA256).Hash -ne $TunnelHashBefore) {
+    throw "Repair overwrote the tunnel configuration."
+  }
+  $AfterRepair = Get-Content -Raw -LiteralPath $RegistryPath | ConvertFrom-Json
+  if (@($AfterRepair.profiles).Count -ne 2 -or -not (@($AfterRepair.profiles.id) -contains "other")) {
+    throw "Repair did not preserve unrelated registry entries."
+  }
+
+  & $InstallerPath `
+    -WorkspaceRoot $WorkspaceRoot `
+    -RegistryPath $RegistryPath `
+    -Mode Upgrade `
+    -SkipTunnelDownload `
+    -NoDesktopShortcut
+
+  if ((Get-FileHash -LiteralPath $AgentsPath -Algorithm SHA256).Hash -ne $AgentsHashBefore) {
+    throw "Upgrade overwrote the user policy file."
+  }
+  $CandidatePath = "$AgentsPath.new"
+  if (-not (Test-Path -LiteralPath $CandidatePath -PathType Leaf)) {
+    throw "Upgrade did not emit a changed template candidate."
+  }
+  $TemplatePath = Join-Path $ToolRoot "templates\workstation\AGENTS.md"
+  if ((Get-FileHash -LiteralPath $CandidatePath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $TemplatePath -Algorithm SHA256).Hash) {
+    throw "Upgrade template candidate does not match the distributed template."
+  }
+
+  $CustomCandidate = "# Reviewed candidate`n`nPreserve this content.`n"
+  [IO.File]::WriteAllText($CandidatePath, $CustomCandidate, $Utf8)
+  $CandidateHashBefore = (Get-FileHash -LiteralPath $CandidatePath -Algorithm SHA256).Hash
+  & $InstallerPath `
+    -WorkspaceRoot $WorkspaceRoot `
+    -RegistryPath $RegistryPath `
+    -Mode Upgrade `
+    -SkipTunnelDownload `
+    -NoDesktopShortcut
+  if ((Get-FileHash -LiteralPath $CandidatePath -Algorithm SHA256).Hash -ne $CandidateHashBefore) {
+    throw "Upgrade overwrote an existing user-modified template candidate."
+  }
+
+  $FinalRegistry = Get-Content -Raw -LiteralPath $RegistryPath | ConvertFrom-Json
+  $CurrentEntry = @($FinalRegistry.profiles | Where-Object { $_.id -eq "workstation" })
+  if ($CurrentEntry.Count -ne 1) { throw "Current profile was not registered exactly once." }
+  $ExpectedHash = (Get-FileHash -LiteralPath $ProfilePath -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ([string]$CurrentEntry[0].profileSha256 -cne $ExpectedHash) { throw "Current profile hash was not refreshed." }
+
+  Write-Output "INSTALL_MODES_TEST_OK"
+} finally {
+  if (Test-Path -LiteralPath $TestRoot) { Remove-Item -LiteralPath $TestRoot -Recurse -Force }
+}
