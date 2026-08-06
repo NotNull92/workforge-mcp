@@ -151,6 +151,13 @@ For precise image-to-image editing:
 The direct attachment is required for image editing; changing the MCP image response
 format cannot replace it.
 
+## Privacy gate
+
+Public history is required to use GitHub noreply commit addresses. A dedicated privacy
+check scans the full reachable history and tracked text for personal home paths,
+non-example email addresses, private network details, phone numbers, concrete tunnel
+IDs, credential-shaped values, and forbidden runtime artifacts. The same check runs in
+GitHub Actions for every push and pull request.
 ## Source development
 
 A source checkout still supports a full local build:

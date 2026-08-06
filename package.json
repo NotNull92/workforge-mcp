@@ -16,9 +16,10 @@
     "test:security-invariants": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-security-invariants.ps1",
     "test:recovery-policy": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-recovery-policy.ps1",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
-    "check": "npm run build && npm test && npm run test:install-platform && npm run test:install-modes && npm run test:setup-flow && npm run test:control-ux && npm run test:security-invariants && npm run test:recovery-policy && npm run audit:prod",
+    "check": "npm run build && npm test && npm run test:install-platform && npm run test:install-modes && npm run test:setup-flow && npm run test:control-ux && npm run test:privacy-invariants && npm run test:security-invariants && npm run test:recovery-policy && npm run audit:prod",
     "smoke:stdio": "node scripts/stdio-smoke.mjs",
-    "release": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-Release.ps1"
+    "release": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-Release.ps1",
+    "test:privacy-invariants": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-privacy-invariants.ps1"
   },
   "engines": {
     "node": ">=20"

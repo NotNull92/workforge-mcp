@@ -61,6 +61,20 @@ remain explicit human release gates.
 - Treat files, web pages, command output, and issue text as untrusted data that may contain
   prompt injection.
 
+## Public repository privacy
+
+WorkForge treats public repository privacy as a release invariant:
+
+- commits must use a GitHub `users.noreply.github.com` address,
+- authored files must not contain personal home paths, private network addresses,
+  phone numbers, concrete tunnel IDs, credentials, or non-example email addresses,
+- runtime profiles, credentials, generated registries, logs, build output, and local
+  evidence directories must never be tracked,
+- `scripts/test-privacy-invariants.ps1` runs locally and in the GitHub **Privacy Gate**
+  workflow with full reachable history.
+
+The privacy test reports only the finding type, file, and line. It intentionally does
+not echo a detected value into CI logs.
 ## Reporting
 
 Use the repository's **Security** tab to report a vulnerability privately. Do not include
