@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -77,7 +77,7 @@ async function addFixtureProfile(
 }
 
 async function makeFixture(): Promise<Fixture> {
-  const root = await mkdtemp(join(tmpdir(), "workstation-profile-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "workstation-profile-")));
   temporaryRoots.push(root);
   const engineRoot = join(root, "workforge-mcp");
   const registryDirectory = join(engineRoot, "runtime");

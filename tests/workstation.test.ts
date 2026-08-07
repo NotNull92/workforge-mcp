@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -8,7 +8,7 @@ import { assertCurrentContextRevision, getWorkstationContext } from "../src/work
 const temporaryRoots: string[] = [];
 
 async function fixture(bootstrapFiles: readonly string[] = ["AGENTS.md", "docs/HANDOFF.md"]) {
-  const root = await mkdtemp(join(tmpdir(), "workstation-context-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "workstation-context-")));
   temporaryRoots.push(root);
   await mkdir(join(root, "docs"), { recursive: true });
   await writeFile(join(root, "AGENTS.md"), "Always verify.\n", "utf8");

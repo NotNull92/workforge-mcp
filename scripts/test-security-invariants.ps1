@@ -201,6 +201,11 @@ if ($ControlServerText -match 'console\.(?:log|error)\([^\r\n]*sessionToken') {
   throw "Control dashboard must never print its session token."
 }
 
+$WindowsQualityWorkflow = Get-Content -Raw -LiteralPath (Join-Path $ToolRoot ".github\workflows\windows-quality-gate.yml")
+if ($WindowsQualityWorkflow -notmatch 'choco install ripgrep' -or $WindowsQualityWorkflow -notmatch 'Get-Command rg\.exe') {
+  throw "Windows quality gate must provision and verify ripgrep before running search-dependent tests."
+}
+
 foreach ($RelativePath in $RequiredChecks.Keys) {
   $Path = Join-Path $ToolRoot $RelativePath
   $Text = Get-Content -Raw -LiteralPath $Path

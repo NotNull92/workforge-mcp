@@ -1,4 +1,4 @@
-import { access, link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { access, link, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -8,7 +8,7 @@ import type { ProjectContext, ProjectProfile } from "../src/profile.js";
 const temporaryRoots: string[] = [];
 
 async function fixture(): Promise<{ context: ProjectContext; primary: string; foreign: string; outside: string }> {
-  const root = await mkdtemp(join(tmpdir(), "workstation-files-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "workstation-files-")));
   temporaryRoots.push(root);
   const primary = join(root, "primary");
   const foreign = join(root, "foreign");

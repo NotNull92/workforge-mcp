@@ -24,6 +24,14 @@ jobs:
           architecture: x64
           package-manager-cache: false
 
+      - name: Install ripgrep
+        shell: powershell
+        run: |
+          choco install ripgrep -y --no-progress
+          if (-not (Get-Command rg.exe -ErrorAction SilentlyContinue)) {
+            throw "ripgrep installation completed but rg.exe is unavailable."
+          }
+
       - name: Install development dependencies
         shell: powershell
         run: npm.cmd ci --ignore-scripts --no-audit --no-fund

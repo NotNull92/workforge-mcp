@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { access, appendFile, link, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, appendFile, link, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -9,7 +9,7 @@ import { cancelActiveShellJobs, cancelShellJob, getShellOutput, getShellStatus, 
 const temporaryRoots: string[] = [];
 
 async function fixture(): Promise<{ context: ProjectContext; primary: string; foreign: string; outside: string }> {
-  const root = await mkdtemp(join(tmpdir(), "workstation-shell-"));
+  const root = await realpath(await mkdtemp(join(tmpdir(), "workstation-shell-")));
   temporaryRoots.push(root);
   const primary = join(root, "primary");
   const foreign = join(root, "foreign");
