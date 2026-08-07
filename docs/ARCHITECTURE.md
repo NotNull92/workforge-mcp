@@ -9,7 +9,7 @@ OpenAI Secure MCP Tunnel endpoint
         |
 tunnel-client (outbound HTTPS, explicit user start)
         |
-stdio: node dist/stdio.js --profile workstation
+stdio: <verified-node.exe> <verified-dist/stdio.js> --profile workstation
         |
 profile registry + profile SHA-256 + identity marker
         |
@@ -66,7 +66,7 @@ The browser dashboard is a presentation layer over the existing PowerShell sourc
 
 The dashboard server binds only to IPv4 loopback (`127.0.0.1`) on an ephemeral port. It does not enable CORS and rejects unexpected `Host` headers. A random in-memory session secret is delivered only through an HttpOnly, SameSite=Strict cookie. Mutating POST requests additionally require the exact same-origin `Origin` header. Responses use a restrictive Content Security Policy, deny framing, disable caching, and do not expose the Runtime API Key to browser JavaScript.
 
-The Node control process changes its working directory to the system temporary directory so a verified release engine can still remove itself during uninstall. When browser polling stops, the server exits after a bounded idle period. No service, scheduled task, Run key, or other persistent dashboard process is created.
+The Node control process changes its working directory to the system temporary directory so a verified release engine can still remove itself during uninstall. Because the working directory is intentionally untrusted, dashboard PowerShell, `cmd.exe`, and `taskkill.exe` are resolved through explicit `%SystemRoot%\System32` paths. Status checks are coalesced with a short server-side cache and the browser polls every five seconds. When browser polling stops, the server exits after a bounded idle period. No service, scheduled task, Run key, or other persistent dashboard process is created.
 
 ## Prerequisite bootstrap
 
@@ -88,8 +88,9 @@ WorkForge.Prerequisites.ps1
 The package catalog is fixed to `OpenJS.NodeJS.LTS`, `Git.Git`, and
 `BurntSushi.ripgrep.MSVC`, but only Node.js and ripgrep participate in required readiness.
 Missing Git never blocks Setup. When Git is absent, the WorkForge profile remains a normal
-local folder and `project_resume` reports Git unavailable. When Git is present, the profile
-may be initialized as a Git repository and project history capabilities become available.
+local folder, still loads through the profile registry, and `project_resume` reports Git unavailable.
+When Git is present, the profile may be initialized as a Git repository and project history
+capabilities become available.
 Compatible existing installations cause no package-manager call. Unit tests inject command
 and installer fixtures, so the quality gate never installs or upgrades software on its runner.
 
@@ -130,12 +131,13 @@ The engine and generated mutable state are separated from the durable workstatio
   artifacts/workforge-mcp/      ignored logs, PIDs, leases, and command evidence
 ```
 
-The registry supports multiple distinct profile roots. Each profile manifest is pinned by SHA-256. A selected profile cannot use direct filesystem or shell tools inside another registered profile's root.
+The registry supports multiple distinct profile roots. Each profile manifest is pinned by SHA-256. New profiles no longer emit the unused `httpPort` field; older v1 profiles that still contain a valid port remain readable for compatibility, and duplicate legacy values do not affect profile identity. A selected profile cannot use direct filesystem or shell tools inside another registered profile's root.
 
 ## Mutation gates
 
 - `workstation_context` returns all bootstrap instructions and a `contextRevision` hash.
 - File mutation and shell execution require the current revision.
+- Windows path comparison, containment, and existing-ancestor canonicalization are centralized in `src/path-policy.ts` so profile, filesystem, Git-resume, and shell boundaries share the same semantics.
 - File replacement requires the exact current SHA-256.
 - Writes use temporary files and atomic replacement.
 - Shell work is connection-owned, bounded, and contained by a Windows Job Object.

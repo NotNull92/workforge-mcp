@@ -20,7 +20,6 @@ async function makeContext(root?: string): Promise<{ context: ProjectContext; ro
     appName: "Resume Test Workstation",
     serverName: "resume-test-workstation",
     defaultWorkingDirectoryRelative: ".",
-    httpPort: 23004,
     bootstrapFiles: Object.freeze(["AGENTS.md", "docs/HANDOFF.md"]),
     identityMarkers: Object.freeze([]),
     primaryRoot: projectRoot,

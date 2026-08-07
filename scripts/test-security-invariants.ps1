@@ -84,12 +84,20 @@ $RequiredChecks = [ordered]@{
     "WORKFORGE_MCP_PROFILE_REGISTRY",
     "WorkForgeMcp-Tunnel",
     "tools\workforge-mcp",
-    "artifacts\workforge-mcp"
+    "artifacts\workforge-mcp",
+    "Optional WorkForge profile .git path"
+  )
+  "src\path-policy.ts" = @(
+    "normalizePathForComparison",
+    "isPathWithinOrEqual",
+    "canonicalizeExistingAncestor"
   )
   "src\shell.ts" = @(
     "WORKFORGE_MCP_SHELL_JOB_ID",
     "WorkForgeMcpJobObject",
-    "WorkForgeMcp-ProfileShell"
+    "WorkForgeMcp-ProfileShell",
+    "stdoutChunks",
+    "stderrChunks"
   )
   "scripts\Install.ps1" = @(
     'Join-Path $env:USERPROFILE "WorkForge"',
@@ -118,6 +126,13 @@ $RequiredChecks = [ordered]@{
     "--disable-interactivity",
     "will not be replaced automatically",
     "InstallMissingPrerequisites"
+  )
+  "scripts\Configure-Tunnel.ps1" = @(
+    "Get-WorkForgeProfile",
+    "Get-WorkForgeTunnelExecutablePath",
+    "Get-WorkForgeStdioRuntime",
+    "`$McpCommand",
+    "--mcp-command `$McpCommand"
   )
   "scripts\Uninstall.ps1" = @(
     "SupportsShouldProcess",
@@ -152,6 +167,11 @@ $RequiredChecks = [ordered]@{
     "request.headers.origin !== expectedOrigin",
     "request.headers.host !== expectedHost",
     "Content-Security-Policy",
+    "powershellPath",
+    "cmdPath",
+    "taskkillPath",
+    "terminateProcessTree(child)",
+    "statusCacheMs",
     "/api/uninstall/preview",
     "REMOVE WORKFORGE"
   )
@@ -161,11 +181,21 @@ $RequiredChecks = [ordered]@{
     "/api/uninstall/preview",
     "REMOVE WORKFORGE"
   )
+  "scripts\test-privacy-invariants.ps1" = @(
+    "rev-list --objects --all",
+    "cat-file '--batch-check=",
+    "HistoricalBlobTooLargeToScan",
+    "Read-GitBlobBytes"
+  )
   "scripts\Build-Release.ps1" = @(
     ".workforge-release.json",
     'distributionKind = "release"',
     "control-ui",
     "Uninstall.cmd"
+  )
+  "package.json" = @(
+    "test:multi-profile",
+    "test:privacy-history"
   )
 }
 $PrerequisiteText = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "WorkForge.Prerequisites.ps1")
@@ -200,10 +230,38 @@ if ($ControlServerText -match 'Access-Control-Allow-Origin') {
 if ($ControlServerText -match 'console\.(?:log|error)\([^\r\n]*sessionToken') {
   throw "Control dashboard must never print its session token."
 }
+if ($ControlServerText -match "spawn\('(?:powershell|cmd)\.exe'") {
+  throw "Control dashboard must use verified System32 executable paths instead of bare executable names."
+}
+
+$ProfileRegistryText = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "profile-registry.ps1")
+if ($ProfileRegistryText -match 'missing its canonical \.git directory') {
+  throw "Profile loading must not require Git for Local Folder Mode."
+}
+if ($ProfileRegistryText -match 'reuses registered httpPort') {
+  throw "Deprecated httpPort must not prevent multi-profile loading."
+}
+$InstallText = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "Install.ps1")
+if ($InstallText -match '(?m)^\s*httpPort\s*=') {
+  throw "New WorkForge profiles must not emit the deprecated httpPort field."
+}
+
+$ConfigureTunnelText = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "Configure-Tunnel.ps1")
+$ProfilePreflightIndex = $ConfigureTunnelText.IndexOf('$Profile = Get-WorkForgeProfile', [StringComparison]::Ordinal)
+$CredentialIndex = $ConfigureTunnelText.IndexOf('$ExistingKey = [Environment]::GetEnvironmentVariable("CONTROL_PLANE_API_KEY"', [StringComparison]::Ordinal)
+if ($ProfilePreflightIndex -lt 0 -or $CredentialIndex -lt 0 -or $ProfilePreflightIndex -gt $CredentialIndex) {
+  throw "Configure Tunnel must validate the profile and runtime before mutating the local credential."
+}
+if ($ConfigureTunnelText -match 'node\.exe dist/stdio\.js') {
+  throw "Configure Tunnel must not persist an unverified relative MCP runtime command."
+}
 
 $WindowsQualityWorkflow = Get-Content -Raw -LiteralPath (Join-Path $ToolRoot ".github\workflows\windows-quality-gate.yml")
 if ($WindowsQualityWorkflow -notmatch 'choco install ripgrep' -or $WindowsQualityWorkflow -notmatch 'Get-Command rg\.exe') {
   throw "Windows quality gate must provision and verify ripgrep before running search-dependent tests."
+}
+if ($WindowsQualityWorkflow -notmatch 'node-version:\s*\[20,\s*24\]' -or $WindowsQualityWorkflow -notmatch '\$\{\{\s*matrix\.node-version\s*\}\}') {
+  throw "Windows quality gate must validate both the minimum Node 20 runtime and the current Node 24 runtime."
 }
 
 foreach ($RelativePath in $RequiredChecks.Keys) {

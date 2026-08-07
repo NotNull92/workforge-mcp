@@ -1,42 +1,21 @@
+[CmdletBinding()]
+param(
+  [string]$RepositoryRoot
+)
+
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 3.0
 
-$ToolRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..") -ErrorAction Stop).Path
+$ToolRoot = if ([string]::IsNullOrWhiteSpace($RepositoryRoot)) {
+  (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..") -ErrorAction Stop).Path
+} else {
+  (Resolve-Path -LiteralPath $RepositoryRoot -ErrorAction Stop).Path
+}
 $SelfRelativePath = "scripts/test-privacy-invariants.ps1"
 $Utf8Strict = [Text.UTF8Encoding]::new($false, $true)
 $Failures = [Collections.Generic.List[object]]::new()
-
-function Add-PrivacyFailure {
-  param(
-    [Parameter(Mandatory = $true)][string]$Type,
-    [Parameter(Mandatory = $true)][string]$File,
-    [int]$Line = 0
-  )
-  $Failures.Add([pscustomobject]@{ Type = $Type; File = $File.Replace("\", "/"); Line = $Line })
-}
-
-function Get-LineNumber {
-  param([Parameter(Mandatory = $true)][string]$Text, [Parameter(Mandatory = $true)][int]$Index)
-  if ($Index -le 0) { return 1 }
-  return ($Text.Substring(0, $Index) -split "`n").Count
-}
-
-$Tracked = @(& git.exe -C $ToolRoot ls-files --cached --others --exclude-standard | Sort-Object -Unique)
-if ($LASTEXITCODE -ne 0) { throw "Could not enumerate repository files for privacy validation." }
-
-$ForbiddenFileNames = @(".env.local", "tunnel.local.yaml", "profile_registry.json", "install-manifest.json", ".workforge-release.json")
-foreach ($Relative in $Tracked) {
-  $Normalized = $Relative.Replace("\", "/")
-  if ($ForbiddenFileNames -contains [IO.Path]::GetFileName($Relative)) {
-    Add-PrivacyFailure -Type "ForbiddenRuntimeFile" -File $Normalized
-  }
-  if ($Normalized -match "^(?:runtime|artifacts|node_modules|dist)/") {
-    Add-PrivacyFailure -Type "ForbiddenGeneratedDirectory" -File $Normalized
-  }
-  if ([IO.Path]::GetExtension($Relative) -ieq ".jsonl" -or [IO.Path]::GetFileName($Relative) -match '^uninstall-.+\.json$') {
-    Add-PrivacyFailure -Type "ForbiddenGeneratedLogOrReceipt" -File $Normalized
-  }
-}
+$MaximumHistoricalTextBytes = 8MB
+$KnownBinaryExtensions = @(".png", ".jpg", ".jpeg", ".gif", ".webp", ".zip", ".exe", ".dll", ".pdb", ".ico", ".pdf")
 
 $Patterns = [ordered]@{
   WindowsUserHome = '(?i)[A-Z]:\\Users\\[^\s"]+'
@@ -60,29 +39,37 @@ $AllowedEmailDomains = @(
   "example.net"
 )
 
-foreach ($Relative in $Tracked) {
-  $Normalized = $Relative.Replace("\", "/")
-  if ($Normalized -ceq $SelfRelativePath) { continue }
-  $Path = Join-Path $ToolRoot $Relative
-  $Bytes = [IO.File]::ReadAllBytes($Path)
-  if ($Bytes -contains 0) { continue }
-  try {
-    $Text = $Utf8Strict.GetString($Bytes)
-  } catch {
-    Add-PrivacyFailure -Type "InvalidUtf8Text" -File $Normalized
-    continue
-  }
+function Add-PrivacyFailure {
+  param(
+    [Parameter(Mandatory = $true)][string]$Type,
+    [Parameter(Mandatory = $true)][string]$File,
+    [int]$Line = 0
+  )
+  $Failures.Add([pscustomobject]@{ Type = $Type; File = $File.Replace("\", "/"); Line = $Line })
+}
+
+function Get-LineNumber {
+  param([Parameter(Mandatory = $true)][string]$Text, [Parameter(Mandatory = $true)][int]$Index)
+  if ($Index -le 0) { return 1 }
+  return ($Text.Substring(0, $Index) -split "`n").Count
+}
+
+function Test-PrivacyText {
+  param(
+    [Parameter(Mandatory = $true)][string]$Text,
+    [Parameter(Mandatory = $true)][string]$File
+  )
 
   foreach ($Entry in $Patterns.GetEnumerator()) {
     foreach ($Match in [regex]::Matches($Text, [string]$Entry.Value)) {
-      Add-PrivacyFailure -Type ([string]$Entry.Key) -File $Normalized -Line (Get-LineNumber -Text $Text -Index $Match.Index)
+      Add-PrivacyFailure -Type ([string]$Entry.Key) -File $File -Line (Get-LineNumber -Text $Text -Index $Match.Index)
     }
   }
 
   foreach ($Match in [regex]::Matches($Text, "(?i)(?<![A-Z0-9._%+-])[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}(?![A-Z0-9.-])")) {
     $Domain = ($Match.Value -split "@")[-1].ToLowerInvariant()
     if ($AllowedEmailDomains -notcontains $Domain) {
-      Add-PrivacyFailure -Type "NonPublicEmail" -File $Normalized -Line (Get-LineNumber -Text $Text -Index $Match.Index)
+      Add-PrivacyFailure -Type "NonPublicEmail" -File $File -Line (Get-LineNumber -Text $Text -Index $Match.Index)
     }
   }
 
@@ -95,9 +82,77 @@ foreach ($Relative in $Tracked) {
       ($Parts[0] -eq 198 -and $Parts[1] -eq 51 -and $Parts[2] -eq 100) -or
       ($Parts[0] -eq 203 -and $Parts[1] -eq 0 -and $Parts[2] -eq 113)
     if (-not $Allowed) {
-      Add-PrivacyFailure -Type "NonExampleIpAddress" -File $Normalized -Line (Get-LineNumber -Text $Text -Index $Match.Index)
+      Add-PrivacyFailure -Type "NonExampleIpAddress" -File $File -Line (Get-LineNumber -Text $Text -Index $Match.Index)
     }
   }
+}
+
+function Read-GitBlobBytes {
+  param(
+    [Parameter(Mandatory = $true)][string]$GitPath,
+    [Parameter(Mandatory = $true)][string]$ObjectId,
+    [Parameter(Mandatory = $true)][long]$ExpectedBytes
+  )
+
+  $StartInfo = [Diagnostics.ProcessStartInfo]::new()
+  $StartInfo.FileName = $GitPath
+  $StartInfo.Arguments = "cat-file blob $ObjectId"
+  $StartInfo.WorkingDirectory = $ToolRoot
+  $StartInfo.UseShellExecute = $false
+  $StartInfo.CreateNoWindow = $true
+  $StartInfo.RedirectStandardOutput = $true
+  $StartInfo.RedirectStandardError = $true
+  $Process = [Diagnostics.Process]::Start($StartInfo)
+  $ErrorTask = $Process.StandardError.ReadToEndAsync()
+  $Memory = [IO.MemoryStream]::new()
+  try {
+    $Process.StandardOutput.BaseStream.CopyTo($Memory)
+    $Process.WaitForExit()
+    $ErrorText = $ErrorTask.Result
+    if ($Process.ExitCode -ne 0) {
+      throw "Could not read historical Git blob $ObjectId."
+    }
+    $Bytes = $Memory.ToArray()
+    if ($Bytes.LongLength -ne $ExpectedBytes) {
+      throw "Historical Git blob $ObjectId changed size while being read."
+    }
+    return $Bytes
+  } finally {
+    $Memory.Dispose()
+    $Process.Dispose()
+  }
+}
+
+$Tracked = @(& git.exe -C $ToolRoot ls-files --cached --others --exclude-standard | Sort-Object -Unique)
+if ($LASTEXITCODE -ne 0) { throw "Could not enumerate repository files for privacy validation." }
+
+$ForbiddenFileNames = @(".env.local", "tunnel.local.yaml", "profile_registry.json", "install-manifest.json", ".workforge-release.json")
+foreach ($Relative in $Tracked) {
+  $Normalized = $Relative.Replace("\", "/")
+  if ($ForbiddenFileNames -contains [IO.Path]::GetFileName($Relative)) {
+    Add-PrivacyFailure -Type "ForbiddenRuntimeFile" -File $Normalized
+  }
+  if ($Normalized -match "^(?:runtime|artifacts|node_modules|dist)/") {
+    Add-PrivacyFailure -Type "ForbiddenGeneratedDirectory" -File $Normalized
+  }
+  if ([IO.Path]::GetExtension($Relative) -ieq ".jsonl" -or [IO.Path]::GetFileName($Relative) -match '^uninstall-.+\.json$') {
+    Add-PrivacyFailure -Type "ForbiddenGeneratedLogOrReceipt" -File $Normalized
+  }
+}
+
+foreach ($Relative in $Tracked) {
+  $Normalized = $Relative.Replace("\", "/")
+  if ($Normalized -ceq $SelfRelativePath) { continue }
+  $Path = Join-Path $ToolRoot $Relative
+  $Bytes = [IO.File]::ReadAllBytes($Path)
+  if ($Bytes -contains 0) { continue }
+  try {
+    $Text = $Utf8Strict.GetString($Bytes)
+  } catch {
+    Add-PrivacyFailure -Type "InvalidUtf8Text" -File $Normalized
+    continue
+  }
+  Test-PrivacyText -Text $Text -File $Normalized
 }
 
 $CommitRows = @(& git.exe -C $ToolRoot log --all --format="%H%x09%ae%x09%ce")
@@ -111,6 +166,45 @@ foreach ($Row in $CommitRows) {
   if ($Fields[2] -notmatch "(?i)^[^@]+@users\.noreply\.github\.com$") {
     Add-PrivacyFailure -Type "CommitterEmailIsNotNoreply" -File $Fields[0]
   }
+}
+
+# Scan every reachable historical text blob, not only the current worktree. The
+# self-test source is excluded because it intentionally contains credential regex fixtures.
+$ObjectRows = @(& git.exe -C $ToolRoot rev-list --objects --all)
+if ($LASTEXITCODE -ne 0) { throw "Could not enumerate Git history objects for privacy validation." }
+$HistoryRows = @($ObjectRows | & git.exe -C $ToolRoot cat-file '--batch-check=%(objectname) %(objecttype) %(objectsize) %(rest)')
+if ($LASTEXITCODE -ne 0) { throw "Could not inspect Git history object metadata for privacy validation." }
+$GitCommand = Get-Command git.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1
+$GitPath = [string]$GitCommand.Source
+$SeenBlobs = @{}
+foreach ($Row in $HistoryRows) {
+  $Fields = $Row -split " ", 4
+  if ($Fields.Count -lt 3 -or $Fields[1] -cne "blob") { continue }
+  $ObjectId = [string]$Fields[0]
+  if ($SeenBlobs.ContainsKey($ObjectId)) { continue }
+  $SeenBlobs[$ObjectId] = $true
+  $ObjectSize = 0L
+  if (-not [long]::TryParse([string]$Fields[2], [ref]$ObjectSize) -or $ObjectSize -lt 0) {
+    throw "Git returned an invalid historical blob size."
+  }
+  $ObjectPath = if ($Fields.Count -eq 4) { [string]$Fields[3] } else { "" }
+  $NormalizedPath = $ObjectPath.Replace("\", "/")
+  if ($NormalizedPath -ceq $SelfRelativePath) { continue }
+  $Extension = [IO.Path]::GetExtension($ObjectPath).ToLowerInvariant()
+  if ($KnownBinaryExtensions -contains $Extension) { continue }
+  $HistoryLabel = if ([string]::IsNullOrWhiteSpace($NormalizedPath)) { "history/$ObjectId" } else { "history/$ObjectId/$NormalizedPath" }
+  if ($ObjectSize -gt $MaximumHistoricalTextBytes) {
+    Add-PrivacyFailure -Type "HistoricalBlobTooLargeToScan" -File $HistoryLabel
+    continue
+  }
+  $Bytes = Read-GitBlobBytes -GitPath $GitPath -ObjectId $ObjectId -ExpectedBytes $ObjectSize
+  if ($Bytes -contains 0) { continue }
+  try {
+    $Text = $Utf8Strict.GetString($Bytes)
+  } catch {
+    continue
+  }
+  Test-PrivacyText -Text $Text -File $HistoryLabel
 }
 
 $ConfiguredEmail = (& git.exe -C $ToolRoot config --get user.email 2>$null | Out-String).Trim()

@@ -56,7 +56,8 @@ runtime is absent.
 - Added deterministic Local Folder Mode, explicit optional-Git install, optional-Git failure,
   required-missing, incompatible-version, incompatible-architecture, exact-package-ID, and
   no-upgrade tests.
-- Added a real isolated-PATH install regression proving Setup/Install can succeed without Git.
+- Added a real isolated-PATH install regression proving Setup/Install can succeed without Git, reload the installed profile through the registry, and pass Uninstall KeepWorkspace preflight.
+- Added a two-profile regression proving multiple profiles load together and legacy duplicate `httpPort` metadata remains compatible without affecting identity.
 - Added package-ID, no-force, no-elevation, optional-Git, and explicit-consent security checks.
 - Updated README, architecture, security, troubleshooting, third-party, and release docs.
 - Required the prerequisite module and no-Git install tests in release-package validation.
@@ -74,11 +75,12 @@ BurntSushi.ripgrep.MSVC           ripgrep
 The full WorkForge quality gate passed:
 
 ```text
-5 TypeScript test files passed
-31 TypeScript tests passed
+6 TypeScript test files passed
+35 TypeScript tests passed
 Prerequisite bootstrap tests passed
 Install platform detection passed
-Install without Git passed
+Install without Git, profile reload, and uninstall preflight passed
+Multi-profile compatibility passed
 Install / Repair / Upgrade passed
 Setup flow passed
 Control UX passed

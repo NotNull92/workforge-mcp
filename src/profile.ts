@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
-import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
+import { isPathWithinOrEqual, isSamePath, normalizePathForComparison } from "./path-policy.js";
 
 const PROFILE_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
 const MAX_PROFILE_BYTES = 256 * 1024;
@@ -22,7 +23,7 @@ const profileSchema = z.object({
   appName: z.string().trim().min(1).max(80),
   serverName: z.string().regex(/^[a-z0-9][a-z0-9-]{0,127}$/),
   defaultWorkingDirectoryRelative: profileRelativePathSchema,
-  httpPort: z.number().int().min(1024).max(65_535),
+  httpPort: z.number().int().min(1024).max(65_535).optional(),
   bootstrapFiles: z.array(profileRelativePathSchema).max(32),
   identityMarkers: z.array(z.object({
     relativePath: profileRelativePathSchema,
@@ -67,15 +68,6 @@ export interface ProjectContext {
 export interface ProfileLoadOptions {
   readonly registryPath?: string;
   readonly engineRoot?: string;
-}
-
-function normalizeForComparison(path: string): string {
-  return process.platform === "win32" ? path.toLocaleLowerCase("en-US") : path;
-}
-
-function isWithinOrEqual(root: string, candidate: string): boolean {
-  const fromRoot = relative(root, candidate);
-  return fromRoot === "" || (!fromRoot.startsWith("..") && !isAbsolute(fromRoot));
 }
 
 function normalizeProfileRelativePath(rawPath: string, allowCurrentDirectory = false): string {
@@ -168,7 +160,7 @@ async function loadTrustedRegistry(options: ProfileLoadOptions): Promise<Trusted
     for (let rightIndex = leftIndex + 1; rightIndex < entries.length; rightIndex += 1) {
       const left = entries[leftIndex]!;
       const right = entries[rightIndex]!;
-      if (isWithinOrEqual(left.primaryRoot, right.primaryRoot) || isWithinOrEqual(right.primaryRoot, left.primaryRoot)) {
+      if (isPathWithinOrEqual(left.primaryRoot, right.primaryRoot) || isPathWithinOrEqual(right.primaryRoot, left.primaryRoot)) {
         throw new Error(`Managed project roots must not overlap: ${left.id}, ${right.id}`);
       }
     }
@@ -180,9 +172,9 @@ function derivePrimaryRoot(profilePath: string, profileId: string): string {
   const configDirectory = dirname(profilePath);
   const toolsDirectory = dirname(configDirectory);
   if (
-    normalizeForComparison(basename(configDirectory)) !== normalizeForComparison(PROJECT_CONFIG_DIRECTORY) ||
-    normalizeForComparison(basename(toolsDirectory)) !== normalizeForComparison(PROJECT_TOOLS_DIRECTORY) ||
-    normalizeForComparison(basename(profilePath)) !== normalizeForComparison("profile.json")
+    normalizePathForComparison(basename(configDirectory)) !== normalizePathForComparison(PROJECT_CONFIG_DIRECTORY) ||
+    normalizePathForComparison(basename(toolsDirectory)) !== normalizePathForComparison(PROJECT_TOOLS_DIRECTORY) ||
+    normalizePathForComparison(basename(profilePath)) !== normalizePathForComparison("profile.json")
   ) {
     throw new Error(`Project profile ${profileId} must live at tools/${PROJECT_CONFIG_DIRECTORY}/profile.json.`);
   }
@@ -208,11 +200,11 @@ async function readRegisteredProfile(
 
   const profilePath = await realpath(requestedProfilePath);
   const primaryRoot = await realpath(derivePrimaryRoot(profilePath, profileId));
-  if (normalizeForComparison(primaryRoot) !== normalizeForComparison(entry.primaryRoot)) {
+  if (!isSamePath(primaryRoot, entry.primaryRoot)) {
     throw new Error(`Project profile ${profileId} no longer matches its registered project root.`);
   }
   const expectedProfilePath = resolve(primaryRoot, PROJECT_TOOLS_DIRECTORY, PROJECT_CONFIG_DIRECTORY, "profile.json");
-  if (normalizeForComparison(profilePath) !== normalizeForComparison(expectedProfilePath)) {
+  if (!isSamePath(profilePath, expectedProfilePath)) {
     throw new Error(`Project profile ${profileId} escaped its canonical project-local path.`);
   }
   const parsed = profileSchema.parse(value);
@@ -252,7 +244,7 @@ export async function loadProjectProfile(profileId: string, options: ProfileLoad
   const defaultRelative = normalizeProfileRelativePath(parsed.defaultWorkingDirectoryRelative, true);
   const defaultWorkingDirectory = await realpath(resolve(primaryRoot, ...defaultRelative.split("/")));
   const defaultInfo = await stat(defaultWorkingDirectory);
-  if (!defaultInfo.isDirectory() || !isWithinOrEqual(primaryRoot, defaultWorkingDirectory)) {
+  if (!defaultInfo.isDirectory() || !isPathWithinOrEqual(primaryRoot, defaultWorkingDirectory)) {
     throw new Error(`Project profile ${profileId} has an invalid default working directory.`);
   }
 
@@ -262,7 +254,7 @@ export async function loadProjectProfile(profileId: string, options: ProfileLoad
   for (const marker of parsed.identityMarkers) {
     const relativePath = normalizeProfileRelativePath(marker.relativePath);
     const absolutePath = await realpath(resolve(primaryRoot, ...relativePath.split("/")));
-    if (!isWithinOrEqual(primaryRoot, absolutePath)) throw new Error(`Identity marker escapes project root: ${relativePath}`);
+    if (!isPathWithinOrEqual(primaryRoot, absolutePath)) throw new Error(`Identity marker escapes project root: ${relativePath}`);
     const markerInfo = await stat(absolutePath);
     if (!markerInfo.isFile() || markerInfo.size > MAX_MARKER_BYTES) {
       throw new Error(`Identity marker is not a bounded file: ${relativePath}`);

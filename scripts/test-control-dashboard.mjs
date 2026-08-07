@@ -23,6 +23,12 @@ assert(!serverSource.includes('Access-Control-Allow-Origin'), 'Control dashboard
 assert(serverSource.includes('HttpOnly; SameSite=Strict'), 'Control dashboard session cookie is not hardened.');
 assert(serverSource.includes('request.headers.origin !== expectedOrigin'), 'Mutating requests must verify Origin.');
 assert(serverSource.includes('request.headers.host !== expectedHost'), 'Control dashboard must verify Host.');
+assert(serverSource.includes("path.join(system32Root, 'WindowsPowerShell', 'v1.0', 'powershell.exe')"), 'Control dashboard must use the System32 PowerShell path.');
+assert(serverSource.includes("path.join(system32Root, 'cmd.exe')"), 'Control dashboard must use the System32 cmd path.');
+assert(serverSource.includes("path.join(system32Root, 'taskkill.exe')"), 'Control dashboard must use the System32 taskkill path.');
+assert(serverSource.includes('terminateProcessTree(child)'), 'Control dashboard timeouts must terminate the child process tree.');
+assert(!serverSource.includes("spawn('powershell.exe'"), 'Control dashboard must not resolve PowerShell through the working directory or PATH.');
+assert(!serverSource.includes("spawn('cmd.exe'"), 'Control dashboard must not resolve cmd through the working directory or PATH.');
 assert(htmlSource.includes('Start Tunnel'), 'Control dashboard is missing Start.');
 assert(htmlSource.includes('Run Doctor'), 'Control dashboard is missing Doctor.');
 assert(htmlSource.includes('Remove WorkForge'), 'Control dashboard is missing uninstall flow.');

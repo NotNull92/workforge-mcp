@@ -1,5 +1,6 @@
 import { realpath } from "node:fs/promises";
-import { isAbsolute, relative, resolve } from "node:path";
+import { resolve } from "node:path";
+import { isPathWithinOrEqual } from "./path-policy.js";
 import type { ProjectContext } from "./profile.js";
 import { makeSafeEnvironment, runProcess, type ProcessResult } from "./process.js";
 
@@ -60,15 +61,6 @@ interface ParsedStatus {
   readonly behind: number | null;
   readonly status: ResumeStatus;
   readonly truncated: boolean;
-}
-
-function normalizeForComparison(path: string): string {
-  return process.platform === "win32" ? path.toLocaleLowerCase("en-US") : path;
-}
-
-function isWithinOrEqual(root: string, candidate: string): boolean {
-  const fromRoot = relative(normalizeForComparison(root), normalizeForComparison(candidate));
-  return fromRoot === "" || (!fromRoot.startsWith("..") && !isAbsolute(fromRoot));
 }
 
 function firstDiagnostic(result: ProcessResult, fallback: string): string {
@@ -258,7 +250,7 @@ export async function getProjectResume(
   }
   const repositoryRoot = await realpath(resolve(reportedRoot));
   const primaryRoot = await realpath(context.primaryRoot);
-  if (!isWithinOrEqual(primaryRoot, repositoryRoot)) {
+  if (!isPathWithinOrEqual(primaryRoot, repositoryRoot)) {
     return unavailableResult(context, true, "Git worktree root resolves outside the registered project root.");
   }
 

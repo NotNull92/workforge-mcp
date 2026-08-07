@@ -219,7 +219,7 @@ With Git
   staged·unstaged state / ahead·behind information
 ```
 
-So **WorkForge can work with the current folder without Git, while Git lets it understand more of the project's history.**
+So **WorkForge can install, load its profile, and work with the current folder without Git, while Git lets it understand more of the project's history.**
 
 ### Returning to an old project
 
@@ -604,11 +604,11 @@ npm.cmd run smoke:stdio -- workstation
 npm.cmd run release
 ```
 
-`npm run check` validates the TypeScript server plus prerequisite detection, installation modes, the loopback-only Control Dashboard, CLI fallback, ForgeUI, Uninstall, privacy, security, Tunnel recovery, and production dependencies.
+`npm run check` validates the TypeScript server plus no-Git installation, multi-profile loading, prerequisite detection, installation modes, the loopback-only Control Dashboard, CLI fallback, ForgeUI, Uninstall, historical Git privacy scanning, security, Tunnel recovery, and production dependencies.
 
 ### Privacy gate
 
-The public repository is scanned to prevent accidental publication of sensitive local data.
+The public repository is scanned to prevent accidental publication of sensitive local data. The gate checks current tracked and untracked files plus **reachable historical text blobs**, so deleting a sensitive value from the latest commit does not make an older copy invisible.
 
 Examples include:
 

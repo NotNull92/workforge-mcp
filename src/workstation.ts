@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { lstat, readFile, realpath } from "node:fs/promises";
-import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import type { ProjectContext } from "./profile.js";
+import { canonicalizeExistingAncestor, isPathWithinOrEqual } from "./path-policy.js";
 
 export const WORKSTATION_CAPABILITY = "workstation_full" as const;
 export type WorkstationPathScope = "exact" | "tree";
@@ -16,15 +17,6 @@ export interface BootstrapEntry {
   readonly content: string;
 }
 
-function normalizeForComparison(path: string): string {
-  return process.platform === "win32" ? path.toLocaleLowerCase("en-US") : path;
-}
-
-function isWithinOrEqual(root: string, candidate: string): boolean {
-  const fromRoot = relative(normalizeForComparison(root), normalizeForComparison(candidate));
-  return fromRoot === "" || (!fromRoot.startsWith("..") && !isAbsolute(fromRoot));
-}
-
 function sha256(bytes: Buffer | string): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
@@ -37,7 +29,7 @@ async function loadBootstrapEntries(context: ProjectContext): Promise<readonly B
     const canonicalPath = await realpath(absolutePath).catch(() => {
       throw new Error(`Configured bootstrap file is missing: ${relativePath}`);
     });
-    if (!isWithinOrEqual(context.primaryRoot, canonicalPath)) {
+    if (!isPathWithinOrEqual(context.primaryRoot, canonicalPath)) {
       throw new Error(`Configured bootstrap file resolves outside the project root: ${relativePath}`);
     }
     const info = await lstat(absolutePath);
@@ -92,29 +84,6 @@ export async function assertCurrentContextRevision(context: ProjectContext, supp
   }
 }
 
-function errorCode(error: unknown): string | undefined {
-  return error && typeof error === "object" && "code" in error
-    ? String((error as { code?: unknown }).code)
-    : undefined;
-}
-
-async function canonicalizeExistingAncestor(path: string): Promise<string> {
-  let current = path;
-  const missingSegments: string[] = [];
-  while (true) {
-    try {
-      return resolve(await realpath(current), ...missingSegments);
-    } catch (error) {
-      const code = errorCode(error);
-      if (code !== "ENOENT" && code !== "ENOTDIR") throw error;
-      const parent = dirname(current);
-      if (parent === current) return path;
-      missingSegments.unshift(basename(current));
-      current = parent;
-    }
-  }
-}
-
 function assertManagedProjectBoundary(
   context: ProjectContext,
   candidate: string,
@@ -122,8 +91,8 @@ function assertManagedProjectBoundary(
 ): void {
   for (const managed of context.managedProjectRoots) {
     if (managed.profileId === context.profile.id) continue;
-    const targetsForeignRoot = isWithinOrEqual(managed.primaryRoot, candidate);
-    const treeContainsForeignRoot = scope === "tree" && isWithinOrEqual(candidate, managed.primaryRoot);
+    const targetsForeignRoot = isPathWithinOrEqual(managed.primaryRoot, candidate);
+    const treeContainsForeignRoot = scope === "tree" && isPathWithinOrEqual(candidate, managed.primaryRoot);
     if (targetsForeignRoot || treeContainsForeignRoot) {
       throw new Error(
         `Cross-profile path denied: ${context.profile.id} cannot access managed project ${managed.profileId}. `

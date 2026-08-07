@@ -11,6 +11,11 @@ const toolRoot = path.resolve(scriptDirectory, '..');
 const uiRoot = path.join(toolRoot, 'control-ui');
 const packageJson = JSON.parse(await readFile(path.join(toolRoot, 'package.json'), 'utf8'));
 const version = String(packageJson.version);
+const systemRoot = process.env.SystemRoot || process.env.WINDIR || 'C:\\Windows';
+const system32Root = path.join(systemRoot, 'System32');
+const powershellPath = path.join(system32Root, 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+const cmdPath = path.join(system32Root, 'cmd.exe');
+const taskkillPath = path.join(system32Root, 'taskkill.exe');
 
 function readArgument(name, fallback = null) {
   const index = process.argv.indexOf(name);
@@ -43,6 +48,10 @@ let lastRequestAt = Date.now();
 let lastObservedState = null;
 let shuttingDown = false;
 let activeAction = null;
+let cachedStatus = null;
+let cachedStatusAt = 0;
+let statusPromise = null;
+const statusCacheMs = testMode ? 0 : 3000;
 
 function recordActivity(kind, message) {
   activity.unshift({
@@ -167,15 +176,32 @@ async function readJsonBody(request) {
   return value;
 }
 
+function controlEnvironment() {
+  const environment = { ...process.env };
+  delete environment.CONTROL_PLANE_API_KEY;
+  delete environment.WORKFORGE_CONTROL_TEST_MODE;
+  return environment;
+}
+
+function terminateProcessTree(child) {
+  if (!child.pid) return;
+  const killer = spawn(taskkillPath, ['/pid', String(child.pid), '/t', '/f'], {
+    cwd: os.tmpdir(),
+    env: controlEnvironment(),
+    windowsHide: true,
+    shell: false,
+    stdio: 'ignore',
+  });
+  killer.unref();
+}
+
 function runPowerShell(scriptName, argumentsList = [], timeoutMs = 90_000) {
   return new Promise((resolve, reject) => {
     const scriptPath = path.join(scriptDirectory, scriptName);
-    const environment = { ...process.env };
-    delete environment.CONTROL_PLANE_API_KEY;
-    delete environment.WORKFORGE_CONTROL_TEST_MODE;
+    const environment = controlEnvironment();
 
     const child = spawn(
-      'powershell.exe',
+      powershellPath,
       ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, ...argumentsList],
       {
         cwd: os.tmpdir(),
@@ -200,7 +226,7 @@ function runPowerShell(scriptName, argumentsList = [], timeoutMs = 90_000) {
     child.stderr.on('data', chunk => { stderr = append(stderr, chunk); });
 
     const timer = setTimeout(() => {
-      child.kill();
+      terminateProcessTree(child);
       reject(new Error(`${scriptName} timed out.`));
     }, timeoutMs);
 
@@ -265,17 +291,32 @@ function noteStatusTransition(status) {
   }
 }
 
-async function getStatus() {
-  const result = await runPowerShell('tunnel-status.ps1', ['-ProfileId', profileId, '-Snapshot'], 15_000);
-  let parsed;
+async function getStatus({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && cachedStatus && now - cachedStatusAt < statusCacheMs) return cachedStatus;
+  if (!force && statusPromise) return await statusPromise;
+
+  const request = (async () => {
+    const result = await runPowerShell('tunnel-status.ps1', ['-ProfileId', profileId, '-Snapshot'], 15_000);
+    let parsed;
+    try {
+      parsed = JSON.parse(result.stdout);
+    } catch {
+      throw new Error(`Could not parse tunnel status: ${result.stdout.slice(0, 2000)}`);
+    }
+    const status = simplifyStatus(parsed);
+    cachedStatus = status;
+    cachedStatusAt = Date.now();
+    noteStatusTransition(status);
+    return status;
+  })();
+
+  if (!force) statusPromise = request;
   try {
-    parsed = JSON.parse(result.stdout);
-  } catch {
-    throw new Error(`Could not parse tunnel status: ${result.stdout.slice(0, 2000)}`);
+    return await request;
+  } finally {
+    if (statusPromise === request) statusPromise = null;
   }
-  const status = simplifyStatus(parsed);
-  noteStatusTransition(status);
-  return status;
 }
 
 async function performAction(action) {
@@ -403,7 +444,7 @@ const server = http.createServer(async (request, response) => {
     if (url.pathname === '/api/start' || url.pathname === '/api/stop' || url.pathname === '/api/doctor') {
       const action = url.pathname.slice('/api/'.length);
       const result = await performAction(action);
-      const status = await getStatus().catch(error => ({ error: sanitizeText(error.message) }));
+      const status = await getStatus({ force: true }).catch(error => ({ error: sanitizeText(error.message) }));
       sendJson(response, 200, { ok: true, action, ...result, status, activity });
       return;
     }
@@ -454,8 +495,10 @@ server.listen({ host: '127.0.0.1', port: requestedPort, exclusive: true }, () =>
     process.stdout.write(`WorkForge Control ready at ${url}\n`);
   }
   if (!noBrowser) {
-    const browser = spawn('cmd.exe', ['/d', '/s', '/c', 'start', '', url], {
+    const browser = spawn(cmdPath, ['/d', '/s', '/c', 'start', '', url], {
       detached: true,
+      env: controlEnvironment(),
+      shell: false,
       stdio: 'ignore',
       windowsHide: true,
     });

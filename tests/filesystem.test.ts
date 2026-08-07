@@ -26,7 +26,6 @@ async function fixture(): Promise<{ context: ProjectContext; primary: string; fo
     appName: "Test Workstation",
     serverName: "test-workstation",
     defaultWorkingDirectoryRelative: ".",
-    httpPort: 23002,
     bootstrapFiles: Object.freeze([]),
     identityMarkers: Object.freeze([]),
     primaryRoot: primary,

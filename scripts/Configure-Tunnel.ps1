@@ -11,6 +11,12 @@ Set-StrictMode -Version 3.0
 
 if ([string]::IsNullOrWhiteSpace($TunnelId)) { $TunnelId = Read-Host "OpenAI tunnel_id" }
 if ($TunnelId -cnotmatch '^tunnel_[a-f0-9]{32}$') { throw "tunnel_id is invalid." }
+
+# Validate the selected profile and exact runtime before touching the local credential.
+$Profile = Get-WorkForgeProfile -ProfileId $ProfileId
+$TunnelExecutable = Get-WorkForgeTunnelExecutablePath
+$StdioRuntime = Get-WorkForgeStdioRuntime
+$McpCommand = ('"{0}" "{1}" --profile {2}' -f $StdioRuntime.NodePath, $StdioRuntime.StdioPath, $ProfileId)
 $ExistingKey = [Environment]::GetEnvironmentVariable("CONTROL_PLANE_API_KEY", "Process")
 $SecureKey = if ([string]::IsNullOrWhiteSpace($ExistingKey)) { Read-Host "Runtime CONTROL_PLANE_API_KEY" -AsSecureString } else { $null }
 $Bstr = if ($SecureKey) { [Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureKey) } else { [IntPtr]::Zero }
@@ -35,12 +41,10 @@ try {
   Remove-Variable PlainKey -ErrorAction SilentlyContinue
 }
 
-$Profile = Get-WorkForgeProfile -ProfileId $ProfileId
-$TunnelExecutable = Get-WorkForgeTunnelExecutablePath
 $BuildDirectory = Join-Path (Get-WorkForgeRunsRoot) ("tunnel-profile-build-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $BuildDirectory -Force | Out-Null
 try {
-  & $TunnelExecutable init --sample sample_mcp_stdio_local --profile $ProfileId --profile-dir $BuildDirectory --tunnel-id $TunnelId --mcp-command "node.exe dist/stdio.js --profile $ProfileId" --health-listen-addr "127.0.0.1:0" --force
+  & $TunnelExecutable init --sample sample_mcp_stdio_local --profile $ProfileId --profile-dir $BuildDirectory --tunnel-id $TunnelId --mcp-command $McpCommand --health-listen-addr "127.0.0.1:0" --force
   if ($LASTEXITCODE -ne 0) { throw "tunnel-client init failed." }
   $Generated = @(Get-ChildItem -LiteralPath $BuildDirectory -File -Filter "*.yaml")
   if ($Generated.Count -ne 1) { throw "Expected exactly one generated tunnel profile." }

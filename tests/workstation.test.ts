@@ -19,7 +19,6 @@ async function fixture(bootstrapFiles: readonly string[] = ["AGENTS.md", "docs/H
     appName: "Test Workstation",
     serverName: "test-workstation",
     defaultWorkingDirectoryRelative: ".",
-    httpPort: 23003,
     bootstrapFiles: Object.freeze([...bootstrapFiles]),
     identityMarkers: Object.freeze([]),
     primaryRoot: root,

@@ -64,6 +64,8 @@ The dashboard is deliberately not a LAN or internet administration service.
 - No remote scripts, styles, fonts, analytics, or assets are loaded.
 - The Runtime API Key is removed from the control-server environment and is never sent to browser JavaScript.
 - Child PowerShell actions independently load the protected credential only when the existing lifecycle script requires it.
+- PowerShell, `cmd.exe`, and timeout tree termination use explicit `%SystemRoot%\System32` paths; the temporary working directory and PATH are not trusted for those executables.
+- Child action timeouts terminate the verified process tree with System32 `taskkill.exe`.
 - Dashboard text returned from child processes is scrubbed for user-home paths, engine paths, tunnel IDs, and common credential shapes.
 - Request bodies are bounded.
 - Child output is bounded.
@@ -89,7 +91,8 @@ The Node control process changes its current working directory to the system tem
 The server is session-scoped:
 
 - it creates no Windows service, scheduled task, startup entry, or Run key;
-- the UI polls status only while visible;
+- the UI polls status every five seconds only while visible;
+- overlapping status requests are coalesced and recent status is cached briefly to avoid unnecessary PowerShell process churn;
 - when requests stop, the server exits after a bounded idle period;
 - the dashboard also provides an explicit Close Control action.
 

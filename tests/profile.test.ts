@@ -67,7 +67,6 @@ async function addFixtureProfile(
     appName: `${id} Workstation`,
     serverName: `${id}-workstation`,
     defaultWorkingDirectoryRelative: ".",
-    httpPort: 23004,
     bootstrapFiles: ["project.marker"],
     identityMarkers: [{ relativePath: "project.marker", expectedLiteral: `identity=${id}` }],
   };
@@ -101,7 +100,6 @@ async function makeFixture(): Promise<Fixture> {
     appName: "Test Project Workstation",
     serverName: "test-project-chatgpt-workstation",
     defaultWorkingDirectoryRelative: "workspace",
-    httpPort: 23001,
     bootstrapFiles: ["README.md"],
     identityMarkers: [{ relativePath: "project.marker", expectedLiteral: "identity=test-project" }],
   };
@@ -167,6 +165,16 @@ describe("trusted identity profile", () => {
     const mutable = context.profile as unknown as { displayName: string; bootstrapFiles: string[] };
     expect(() => { mutable.displayName = "changed"; }).toThrow(TypeError);
     expect(() => { mutable.bootstrapFiles.push("other.md"); }).toThrow(TypeError);
+  });
+
+  it("accepts deprecated httpPort when present but does not require it", async () => {
+    const fixture = await makeFixture();
+    const current = await loadProjectProfile("test-project", fixture.options);
+    expect(Object.hasOwn(current.profile, "httpPort")).toBe(false);
+
+    await writeFixtureProfile(fixture, { ...fixture.profile, httpPort: 2198 });
+    const legacy = await loadProjectProfile("test-project", fixture.options);
+    expect(legacy.profile.httpPort).toBe(2198);
   });
 
   it("derives every managed project root from the trusted registry and rejects overlapping roots", async () => {

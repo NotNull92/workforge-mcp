@@ -25,7 +25,6 @@ async function fixture(): Promise<{ context: ProjectContext; primary: string; fo
     appName: "Shell Test",
     serverName: "shell-test",
     defaultWorkingDirectoryRelative: ".",
-    httpPort: 23003,
     bootstrapFiles: Object.freeze([]),
     identityMarkers: Object.freeze([]),
     primaryRoot: primary,

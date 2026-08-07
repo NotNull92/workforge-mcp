@@ -11,6 +11,10 @@ permissions:
 jobs:
   check:
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [20, 24]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -20,7 +24,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: ${{ matrix.node-version }}
           architecture: x64
           package-manager-cache: false
 

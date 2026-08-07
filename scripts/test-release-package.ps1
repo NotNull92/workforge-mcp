@@ -47,6 +47,8 @@ try {
     "/scripts/WorkForge.Prerequisites.ps1",
     "/scripts/test-prerequisites.ps1",
     "/scripts/test-install-without-git.ps1",
+    "/scripts/test-multi-profile.ps1",
+    "/scripts/test-privacy-history.ps1",
     "/docs/logo/logo.png",
     "/docs/UNINSTALL.md"
   )

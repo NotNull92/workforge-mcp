@@ -52,7 +52,7 @@ Compatible existing commands are reported and left untouched.
 - Non-interactive Setup installs no required component unless `-InstallMissingPrerequisites` is supplied.
 - Missing Git never blocks Setup. Interactive Setup offers it separately and defaults to continuing without Git.
 - Non-interactive Git installation requires the separate `-InstallGit` switch; `-InstallMissingPrerequisites` does not implicitly install Git.
-- If Git is absent, the WorkForge profile remains a normal local folder instead of forcing `git init`.
+- If Git is absent, the WorkForge profile remains a normal local folder instead of forcing `git init`; profile registry loading and the normal WorkForge lifecycle remain available.
 - WinGet uses exact package IDs from the official `winget` source with `--no-upgrade` and disabled package-manager prompts.
 - Existing Node.js below version 20, non-x64 Node.js, or an unprobeable Node.js command is treated as a conflict and is never automatically replaced.
 - WorkForge does not invoke `winget upgrade`, use a force-install option, or automatically elevate itself. Windows may still display its normal UAC consent prompt for a package installer.
@@ -74,6 +74,8 @@ Compatible existing commands are reported and left untouched.
 - The dashboard calls the same PowerShell Start, Stop, Status, Doctor, and Uninstall implementations used by the CLI. The browser layer does not bypass their existing validation.
 - RemoveEverything still requires the exact `REMOVE WORKFORGE` phrase. The dashboard also requires an uninstall preview and explicit confirmation before invoking removal.
 - The control server changes its working directory to the system temporary directory before serving requests so verified release self-removal is not blocked by its current directory.
+- Dashboard PowerShell, `cmd.exe`, and timeout process-tree termination use explicit `%SystemRoot%\System32` executable paths rather than resolving executables from the temporary working directory or PATH.
+- Status polling is coalesced and cached briefly, and the browser polls every five seconds instead of continuously spawning lifecycle checks.
 - No service, scheduled task, startup item, or persistent dashboard process is created. When polling stops, the local server exits after a bounded idle period.
 
 The terminal path remains available through `WorkForge Control.cmd --cli` or direct `scripts\Control.ps1` actions for diagnostics and recovery.
@@ -82,6 +84,8 @@ The terminal path remains available through `WorkForge Control.cmd --cli` or dir
 
 - Nothing is registered to start with Windows.
 - Tunnel start is always an explicit user or Setup-session action.
+- Tunnel configuration records the exact Node.js executable and compiled `dist/stdio.js` path that WorkForge validated, instead of a relative `node.exe dist/stdio.js` command.
+- Configure Tunnel validates the selected profile, tunnel client, and MCP runtime before changing the protected local credential.
 - Commands are never replayed automatically.
 - Connection-owned shell jobs are cancelled when their exact MCP connection closes.
 - Windows Job Objects contain shell descendants and terminate the process tree when ownership ends.
@@ -114,7 +118,7 @@ Use `-NoLog` for controlled validation where no lifecycle log should be created.
 
 ## Public repository privacy gate
 
-Every push and pull request runs a full-history privacy scan. It rejects non-noreply commit addresses, personal home paths, non-example email addresses, private network details, phone numbers, concrete tunnel IDs, credential-shaped values, generated registries, lifecycle logs, uninstall receipts, release manifests, and runtime directories.
+Every push and pull request runs a full-history privacy scan. It checks commit metadata, current tracked and untracked text, and reachable historical text blobs. It rejects non-noreply commit addresses, personal home paths, non-example email addresses, private network details, phone numbers, concrete tunnel IDs, credential-shaped values, generated registries, lifecycle logs, uninstall receipts, release manifests, and runtime directories. Historical text blobs above the bounded scan limit fail closed unless their extension is an explicitly recognized binary format.
 
 ## Recommended operating practice
 

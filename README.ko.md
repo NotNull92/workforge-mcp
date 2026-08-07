@@ -223,7 +223,7 @@ Git 있음
 → 위 기능 + 브랜치 / 최근 커밋 / 변경 파일 / staged·unstaged / ahead·behind 파악
 ```
 
-즉 **Git 없이도 현재 작업공간을 보고 일할 수 있고, Git이 있으면 과거 작업 흐름까지 더 잘 이해할 수 있습니다.**
+즉 **Git 없이도 설치부터 프로필 로드와 일반 작업까지 정상적으로 사용할 수 있고, Git이 있으면 과거 작업 흐름까지 더 잘 이해할 수 있습니다.**
 
 ### 오래 쉬었다가 다시 시작한 프로젝트
 
@@ -604,11 +604,11 @@ npm.cmd run smoke:stdio -- workstation
 npm.cmd run release
 ```
 
-`npm run check`는 TypeScript 테스트뿐 아니라 설치, prerequisite 감지, 로컬 Control Dashboard, CLI fallback, ForgeUI, Uninstall, Privacy, Security, Tunnel Recovery, 운영 의존성까지 함께 검증합니다.
+`npm run check`는 TypeScript 테스트뿐 아니라 Git 없는 설치, 멀티프로필, prerequisite 감지, 로컬 Control Dashboard, CLI fallback, ForgeUI, Uninstall, 과거 Git 기록 Privacy 검사, Security, Tunnel Recovery, 운영 의존성까지 함께 검증합니다.
 
 ### Privacy Gate
 
-공개 저장소에 개인정보나 자격 증명이 실수로 들어가는 것을 막기 위해 전체 Git 기록과 추적 파일을 검사합니다.
+공개 저장소에 개인정보나 자격 증명이 실수로 들어가는 것을 막기 위해 현재 추적·미추적 파일뿐 아니라 **Git history에 남아 있는 과거 텍스트 blob**까지 검사합니다. 현재 파일에서 지운 값도 과거 커밋에 남아 있으면 Gate가 실패합니다.
 
 예를 들어 다음 항목을 차단합니다.
 

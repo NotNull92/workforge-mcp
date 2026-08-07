@@ -16,6 +16,7 @@ import { mkdir, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { z } from "zod";
+import { normalizePathForComparison } from "./path-policy.js";
 import type { ProjectContext } from "./profile.js";
 import {
   killProcessTree,
@@ -225,8 +226,8 @@ interface ShellJob {
   cancelRequested: boolean;
   stdoutBytes: number;
   stderrBytes: number;
-  stdoutBuffer: Buffer;
-  stderrBuffer: Buffer;
+  stdoutChunks: Buffer[];
+  stderrChunks: Buffer[];
   stdoutTruncated: boolean;
   stderrTruncated: boolean;
   leaseAcquired: boolean;
@@ -265,10 +266,6 @@ function pathsFor(context: ProjectContext, id: string) {
   } as const;
 }
 
-function normalizeForComparison(path: string): string {
-  return process.platform === "win32" ? path.toLocaleLowerCase("en-US") : path;
-}
-
 function assertSafeArchivedJobRoot(context: ProjectContext, runtimeRoot: string, jobRoot: string): void {
   const primaryCanonical = realpathSync(context.primaryRoot);
   for (const directory of [
@@ -282,14 +279,14 @@ function assertSafeArchivedJobRoot(context: ProjectContext, runtimeRoot: string,
     }
   }
   const runtimeCanonical = realpathSync(runtimeRoot);
-  const runtimeFromPrimary = relative(normalizeForComparison(primaryCanonical), normalizeForComparison(runtimeCanonical));
+  const runtimeFromPrimary = relative(normalizePathForComparison(primaryCanonical), normalizePathForComparison(runtimeCanonical));
   if (runtimeFromPrimary === "" || runtimeFromPrimary.startsWith("..") || isAbsolute(runtimeFromPrimary)) {
     throw new Error("Shell runtime archive escaped the registered project root.");
   }
   const jobInfo = lstatSync(jobRoot);
   if (!jobInfo.isDirectory() || jobInfo.isSymbolicLink()) throw new Error("Shell job archive directory is unsafe.");
   const jobCanonical = realpathSync(jobRoot);
-  const fromRuntime = relative(normalizeForComparison(runtimeCanonical), normalizeForComparison(jobCanonical));
+  const fromRuntime = relative(normalizePathForComparison(runtimeCanonical), normalizePathForComparison(jobCanonical));
   if (fromRuntime === "" || fromRuntime.startsWith("..") || isAbsolute(fromRuntime)) {
     throw new Error("Shell job archive escaped the profile runtime root.");
   }
@@ -661,8 +658,8 @@ async function startReservedShellJob(input: {
     cancelRequested: false,
     stdoutBytes: 0,
     stderrBytes: 0,
-    stdoutBuffer: Buffer.alloc(0),
-    stderrBuffer: Buffer.alloc(0),
+    stdoutChunks: [],
+    stderrChunks: [],
     stdoutTruncated: false,
     stderrTruncated: false,
     leaseAcquired: false,
@@ -675,14 +672,14 @@ async function startReservedShellJob(input: {
   child.stdout.on("data", (raw: Buffer | string) => {
     const result = writeBounded(stdoutStream, Buffer.from(raw), job.stdoutBytes);
     job.stdoutBytes = result.bytes;
-    if (result.accepted.byteLength > 0) job.stdoutBuffer = Buffer.concat([job.stdoutBuffer, result.accepted]);
+    if (result.accepted.byteLength > 0) job.stdoutChunks.push(result.accepted);
     job.stdoutTruncated ||= result.truncated;
     job.updatedAt = now();
   });
   child.stderr.on("data", (raw: Buffer | string) => {
     const result = writeBounded(stderrStream, Buffer.from(raw), job.stderrBytes);
     job.stderrBytes = result.bytes;
-    if (result.accepted.byteLength > 0) job.stderrBuffer = Buffer.concat([job.stderrBuffer, result.accepted]);
+    if (result.accepted.byteLength > 0) job.stderrChunks.push(result.accepted);
     job.stderrTruncated ||= result.truncated;
     job.updatedAt = now();
   });
@@ -692,7 +689,7 @@ async function startReservedShellJob(input: {
     const line = Buffer.from(`${error instanceof Error ? error.message : String(error)}\n`, "utf8");
     const result = writeBounded(stderrStream, line, job.stderrBytes);
     job.stderrBytes = result.bytes;
-    if (result.accepted.byteLength > 0) job.stderrBuffer = Buffer.concat([job.stderrBuffer, result.accepted]);
+    if (result.accepted.byteLength > 0) job.stderrChunks.push(result.accepted);
     job.stderrTruncated ||= result.truncated;
   });
   child.once("close", (exitCode, signal) => {
@@ -762,8 +759,8 @@ export async function getShellOutput(input: {
   let stdoutBytes: Buffer;
   let stderrBytes: Buffer;
   if (job) {
-    stdoutBytes = job.stdoutBuffer;
-    stderrBytes = job.stderrBuffer;
+    stdoutBytes = Buffer.concat(job.stdoutChunks, job.stdoutBytes);
+    stderrBytes = Buffer.concat(job.stderrChunks, job.stderrBytes);
   } else {
     const paths = pathsFor(input.context, input.id);
     stdoutBytes = readBoundedArchiveFile(paths.stdoutPath, MAX_LOG_BYTES_PER_STREAM, "Shell stdout log");

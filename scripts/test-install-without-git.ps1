@@ -3,9 +3,12 @@ Set-StrictMode -Version 3.0
 
 $ToolRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..") -ErrorAction Stop).Path
 $InstallPath = Join-Path $PSScriptRoot "Install.ps1"
+$UninstallPath = Join-Path $PSScriptRoot "Uninstall.ps1"
 $TestRoot = Join-Path ([IO.Path]::GetTempPath()) ("workforge-no-git-" + [guid]::NewGuid().ToString("N"))
 $WorkspaceRoot = Join-Path $TestRoot "workspace"
 $RegistryPath = Join-Path $TestRoot "runtime\profile_registry.json"
+$OriginalRegistryEnvironment = [Environment]::GetEnvironmentVariable("WORKFORGE_MCP_PROFILE_REGISTRY", "Process")
+. (Join-Path $PSScriptRoot "profile-registry.ps1")
 
 function Get-ApplicationDirectory {
   param([Parameter(Mandatory = $true)][string]$Name)
@@ -68,8 +71,45 @@ try {
     throw "Install without Git did not register the profile."
   }
 
+  [Environment]::SetEnvironmentVariable("WORKFORGE_MCP_PROFILE_REGISTRY", $RegistryPath, "Process")
+  $LoadedProfile = Get-WorkForgeProfile -ProfileId "workstation"
+  if (-not $LoadedProfile.RepoRoot.Equals($WorkspaceRoot, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Installed no-Git profile did not load back from the registry."
+  }
+  if ($null -ne $LoadedProfile.HttpPort) {
+    throw "New no-Git profile unexpectedly retained the deprecated httpPort field."
+  }
+
+  $UninstallStartInfo = [Diagnostics.ProcessStartInfo]::new()
+  $UninstallStartInfo.FileName = (Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe")
+  $UninstallStartInfo.Arguments = @(
+    "-NoProfile",
+    "-ExecutionPolicy", "Bypass",
+    "-File", "`"$UninstallPath`"",
+    "-Mode", "KeepWorkspace",
+    "-WorkspaceRoot", "`"$WorkspaceRoot`"",
+    "-ProfileId", "workstation",
+    "-RegistryPath", "`"$RegistryPath`"",
+    "-NonInteractive",
+    "-KeepEngine",
+    "-WhatIf",
+    "-Plain",
+    "-NoLog"
+  ) -join " "
+  $UninstallStartInfo.WorkingDirectory = $ToolRoot
+  $UninstallStartInfo.UseShellExecute = $false
+  $UninstallStartInfo.RedirectStandardOutput = $true
+  $UninstallStartInfo.RedirectStandardError = $true
+  $UninstallProcess = [Diagnostics.Process]::Start($UninstallStartInfo)
+  $UninstallOutput = $UninstallProcess.StandardOutput.ReadToEnd() + $UninstallProcess.StandardError.ReadToEnd()
+  $UninstallProcess.WaitForExit()
+  if ($UninstallProcess.ExitCode -ne 0 -or $UninstallOutput -notmatch "WhatIf") {
+    throw "No-Git profile did not pass uninstall preflight: $UninstallOutput"
+  }
+
   Write-Output "INSTALL_WITHOUT_GIT_TEST_OK"
 } finally {
+  [Environment]::SetEnvironmentVariable("WORKFORGE_MCP_PROFILE_REGISTRY", $OriginalRegistryEnvironment, "Process")
   if (Test-Path -LiteralPath $TestRoot) {
     Remove-Item -LiteralPath $TestRoot -Recurse -Force
   }

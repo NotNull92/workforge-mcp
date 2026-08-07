@@ -414,7 +414,6 @@ try {
         appName = $DisplayName
         serverName = "workforge-$ProfileId-mcp"
         defaultWorkingDirectoryRelative = "."
-        httpPort = 2198
         bootstrapFiles = @("AGENTS.md", "README.md", "WORKSTATION_POLICY.md")
         identityMarkers = @([ordered]@{ relativePath = "workstation.marker"; expectedLiteral = "identity=workforge-workstation" })
       }

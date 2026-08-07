@@ -337,7 +337,7 @@ async function initialize() {
   await refreshStatus({ quiet: true });
   pollTimer = setInterval(() => {
     if (!actionInFlight && !document.hidden) refreshStatus({ quiet: true });
-  }, 2500);
+  }, 5000);
 }
 
 elements.startButton.addEventListener('click', () => runAction('start'));

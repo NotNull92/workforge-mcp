@@ -286,12 +286,11 @@ function Assert-WorkForgeProfileLocation {
   }
 
   $GitPath = Join-Path $RepoDirectory.FullName ".git"
-  if (-not (Test-Path -LiteralPath $GitPath -PathType Container)) {
-    throw "WorkForge profile repository root is missing its canonical .git directory: $($RepoDirectory.FullName)"
-  }
-  $GitDirectory = Get-Item -LiteralPath $GitPath -Force -ErrorAction Stop
-  if (($GitDirectory.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-    throw "WorkForge profile repository .git directory cannot be a reparse point: $GitPath"
+  if (Test-Path -LiteralPath $GitPath) {
+    $GitItem = Get-Item -LiteralPath $GitPath -Force -ErrorAction Stop
+    if (($GitItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "Optional WorkForge profile .git path cannot be a reparse point: $GitPath"
+    }
   }
   return $RepoDirectory.FullName
 }
@@ -313,7 +312,6 @@ function Get-WorkForgeRegistry {
 
   $SeenIds = @{}
   $SeenPaths = @{}
-  $SeenHttpPorts = @{}
   $Profiles = @(
     foreach ($Entry in $Entries) {
       if ($null -eq $Entry) {
@@ -367,19 +365,20 @@ function Get-WorkForgeRegistry {
       ) {
         throw "WorkForge profile $ProfileId has an invalid displayName."
       }
-      $HttpPort = 0
-      if (
-        $Profile.httpPort -is [string] -or
-        -not [int]::TryParse([string]$Profile.httpPort, [ref]$HttpPort) -or
-        $HttpPort -lt 1024 -or
-        $HttpPort -gt 65535
-      ) {
-        throw "WorkForge profile $ProfileId has an invalid httpPort."
+      $HttpPort = $null
+      $HttpPortProperty = $Profile.PSObject.Properties["httpPort"]
+      if ($null -ne $HttpPortProperty) {
+        $ParsedHttpPort = 0
+        if (
+          $HttpPortProperty.Value -is [string] -or
+          -not [int]::TryParse([string]$HttpPortProperty.Value, [ref]$ParsedHttpPort) -or
+          $ParsedHttpPort -lt 1024 -or
+          $ParsedHttpPort -gt 65535
+        ) {
+          throw "WorkForge profile $ProfileId has an invalid deprecated httpPort."
+        }
+        $HttpPort = $ParsedHttpPort
       }
-      if ($SeenHttpPorts.ContainsKey($HttpPort)) {
-        throw "WorkForge profile $ProfileId reuses registered httpPort $HttpPort."
-      }
-      $SeenHttpPorts[$HttpPort] = $ProfileId
 
       [pscustomobject]@{
         Id = $ProfileId
