@@ -45,15 +45,19 @@ Uninstall removes a local credential file but does not revoke the corresponding 
 
 ## Prerequisite installation boundary
 
-WorkForge checks Node.js, Git, and ripgrep before creating or changing a profile.
+WorkForge requires Node.js and ripgrep. Git for Windows is optional and only enables enhanced project-history features.
 Compatible existing commands are reported and left untouched.
 
-- Interactive Setup asks before invoking WinGet for missing requirements.
-- Non-interactive Setup installs nothing unless `-InstallMissingPrerequisites` is supplied.
+- Interactive Setup asks before invoking WinGet for missing **required** components.
+- Non-interactive Setup installs no required component unless `-InstallMissingPrerequisites` is supplied.
+- Missing Git never blocks Setup. Interactive Setup offers it separately and defaults to continuing without Git.
+- Non-interactive Git installation requires the separate `-InstallGit` switch; `-InstallMissingPrerequisites` does not implicitly install Git.
+- If Git is absent, the WorkForge profile remains a normal local folder instead of forcing `git init`.
 - WinGet uses exact package IDs from the official `winget` source with `--no-upgrade` and disabled package-manager prompts.
 - Existing Node.js below version 20, non-x64 Node.js, or an unprobeable Node.js command is treated as a conflict and is never automatically replaced.
 - WorkForge does not invoke `winget upgrade`, use a force-install option, or automatically elevate itself. Windows may still display its normal UAC consent prompt for a package installer.
-- After installation, WorkForge refreshes the current process PATH and revalidates every requirement before continuing.
+- After installing required components, WorkForge refreshes the current process PATH and revalidates required readiness before continuing.
+- Failure to install optional Git is reported as a warning and WorkForge continues in Local Folder Mode.
 - Raw WinGet output is not written into lifecycle JSONL logs.
 
 ## Local Control Dashboard boundary

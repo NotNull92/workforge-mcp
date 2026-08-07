@@ -2,28 +2,40 @@
 
 This guide covers the WorkForge 1.2 Windows runtime and source checkout.
 
-## Setup reports a missing prerequisite
+## Setup reports a missing required component
 
-The current runtime ZIP requires Node.js 20 or newer on x64, Git for Windows, and ripgrep.
+The current runtime ZIP requires Node.js 20 or newer on x64 and ripgrep. Git for Windows is optional.
 Setup checks these commands before creating or changing a WorkForge profile:
 
 ```powershell
 Get-Command node.exe
-Get-Command git.exe
 Get-Command rg.exe
 node.exe -p "process.versions.node + ' ' + process.arch"
 ```
 
-When one or more commands are missing, interactive Setup offers to install only the missing
-packages through WinGet. Compatible existing commands are skipped. Accept the prompt, or
+When Node.js or ripgrep is missing, interactive Setup offers to install only the missing
+required package through WinGet. Compatible existing commands are skipped. Accept the prompt, or
 use the explicit non-interactive form:
 
 ```powershell
 .\Setup.cmd -NonInteractive -InstallMissingPrerequisites -SkipTunnelConfiguration -SkipStart -NoBrowser
 ```
 
+`-InstallMissingPrerequisites` never installs optional Git. Add `-InstallGit` if automation
+should also install Git for project-history features.
+
 If `winget.exe` is unavailable, install or update Microsoft App Installer and open a new
 PowerShell window before running Setup again. WorkForge does not bootstrap WinGet itself.
+
+## Git for Windows is not installed
+
+This is supported. WorkForge remains usable in **Local Folder Mode** and can read, search,
+edit, inspect images, and run PowerShell commands in ordinary folders that are not Git repositories.
+
+Git only enables **Git Enhanced Mode**. With Git available, `project_resume` can additionally
+report branches, recent commits, changed files, staged/unstaged state, and ahead/behind information.
+Interactive Setup offers Git separately and defaults to continuing without it. To install Git later,
+install Git for Windows normally or rerun Setup and choose the optional Git install.
 
 ## Setup rejects an existing Node.js installation
 

@@ -8,7 +8,7 @@
 
 > **ChatGPT는 머리는 좋지만 내 PC에 손이 없습니다. WorkForge는 그 손을 안전하게 연결해 줍니다.**
 
-WorkForge는 ChatGPT가 내 Windows PC의 파일과 프로젝트를 직접 살펴보고, 필요한 파일을 수정하고, Git 상태를 확인하고, PowerShell 명령을 실행할 수 있게 해주는 연결 도구입니다.
+WorkForge는 ChatGPT가 내 Windows PC의 파일과 프로젝트를 직접 살펴보고, 필요한 파일을 수정하고, 검색하고, PowerShell 명령을 실행할 수 있게 해주는 연결 도구입니다. Git이 설치되어 있다면 브랜치, 커밋, 변경내역 같은 프로젝트 역사도 추가로 확인할 수 있습니다.
 
 쉽게 말하면 **ChatGPT와 내 컴퓨터 사이에 놓는 안전한 작업용 다리**입니다.
 
@@ -56,7 +56,7 @@ ChatGPT
   ↓
 WorkForge
   ↓
-내 PC의 실제 파일 · Git · PowerShell
+내 PC의 실제 파일 · 검색 · 선택적 Git 정보 · PowerShell
 ```
 
 ChatGPT가 필요한 파일을 직접 읽고, 현재 상태를 확인하고, 허용된 범위 안에서 수정과 검증까지 이어갈 수 있습니다.
@@ -199,6 +199,32 @@ CLI 도구
 
 ChatGPT에게 프로젝트를 읽히고, 구현 상태를 파악하고, 수정과 테스트를 이어가게 할 수 있습니다.
 
+### 반드시 Git으로 관리되는 프로젝트여야 하나요?
+
+**아닙니다.** WorkForge의 기본 모드는 일반 로컬 폴더입니다.
+
+```text
+C:\Projects\MyGame
+C:\Work\Prototype
+C:\Documents\Notes
+```
+
+처럼 Git 저장소가 아닌 폴더도 읽고, 검색하고, 수정하고, PowerShell 명령을 실행할 수 있습니다.
+
+Git은 **선택 기능**입니다.
+
+```text
+Git 없음
+→ Local Folder Mode
+→ 파일 읽기 / 검색 / 수정 / 이미지 확인 / PowerShell 사용 가능
+
+Git 있음
+→ Git Enhanced Mode
+→ 위 기능 + 브랜치 / 최근 커밋 / 변경 파일 / staged·unstaged / ahead·behind 파악
+```
+
+즉 **Git 없이도 현재 작업공간을 보고 일할 수 있고, Git이 있으면 과거 작업 흐름까지 더 잘 이해할 수 있습니다.**
+
 ### 오래 쉬었다가 다시 시작한 프로젝트
 
 몇 주 전에 작업한 프로젝트를 열고 이렇게 말할 수 있습니다.
@@ -247,7 +273,7 @@ WorkForge의 `project_resume`가 현재 브랜치, 변경 파일, 최근 커밋 
 3. ChatGPT에서 같은 Tunnel 연결
 ```
 
-Node.js, Git, ripgrep을 미리 하나씩 찾아 설치할 필요도 없습니다.
+Node.js와 ripgrep을 미리 하나씩 찾아 설치할 필요도 없습니다. Git을 쓰고 싶다면 Setup에서 선택적으로 추가할 수 있습니다.
 
 ### 1. 다운로드하고 압축 풀기
 
@@ -270,23 +296,28 @@ Setup.cmd
 WorkForge가 먼저 필요한 프로그램을 검사합니다.
 
 ```text
-Node.js 20+ x64
-Git for Windows
-ripgrep
+필수
+✓ Node.js 20+ x64   WorkForge 실행
+✓ ripgrep           빠른 파일·텍스트 검색
+
+선택
+○ Git for Windows   브랜치·커밋·변경내역까지 이해하는 Git Enhanced Mode
 ```
 
 동작 방식은 단순합니다.
 
 ```text
-이미 있음       → 그대로 사용
-없음            → WinGet 설치 여부를 물어봄
-일부만 없음     → 없는 것만 설치
-Node.js 충돌    → 새 버전을 겹쳐 깔지 않고 중단
+필수 항목이 이미 있음  → 그대로 사용
+필수 항목이 없음       → WinGet 설치 여부를 물어봄
+Git이 없음             → Git 없이 계속하거나 선택적으로 설치
+Node.js 충돌           → 새 버전을 겹쳐 깔지 않고 중단
 ```
 
-즉, **이미 잘 설치된 프로그램을 다시 설치하지 않습니다.**
+즉, **이미 잘 설치된 프로그램을 다시 설치하지 않고 Git이 없다고 설치를 막지도 않습니다.**
 
-누락된 항목을 설치할 때도 정확한 WinGet 패키지를 사용하고 `--no-upgrade` 정책으로 기존 정상 설치를 불필요하게 업그레이드하지 않습니다.
+필수 항목을 설치할 때는 정확한 WinGet 패키지를 사용하고 `--no-upgrade` 정책으로 기존 정상 설치를 불필요하게 업그레이드하지 않습니다. Git 설치는 별도 선택입니다.
+
+대화형 Setup의 Git 선택 화면은 기본값이 **Git 없이 계속**입니다. 자동화에서는 `-InstallMissingPrerequisites`가 필수인 Node.js/ripgrep만 대상으로 하고, Git까지 설치하려면 `-InstallGit`을 따로 명시합니다.
 
 WinGet 자체가 없다면 WorkForge가 임의로 설치하지 않고 Microsoft App Installer를 설치하거나 업데이트하라고 안내합니다.
 

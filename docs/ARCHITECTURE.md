@@ -13,7 +13,7 @@ stdio: node dist/stdio.js --profile workstation
         |
 profile registry + profile SHA-256 + identity marker
         |
-filesystem / Git resume / PowerShell tools
+filesystem / optional Git resume / PowerShell tools
 ```
 
 The local machine does not expose an inbound MCP listener to the public internet. The `tunnel-client` creates the outbound tunnel connection and owns the stdio child server.
@@ -74,18 +74,24 @@ The Node control process changes its working directory to the system temporary d
 Install or Setup prerequisite stage
     |
 WorkForge.Prerequisites.ps1
-    |-- resolve Node.js, Git, and ripgrep from the current PATH
+    |-- required: resolve Node.js and ripgrep from the current PATH
+    |-- optional: resolve Git for enhanced project-history features
     |-- reject incompatible existing Node.js without replacement
-    |-- ask for consent, or require -InstallMissingPrerequisites in automation
-    |-- invoke exact WinGet package IDs only for missing commands
-    |-- use --no-upgrade and no automatic elevation
-    `-- refresh process PATH and independently revalidate every command
+    |-- ask before installing missing required components
+    |-- offer Git separately; default to Local Folder Mode without it
+    |-- automation: -InstallMissingPrerequisites for required components
+    |               -InstallGit for optional Git
+    |-- use exact WinGet package IDs, --no-upgrade, and no automatic elevation
+    `-- refresh process PATH and independently revalidate required components
 ```
 
 The package catalog is fixed to `OpenJS.NodeJS.LTS`, `Git.Git`, and
-`BurntSushi.ripgrep.MSVC`. Compatible existing installations cause no package-manager
-call. Unit tests inject command and installer fixtures, so the quality gate never installs
-or upgrades software on its runner.
+`BurntSushi.ripgrep.MSVC`, but only Node.js and ripgrep participate in required readiness.
+Missing Git never blocks Setup. When Git is absent, the WorkForge profile remains a normal
+local folder and `project_resume` reports Git unavailable. When Git is present, the profile
+may be initialized as a Git repository and project history capabilities become available.
+Compatible existing installations cause no package-manager call. Unit tests inject command
+and installer fixtures, so the quality gate never installs or upgrades software on its runner.
 
 ## ForgeUI rendering and logs
 
@@ -156,7 +162,7 @@ scripts/Uninstall.ps1
              `-- remove the release directory and write a temporary receipt
 ```
 
-KeepWorkspace removes operational profile configuration and command evidence but preserves the workspace Git repository, policy files, and user-created files. RemoveEverything requires an exact confirmation phrase or an explicit non-interactive destructive switch.
+KeepWorkspace removes operational profile configuration and command evidence but preserves the workspace folder, policy files, user-created files, and Git history when that workspace happens to use Git. RemoveEverything requires an exact confirmation phrase or an explicit non-interactive destructive switch.
 
 A directory containing `.git` is always treated as a source checkout and is never auto-deleted. A release engine can remove itself only when `.workforge-release.json` is valid and no other profile remains registered.
 
@@ -176,4 +182,4 @@ source checkout
           `-- reopen and validate archive contents and release identity
 ```
 
-The WorkForge 1.2 runtime ZIP is prebuilt but still relies on system Node.js, Git, and ripgrep. Setup can install missing requirements with explicit WinGet consent, but the runtimes are not bundled. The future portable-runtime task moves the engine to a stable per-user application directory and bundles verified runtimes behind a signed installer.
+The WorkForge 1.2 runtime ZIP is prebuilt but still relies on system Node.js and ripgrep. Git is optional and only enables enhanced project-history features. Setup can install missing required components with explicit WinGet consent and can install Git separately when requested, but these runtimes are not bundled. The future portable-runtime task moves the engine to a stable per-user application directory and bundles verified required runtimes behind a signed installer.

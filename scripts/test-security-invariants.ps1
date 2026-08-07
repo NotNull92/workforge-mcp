@@ -100,12 +100,18 @@ $RequiredChecks = [ordered]@{
     "WorkForge.UI.ps1",
     "WorkForge.Prerequisites.ps1",
     "InstallMissingPrerequisites",
+    "InstallGit",
+    'IsNullOrWhiteSpace($script:GitPath)',
     "NonInteractive"
   )
   "scripts\WorkForge.Prerequisites.ps1" = @(
     "OpenJS.NodeJS.LTS",
     "Git.Git",
     "BurntSushi.ripgrep.MSVC",
+    "Required = `$false",
+    "Confirm-WorkForgeOptionalGitInstall",
+    "local folder mode",
+    "InstallGit",
     "--exact",
     "--source",
     "--no-upgrade",
@@ -175,6 +181,9 @@ if ($InstallWrapper -notmatch '-Mode Install %\*') {
 }
 if ($ParamBlock -notmatch 'InstallMissingPrerequisites') {
   throw "Setup does not expose the explicit prerequisite-install consent switch."
+}
+if ($ParamBlock -notmatch 'InstallGit') {
+  throw "Setup does not expose the separate optional Git consent switch."
 }
 
 $ControlWrapper = Get-Content -Raw -LiteralPath (Join-Path $ToolRoot "WorkForge Control.cmd")

@@ -12,7 +12,7 @@ Replace the ambiguous `-Force` reinstall path with explicit lifecycle semantics 
 ### Install
 
 - Requires the selected profile to be absent.
-- Creates the profile root, templates, Git repository, profile manifest, registry entry, runtime directory, tunnel-client, and optional shortcut.
+- Creates the profile root, templates, profile manifest, registry entry, runtime directory, tunnel-client, and optional shortcut. If Git is available, the profile root is also initialized as a Git repository; Git is not required for installation.
 - Fails without mutation when the profile already exists.
 
 ### Repair

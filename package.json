@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:prerequisites": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-prerequisites.ps1",
     "test:install-platform": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-install-platform.ps1",
+    "test:install-without-git": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-install-without-git.ps1",
     "test:install-modes": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-install-modes.ps1",
     "test:setup-flow": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-setup-flow.ps1",
     "test:control-ux": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-control-ux.ps1",
@@ -21,7 +22,7 @@
     "test:security-invariants": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-security-invariants.ps1",
     "test:recovery-policy": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-recovery-policy.ps1",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
-    "check": "npm run build && npm test && npm run test:prerequisites && npm run test:install-platform && npm run test:install-modes && npm run test:setup-flow && npm run test:control-ux && npm run test:control-dashboard && npm run test:ui-rendering && npm run test:uninstall && npm run test:privacy-invariants && npm run test:security-invariants && npm run test:recovery-policy && npm run audit:prod",
+    "check": "npm run build && npm test && npm run test:prerequisites && npm run test:install-platform && npm run test:install-without-git && npm run test:install-modes && npm run test:setup-flow && npm run test:control-ux && npm run test:control-dashboard && npm run test:ui-rendering && npm run test:uninstall && npm run test:privacy-invariants && npm run test:security-invariants && npm run test:recovery-policy && npm run audit:prod",
     "smoke:stdio": "node scripts/stdio-smoke.mjs",
     "release": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-Release.ps1"
   },

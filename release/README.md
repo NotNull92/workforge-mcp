@@ -12,7 +12,7 @@ The WorkForge 1.2 runtime ZIP includes:
 - `.workforge-release.json`, generated only in release staging;
 - uninstall, troubleshooting, privacy, and security documentation.
 
-An end user does not run npm, TypeScript, Vitest, or the repository test suite during setup. Node.js, Git, and ripgrep are still system-level prerequisites until the portable-runtime milestone is completed, but users do not need to install them manually before starting WorkForge. `Setup.cmd` detects them first, leaves compatible existing installations untouched, and offers to install only missing packages through WinGet after interactive consent or the explicit `-InstallMissingPrerequisites` automation switch. An incompatible existing Node.js is never automatically layered over.
+An end user does not run npm, TypeScript, Vitest, or the repository test suite during setup. Node.js and ripgrep are the required system-level components until the portable-runtime milestone is completed. Git for Windows is optional: WorkForge runs in Local Folder Mode without it and enables Git Enhanced Mode when it is available. `Setup.cmd` detects all three, leaves compatible installations untouched, offers missing required components through WinGet after consent, and offers Git separately. In automation, `-InstallMissingPrerequisites` covers required components while `-InstallGit` explicitly opts into Git. An incompatible existing Node.js is never automatically layered over.
 
 Generated release artifacts remain ignored by Git and must be reviewed before upload. Release validation rejects runtime credentials, tunnel YAML, profile registries, JSONL logs, uninstall receipts, development dependencies, personal absolute paths, and nested release archives.
 

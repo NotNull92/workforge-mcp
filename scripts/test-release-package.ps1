@@ -46,6 +46,7 @@ try {
     "/scripts/WorkForge.UI.ps1",
     "/scripts/WorkForge.Prerequisites.ps1",
     "/scripts/test-prerequisites.ps1",
+    "/scripts/test-install-without-git.ps1",
     "/docs/logo/logo.png",
     "/docs/UNINSTALL.md"
   )

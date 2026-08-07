@@ -17,6 +17,8 @@ param(
 
   [switch]$InstallMissingPrerequisites,
 
+  [switch]$InstallGit,
+
   [switch]$NonInteractive,
 
   [string]$RegistryPath,
@@ -361,6 +363,7 @@ try {
 
     $script:PrerequisiteSnapshot = Ensure-WorkForgePrerequisites `
       -InstallMissing:$InstallMissingPrerequisites `
+      -InstallGit:$InstallGit `
       -NonInteractive:$NonInteractive
     $script:NodePath = [string](Get-WorkForgePrerequisiteItem -Snapshot $script:PrerequisiteSnapshot -Id "node").CommandPath
     $script:GitPath = [string](Get-WorkForgePrerequisiteItem -Snapshot $script:PrerequisiteSnapshot -Id "git").CommandPath
@@ -395,9 +398,13 @@ try {
     }
     Ensure-IdentityMarker
 
-    if (-not (Test-Path -LiteralPath (Join-Path $WorkspaceRoot ".git") -PathType Container)) {
-      & $script:GitPath -C $WorkspaceRoot init --initial-branch=main | Out-Null
-      if ($LASTEXITCODE -ne 0) { throw "Could not initialize the profile repository." }
+    if (-not [string]::IsNullOrWhiteSpace($script:GitPath)) {
+      if (-not (Test-Path -LiteralPath (Join-Path $WorkspaceRoot ".git") -PathType Container)) {
+        & $script:GitPath -C $WorkspaceRoot init --initial-branch=main | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Could not initialize the optional profile Git repository." }
+      }
+    } else {
+      Write-WorkForgeDetail -Text "Git is not installed; the WorkForge profile will remain a normal local folder." -Tone "muted"
     }
 
     if (-not $script:ProfileExists) {

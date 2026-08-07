@@ -8,7 +8,7 @@
 
 > **ChatGPT is smart, but it does not normally have hands inside your PC. WorkForge gives it a safe pair of hands.**
 
-WorkForge connects ChatGPT to your Windows workstation so it can inspect real project files, understand Git state, make guarded edits, read local images, and run supervised PowerShell commands.
+WorkForge connects ChatGPT to your Windows workstation so it can inspect real project files, search and make guarded edits, read local images, and run supervised PowerShell commands. If Git is installed, WorkForge can additionally inspect branches, commits, and change history.
 
 In plain language, it is **a secure working bridge between ChatGPT and your computer**.
 
@@ -55,7 +55,7 @@ ChatGPT
   ↓
 WorkForge
   ↓
-Your real files · Git · PowerShell
+Your real files · search · optional Git context · PowerShell
 ```
 
 ChatGPT can inspect the information it needs, understand the current state, make allowed changes, and verify the result.
@@ -194,6 +194,33 @@ Open-source repositories
 
 ChatGPT can inspect the project, understand its current state, make changes, and run validation steps.
 
+### Does my project have to be a Git repository?
+
+**No.** WorkForge's default mode is an ordinary local folder.
+
+```text
+C:\Projects\MyGame
+C:\Work\Prototype
+C:\Documents\Notes
+```
+
+A folder does not need a `.git` directory for WorkForge to read, search, edit, inspect images, or run PowerShell commands inside it.
+
+Git is an **optional enhancement**.
+
+```text
+Without Git
+→ Local Folder Mode
+→ read / search / edit / images / PowerShell
+
+With Git
+→ Git Enhanced Mode
+→ everything above + branches / recent commits / changed files /
+  staged·unstaged state / ahead·behind information
+```
+
+So **WorkForge can work with the current folder without Git, while Git lets it understand more of the project's history.**
+
 ### Returning to an old project
 
 After a few weeks away, you can say:
@@ -242,7 +269,7 @@ A normal installation takes **three steps**.
 3. Connect the same Tunnel in ChatGPT
 ```
 
-You do not need to manually hunt down Node.js, Git, and ripgrep first.
+You do not need to manually hunt down Node.js and ripgrep first. Git can be added optionally during Setup if you want project-history features.
 
 ### 1. Download and extract
 
@@ -262,26 +289,31 @@ Double-click:
 Setup.cmd
 ```
 
-WorkForge checks these prerequisites first:
+WorkForge checks the local components first:
 
 ```text
-Node.js 20+ x64
-Git for Windows
-ripgrep
+Required
+✓ Node.js 20+ x64   WorkForge runtime
+✓ ripgrep           fast file and text search
+
+Optional
+○ Git for Windows   Git Enhanced Mode for branches, commits, and change history
 ```
 
 The rule is simple:
 
 ```text
-Already installed     → keep it
-Missing               → ask before installing with WinGet
-Only one thing missing→ install only that thing
-Node.js conflict      → stop instead of layering another Node.js on top
+Required component already installed → keep it
+Required component missing           → ask before installing with WinGet
+Git missing                           → continue without Git or install it optionally
+Node.js conflict                      → stop instead of layering another Node.js on top
 ```
 
-So **compatible software is not reinstalled just because you ran Setup again**.
+So **compatible software is not reinstalled, and missing Git does not block Setup**.
 
-Missing packages use exact WinGet package IDs and `--no-upgrade`, so a healthy existing installation is not needlessly upgraded.
+Required packages use exact WinGet package IDs and `--no-upgrade`, so a healthy existing installation is not needlessly upgraded. Git installation is a separate choice.
+
+The interactive Git choice defaults to **Continue without Git**. For automation, `-InstallMissingPrerequisites` covers only required Node.js/ripgrep components. Add `-InstallGit` explicitly if Git should also be installed.
 
 If WinGet itself is unavailable, WorkForge does not try to bootstrap it behind your back. Setup stops and tells you to install or update Microsoft App Installer first.
 

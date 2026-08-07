@@ -27,6 +27,8 @@ param(
 
   [switch]$InstallMissingPrerequisites,
 
+  [switch]$InstallGit,
+
   [switch]$NonInteractive,
 
   [string]$RegistryPath,
@@ -137,6 +139,7 @@ try {
       Mode = $ResolvedMode
       Embedded = $true
       InstallMissingPrerequisites = [bool]$InstallMissingPrerequisites
+      InstallGit = [bool]$InstallGit
       NonInteractive = [bool]$NonInteractive
       Plain = [bool]$Plain
       NoLog = [bool]$NoLog

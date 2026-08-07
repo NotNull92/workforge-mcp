@@ -17,6 +17,6 @@ ForgeUI is an original dependency-free PowerShell implementation. Its terminal c
 
 The WorkForge Control Dashboard is also original and dependency-free at the UI layer. It uses plain HTML, CSS, JavaScript, and Node.js built-in HTTP/crypto/process modules. It does not bundle React, Vue, Electron, a browser runtime, analytics, remote fonts, CDN assets, or another web UI framework.
 
-The optional prerequisite bootstrap invokes Windows Package Manager for `OpenJS.NodeJS.LTS`, `Git.Git`, and `BurntSushi.ripgrep.MSVC` only after consent. These applications are installed from the external WinGet source and are not bundled or redistributed inside the WorkForge archive. Their package manifests, installers, and licenses remain governed by their respective publishers.
+The prerequisite bootstrap may invoke Windows Package Manager for `OpenJS.NodeJS.LTS` and `BurntSushi.ripgrep.MSVC` after required-component consent. `Git.Git` is optional and is invoked only after separate Git consent or the explicit `-InstallGit` automation switch. These applications are installed from the external WinGet source and are not bundled or redistributed inside the WorkForge archive. Their package manifests, installers, and licenses remain governed by their respective publishers.
 
 Review upstream license texts and the complete dependency graph whenever dependencies, bundled executables, or release packaging change.
