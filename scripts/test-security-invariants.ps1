@@ -16,7 +16,9 @@ $ForbiddenPersistencePatterns = @(
   '(?:^|\s)sc(?:\.exe)?\s+create(?:\s|$)',
   'CurrentVersion[\\/]Run(?:Once)?',
   'GetFolderPath\(["'']Startup["'']\)',
-  'shell:startup'
+  'shell:startup',
+  'Start-Process[^\r\n]+-Verb\s+RunAs',
+  '(?:^|\s)runas(?:\.exe)?(?:\s|$)'
 )
 foreach ($File in $ExecutableFiles) {
   $Text = Get-Content -Raw -LiteralPath $File.FullName
@@ -24,6 +26,9 @@ foreach ($File in $ExecutableFiles) {
     if ($Text -match $Pattern) {
       throw "Executable code contains forbidden startup-persistence pattern '$Pattern': $($File.FullName)"
     }
+  }
+  if ($Text -match '(?i)\bgum\.exe\b') {
+    throw "WorkForge must not require an external Gum runtime: $($File.FullName)"
   }
 }
 
@@ -42,7 +47,7 @@ if ($ServerText -match 'version:\s*"\d+\.\d+\.\d+') {
 }
 if ($ServerText -notmatch 'SERVER_VERSION') { throw "MCP server does not expose the package-derived version." }
 
-foreach ($Wrapper in @("Install.cmd", "Configure Tunnel.cmd", "WorkForge Control.cmd", "Setup.cmd")) {
+foreach ($Wrapper in @("Install.cmd", "Configure Tunnel.cmd", "WorkForge Control.cmd", "Setup.cmd", "Uninstall.cmd")) {
   $Text = Get-Content -Raw -LiteralPath (Join-Path $ToolRoot $Wrapper)
   if ($Text -notmatch 'exit /b %EXIT_CODE%') { throw "$Wrapper does not propagate its PowerShell exit code." }
 }
@@ -70,7 +75,7 @@ foreach ($File in $BrandSurfaceFiles) {
   }
 }
 
-$RequiredBrandChecks = [ordered]@{
+$RequiredChecks = [ordered]@{
   "scripts\profile-registry.ps1" = @(
     "WORKFORGE_MCP_PROFILE_REGISTRY",
     "WorkForgeMcp-Tunnel",
@@ -86,16 +91,72 @@ $RequiredBrandChecks = [ordered]@{
     'Join-Path $env:USERPROFILE "WorkForge"',
     "WorkForge Control.lnk",
     "identity=workforge-workstation",
-    'serverName = "workforge-$ProfileId-mcp"'
+    'serverName = "workforge-$ProfileId-mcp"',
+    "WorkForge.UI.ps1",
+    "WorkForge.Prerequisites.ps1",
+    "InstallMissingPrerequisites",
+    "NonInteractive"
+  )
+  "scripts\WorkForge.Prerequisites.ps1" = @(
+    "OpenJS.NodeJS.LTS",
+    "Git.Git",
+    "BurntSushi.ripgrep.MSVC",
+    "--exact",
+    "--source",
+    "--no-upgrade",
+    "--disable-interactivity",
+    "will not be replaced automatically",
+    "InstallMissingPrerequisites"
+  )
+  "scripts\Uninstall.ps1" = @(
+    "SupportsShouldProcess",
+    "REMOVE WORKFORGE",
+    ".workforge-release.json",
+    "Source checkout protected",
+    "ConfirmFullRemoval",
+    "identity=workforge-workstation"
+  )
+  "scripts\uninstall-finalizer.ps1" = @(
+    ".workforge-release.json",
+    "Source repositories cannot be removed",
+    "ExpectedManifestSha256"
+  )
+  "scripts\WorkForge.UI.ps1" = @(
+    "NO_COLOR",
+    "WORKFORGE_PLAIN_UI",
+    "Protect-WorkForgeDisplayText",
+    "runtime\logs",
+    "Confirm-WorkForgePhrase"
+  )
+  "scripts\Build-Release.ps1" = @(
+    ".workforge-release.json",
+    'distributionKind = "release"',
+    "Uninstall.cmd"
   )
 }
-foreach ($RelativePath in $RequiredBrandChecks.Keys) {
+$PrerequisiteText = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "WorkForge.Prerequisites.ps1")
+if ($PrerequisiteText -match '(?i)\bwinget(?:\.exe)?\s+upgrade\b') {
+  throw "Prerequisite bootstrap must never invoke winget upgrade."
+}
+if ($PrerequisiteText -match '(?i)--force') {
+  throw "Prerequisite bootstrap must never force a package installation."
+}
+$InstallWrapper = Get-Content -Raw -LiteralPath (Join-Path $ToolRoot "Install.cmd")
+if ($InstallWrapper -notmatch '-Mode Install %\*') {
+  throw "Install.cmd does not forward explicit prerequisite-bootstrap options."
+}
+if ($ParamBlock -notmatch 'InstallMissingPrerequisites') {
+  throw "Setup does not expose the explicit prerequisite-install consent switch."
+}
+
+foreach ($RelativePath in $RequiredChecks.Keys) {
   $Path = Join-Path $ToolRoot $RelativePath
   $Text = Get-Content -Raw -LiteralPath $Path
-  foreach ($Token in $RequiredBrandChecks[$RelativePath]) {
+  foreach ($Token in $RequiredChecks[$RelativePath]) {
     if ($Text.IndexOf($Token, [StringComparison]::Ordinal) -lt 0) {
-      throw "Required WorkForge isolation token is missing from ${RelativePath}: $Token"
+      throw "Required WorkForge security token is missing from ${RelativePath}: $Token"
     }
   }
 }
+
 Write-Output "SECURITY_INVARIANTS_TEST_OK"

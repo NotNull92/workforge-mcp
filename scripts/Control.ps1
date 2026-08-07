@@ -1,16 +1,25 @@
 [CmdletBinding()]
 param(
-  [ValidateSet("menu", "start", "stop", "status", "doctor")]
+  [ValidateSet("menu", "start", "stop", "status", "doctor", "uninstall")]
   [string]$Action = "menu",
 
   [string]$ProfileId = "workstation",
 
-  [switch]$NoPause
+  [switch]$NoPause,
+
+  [switch]$Plain,
+
+  [switch]$NoLog
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 3.0
+$ToolRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..") -ErrorAction Stop).Path
+$Package = Get-Content -Raw -LiteralPath (Join-Path $ToolRoot "package.json") | ConvertFrom-Json -ErrorAction Stop
+$Version = [string]$Package.version
+. (Join-Path $PSScriptRoot "WorkForge.UI.ps1")
 . (Join-Path $PSScriptRoot "profile-registry.ps1")
+$Ui = Initialize-WorkForgeUi -Operation "control" -Version $Version -ToolRoot $ToolRoot -Plain:$Plain -NoLog:$NoLog
 
 function Invoke-ControlAction {
   param([Parameter(Mandatory = $true)][string]$Selected)
@@ -20,6 +29,7 @@ function Invoke-ControlAction {
     "stop" { & (Join-Path $PSScriptRoot "stop-tunnel.ps1") -ProfileId $ProfileId }
     "status" { & (Join-Path $PSScriptRoot "tunnel-status.ps1") -ProfileId $ProfileId -Snapshot }
     "doctor" { & (Join-Path $PSScriptRoot "Doctor.ps1") -ProfileId $ProfileId -Online }
+    "uninstall" { & (Join-Path $PSScriptRoot "Uninstall.ps1") -Mode Prompt -ProfileId $ProfileId -Embedded -Plain:$Plain -NoLog:$NoLog }
     default { throw "Unsupported control action: $Selected" }
   }
 }
@@ -39,16 +49,15 @@ function Write-ControlFailure {
     [Parameter(Mandatory = $true)][Management.Automation.ErrorRecord]$ErrorRecord
   )
 
-  Write-Host ""
-  Write-Host "Action failed: $Selected" -ForegroundColor Red
-  Write-Host $ErrorRecord.Exception.Message -ForegroundColor Yellow
   $LogDirectory = Get-ControlLogDirectory
-  if ($LogDirectory) {
-    Write-Host "Logs: $LogDirectory"
+  $Fix = if ($Selected -eq "uninstall") {
+    "Review the uninstall target and retry from Uninstall.cmd."
   } else {
-    Write-Host "Logs: unavailable until the selected profile can be resolved."
+    "Run Doctor after correcting the reported problem."
   }
-  Write-Host "Run Doctor from this menu after correcting the reported problem."
+  $Reason = $ErrorRecord.Exception.Message
+  if ($LogDirectory) { $Reason = "$Reason Logs: $LogDirectory" }
+  Write-WorkForgeErrorPanel -Title ("ACTION FAILED: {0}" -f $Selected.ToUpperInvariant()) -Reason $Reason -Stage $Selected -Fix $Fix
 }
 
 function Wait-ControlInput {
@@ -68,32 +77,36 @@ if ($Action -ne "menu") {
 }
 
 while ($true) {
-  Write-Host ""
-  Write-Host "WorkForge" -ForegroundColor Cyan
-  Write-Host "1. Start"
-  Write-Host "2. Status"
-  Write-Host "3. Stop"
-  Write-Host "4. Doctor"
-  Write-Host "0. Exit"
+  Write-WorkForgeLine
+  Write-WorkForgePanel -Title "WORKFORGE CONTROL" -Lines @(
+    "1. Start       Open the secure tunnel",
+    "2. Status      Inspect health and readiness",
+    "3. Stop        Close tunnel and supervisor",
+    "4. Doctor      Validate local and online state",
+    "5. Uninstall   Remove WorkForge safely",
+    "0. Exit"
+  ) -Tone "primary"
   $Choice = Read-Host "Select"
   $Selected = switch ($Choice) {
     "1" { "start" }
     "2" { "status" }
     "3" { "stop" }
     "4" { "doctor" }
+    "5" { "uninstall" }
     "0" { "exit" }
     default { $null }
   }
 
   if ($Selected -eq "exit") { break }
   if (-not $Selected) {
-    Write-Host "Unknown selection." -ForegroundColor Yellow
+    Write-WorkForgeNotice -Level "warning" -Message "Unknown selection."
     Wait-ControlInput
     continue
   }
 
   try {
     Invoke-ControlAction -Selected $Selected
+    if ($Selected -eq "uninstall") { break }
   } catch {
     Write-ControlFailure -Selected $Selected -ErrorRecord $_
   }

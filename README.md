@@ -1,166 +1,524 @@
 # WorkForge
 
-WorkForge is a secure Windows MCP gateway that lets ChatGPT inspect local projects,
-resume Git work, read text and images, apply SHA-guarded edits, and run supervised
-PowerShell jobs on the user's workstation through OpenAI Secure MCP Tunnel.
+**English** | [한국어](README.ko.md)
 
-It exposes twelve bounded tools while keeping profile identity, runtime evidence,
-credentials, process ownership, and recovery behavior explicit and locally verifiable.
+> **ChatGPT is smart, but it does not normally have hands inside your PC. WorkForge gives it a safe pair of hands.**
 
-## Release status
+WorkForge connects ChatGPT to your Windows workstation so it can inspect real project files, understand Git state, make guarded edits, read local images, and run supervised PowerShell commands.
 
-Version 1.1 introduces a unified setup entry point, safe Install/Repair/Upgrade
-semantics, visible control errors, a prebuilt MCP runtime package, release archive
-validation, and a production dependency audit gate.
+In plain language, it is **a secure working bridge between ChatGPT and your computer**.
 
-The Windows runtime ZIP has been validated through the automated Windows suite
-and an isolated release-package build. Clean-machine validation with a real user-owned
-OpenAI tunnel remains a release gate before broad distribution.
+With WorkForge connected, you can say things like:
 
-## Quick start
+```text
+"Read this project and tell me where I left off."
+"Find out why this build is failing and fix it."
+"Update the README so it matches the current code."
+"Check Git and summarize my recent work."
+"Run the tests and investigate anything that fails."
+```
 
-### 1. Prepare the Windows runtime
+Instead of only explaining what you should do, ChatGPT can **look at the actual workspace and work through the task with you**.
 
-Requirements for the current v1.1 runtime ZIP:
+---
 
-- Windows 10 or 11 on x64
-- Node.js 20 or newer on x64
-- Git for Windows
-- ripgrep (`rg.exe`)
-- a ChatGPT account or workspace allowed to use Developer mode
-- your own OpenAI Platform tunnel ID and runtime API key
+## Why does WorkForge exist?
 
-The runtime ZIP already contains `dist/` and production npm dependencies. Release
-users do **not** run npm, TypeScript, Vitest, or the repository test suite during setup.
-Node.js, Git, and ripgrep are still external prerequisites until the portable-runtime
-milestone is completed.
+Normally, ChatGPT cannot see the files on your computer.
 
-Extract the ZIP to a stable local directory that you will not casually rename or
-delete. Then double-click:
+If a project has a bug, the usual workflow looks something like this:
+
+```text
+1. Copy the error message
+2. Paste it into ChatGPT
+3. Find the related source file
+4. Copy that code too
+5. Ask for a fix
+6. Paste the fix back into the file
+7. Run the build yourself
+8. Copy the next error
+9. Repeat
+```
+
+WorkForge changes that loop to:
+
+```text
+You
+  ↓
+"Check the project, find the problem, and fix it."
+  ↓
+ChatGPT
+  ↓
+WorkForge
+  ↓
+Your real files · Git · PowerShell
+```
+
+ChatGPT can inspect the information it needs, understand the current state, make allowed changes, and verify the result.
+
+That means moving from **describing your workspace to AI through copy and paste** to **letting AI inspect the workspace and collaborate inside it**.
+
+---
+
+## What gets better?
+
+### 1. You spend less time explaining the project
+
+You no longer need to repeatedly describe the folder structure, paste file contents, and report Git state by hand.
+
+```text
+Before
+"There is a file under Assets/Scripts..."
+"Here is the code..."
+"I changed this yesterday..."
+
+With WorkForge
+"Read the project."
+```
+
+### 2. ChatGPT can answer from the current state
+
+It can inspect the real files and Git status instead of relying only on old conversation context.
+
+Questions like these become much more useful:
+
+```text
+"What was I working on recently?"
+"How far is this feature implemented?"
+"Why is the build broken right now?"
+"Change this file and run the tests afterward."
+```
+
+### 3. It can move from inspection to verification
+
+WorkForge can do more than read files. It can also run supervised PowerShell jobs.
+
+That enables a practical loop such as:
+
+```text
+Inspect code
+  ↓
+Edit file
+  ↓
+Run build
+  ↓
+Read errors
+  ↓
+Fix again
+```
+
+### 4. It does not blindly overwrite files
+
+Guarded edits use the current SHA-256 of a file.
+
+A simple way to think about it is:
+
+> "Only change the file if it is still the same file I just inspected. If somebody changed it first, stop."
+
+This helps prevent stale edits from overwriting newer work.
+
+### 5. Shell work is supervised
+
+PowerShell jobs have separate start, status, output, and cancel operations.
+
+If the ChatGPT connection disappears, WorkForge does not secretly replay an old command later.
+
+---
+
+## What can it do?
+
+WorkForge currently exposes 12 MCP tools, but you do not need to memorize their names. From a user's point of view, they fit into five simple groups.
+
+### 📁 Look through files and folders
+
+```text
+"Show me the structure of this project."
+"Find files related to inventory."
+"Read this configuration file."
+```
+
+### ✏️ Create and edit files
+
+```text
+"Add the new installation steps to the README."
+"Refactor this name safely."
+"Create a new configuration file."
+```
+
+### 🧭 Understand project state
+
+```text
+"Read this project and tell me what I was doing."
+"What has changed in Git?"
+"What changed since the last commit?"
+```
+
+### 🖥️ Run PowerShell work
+
+```text
+"Run the build."
+"Run the test suite."
+"Check the status of this process."
+```
+
+### 🖼️ Inspect local images
+
+```text
+"Open this PNG and describe the UI."
+"Check this image's size and contents."
+```
+
+---
+
+## What can I use it for?
+
+WorkForge is not tied to one IDE or one game engine. If a Windows project is made of files and command-line workflows, WorkForge can often help with it.
+
+### Software and game projects
+
+Examples include:
+
+```text
+Unity
+Godot
+Node.js
+Python
+Web projects
+CLI tools
+Open-source repositories
+```
+
+ChatGPT can inspect the project, understand its current state, make changes, and run validation steps.
+
+### Returning to an old project
+
+After a few weeks away, you can say:
+
+```text
+"Read this project and its recent Git history, then tell me where I left off."
+```
+
+`project_resume` helps inspect the current branch, changed files, and recent commits.
+
+### Debugging
+
+```text
+"Run the build. If it fails, find the related files and investigate the cause."
+```
+
+This reduces the amount of error logs and source code you have to shuttle back and forth manually.
+
+### Documentation
+
+```text
+"Rewrite the README so it matches the current implementation."
+"Check whether the installation scripts and docs still agree."
+```
+
+Because ChatGPT can inspect both code and documentation, it can help catch stale instructions.
+
+### Repetitive local workflows
+
+```text
+"Check these files for anything that violates this rule."
+"Run the tests and summarize only the failures."
+```
+
+WorkForge is not a general remote-desktop robot. It focuses on files, Git, images, and PowerShell under the current Windows account and WorkForge's safety rules.
+
+---
+
+## Is it difficult to install?
+
+A normal installation takes **three steps**.
+
+```text
+1. Download the ZIP
+2. Extract it and run Setup.cmd
+3. Connect the same Tunnel in ChatGPT
+```
+
+You do not need to manually hunt down Node.js, Git, and ripgrep first.
+
+### 1. Download and extract
+
+Download the latest release archive:
+
+```text
+WorkForge-v*-win-x64.zip
+```
+
+Extract it to a stable local folder.
+
+### 2. Run Setup
+
+Double-click:
 
 ```text
 Setup.cmd
 ```
 
-Setup performs the local steps in order:
+WorkForge checks these prerequisites first:
 
-1. validates Windows and the engine directory,
-2. installs or safely repairs the workstation profile,
-3. opens OpenAI tunnel management when tunnel configuration is missing,
-4. securely prompts for the tunnel ID and runtime API key,
-5. validates the generated tunnel profile,
-6. starts the tunnel for this setup session,
-7. opens the ChatGPT Plugins page for the final connection.
-
-The runtime API key is collected through a protected prompt. It is not accepted as
-a plain command-line parameter and is not written to logs or profile files.
-
-### 2. Finish the ChatGPT connection
-
-In ChatGPT:
-
-1. enable **Settings > Security and login > Developer mode**,
-2. open the **Plugins** page,
-3. choose the plus button,
-4. select **Connection > Tunnel**,
-5. choose or enter the same tunnel used by Setup,
-6. start a new chat and attach the app.
-
-Secure MCP Tunnel permissions and ChatGPT Developer mode permissions are separate.
-Each user must use a tunnel, runtime key, Platform organization, and ChatGPT workspace
-they are authorized to use.
-
-Official references:
-
-- [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
-- [Connect from ChatGPT](https://developers.openai.com/apps-sdk/deploy/connect-chatgpt)
-- [ChatGPT Plugins](https://chatgpt.com/plugins)
-
-## Existing installations
-
-Running `Setup.cmd` again uses **Auto** mode:
-
-- no profile exists: Install,
-- a profile already exists: Repair.
-
-Repair preserves existing policy files, profile manifests, tunnel configuration,
-protected credentials, logs, and unrelated registry entries. Upgrade behaves like
-Repair and, when a distributed template has changed, writes a sibling `<file>.new`
-candidate rather than replacing the user's instructions.
-
-Advanced lifecycle commands:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\Install.ps1 -Mode Install
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\Install.ps1 -Mode Repair
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\Install.ps1 -Mode Upgrade
+```text
+Node.js 20+ x64
+Git for Windows
+ripgrep
 ```
 
-The old `-Force` switch remains only as a deprecated alias for Repair. It no longer
-overwrites profile policy files.
+The rule is simple:
 
-## Runtime behavior
+```text
+Already installed     → keep it
+Missing               → ask before installing with WinGet
+Only one thing missing→ install only that thing
+Node.js conflict      → stop instead of layering another Node.js on top
+```
 
-- Nothing is registered to start with Windows.
-- Setup may start the tunnel only because the user launched Setup in the current session.
-- After a reboot, the tunnel remains stopped until the user starts it manually.
-- An unexpected tunnel exit is retried after bounded delays by the same-profile supervisor.
-- A deliberate Stop records intent before terminating the tunnel so recovery cannot race it.
-- Active connection-owned PowerShell jobs are cancelled when that exact MCP connection closes.
-- Completed command evidence remains inspectable after reconnect.
-- Commands are never replayed automatically.
+So **compatible software is not reinstalled just because you ran Setup again**.
 
-The default operating profile is created at `%USERPROFILE%\WorkForge`.
-It is a small Git repository containing durable instructions and the local profile
-manifest. The profile can access paths available to the current Windows account,
-except roots registered to another WorkForge profile. Windows ACLs and UAC
-remain the real machine boundary.
+Missing packages use exact WinGet package IDs and `--no-upgrade`, so a healthy existing installation is not needlessly upgraded.
 
-## Control and diagnostics
+If WinGet itself is unavailable, WorkForge does not try to bootstrap it behind your back. Setup stops and tells you to install or update Microsoft App Installer first.
 
-Double-click `WorkForge Control.cmd` to Start, Status, Stop, or run Doctor. Failures
-remain visible and include the failing action, exception message, Doctor hint, and the
-relevant local log directory when it can be resolved.
+The release ZIP already contains the compiled MCP server and production npm dependencies. Regular release users do not need to run npm, TypeScript, Vitest, or the repository test suite.
 
-Equivalent commands:
+### 3. Finish the ChatGPT connection
+
+During Setup, you need an OpenAI Platform Tunnel ID and Runtime API Key that you are authorized to use.
+
+Then in ChatGPT:
+
+```text
+Settings
+  → Security and login
+  → Enable Developer mode
+  → Plugins
+  → +
+  → Connection: Tunnel
+  → Select the same Tunnel used by Setup
+```
+
+Start a new chat, attach WorkForge, and use it normally.
+
+---
+
+## How do I use it after installation?
+
+You do not need a special command language.
+
+Talk to ChatGPT normally.
+
+For example:
+
+```text
+"Check C:\Projects\MyGame and tell me its current state."
+```
+
+```text
+"Build this project and investigate any errors."
+```
+
+```text
+"Look at the recent work and update the README."
+```
+
+```text
+"Inspect this file first, then change it safely."
+```
+
+ChatGPT chooses the WorkForge tools it needs.
+
+---
+
+## Is it safe?
+
+WorkForge gives ChatGPT meaningful access to a workstation, so safety is part of the design rather than an afterthought.
+
+### It stays inside the current Windows user's permissions
+
+WorkForge runs as the Windows account that launched it.
+
+It is not a privilege-escalation tool and does not bypass Windows ACLs or UAC.
+
+### It does not install startup persistence
+
+By default, WorkForge does not create:
+
+```text
+Windows services
+Scheduled tasks
+Startup items
+Run registry entries
+```
+
+After a reboot, the Tunnel stays stopped until the user starts it again.
+
+### It does not replay commands after a disconnect
+
+An interrupted connection does not authorize WorkForge to replay an old PowerShell command later.
+
+### File edits are guarded against stale state
+
+SHA-256 checks help prevent a file that changed in the meantime from being overwritten using an older version.
+
+### Runtime credentials are kept away from ordinary project commands
+
+The Runtime API Key is stored in a protected local file and removed from the environment before project or shell code is launched.
+
+ForgeUI logs also redact user-home paths, complete Tunnel IDs, and common credential-shaped values.
+
+---
+
+## ForgeUI
+
+WorkForge does not dump an unreadable wall of PowerShell output during setup and maintenance.
+
+Its terminal UI shows the lifecycle as clear stages:
+
+```text
+✓ Environment
+✓ Prerequisites
+✓ Runtime and profile
+◆ Secure tunnel
+○ Health check
+○ ChatGPT handoff
+```
+
+Successes, warnings, failures, and next steps are easier to spot.
+
+ForgeUI is implemented in PowerShell and does not require `gum.exe` or a Go runtime.
+
+For CI, redirected output, `NO_COLOR`, `WORKFORGE_PLAIN_UI=1`, or `-Plain`, it automatically falls back to deterministic plain text.
+
+---
+
+## What if WorkForge is already installed?
+
+Run `Setup.cmd` again.
+
+WorkForge decides automatically:
+
+```text
+No existing profile   → Install
+Existing profile      → Repair
+```
+
+Repair preserves user-edited policy files, Tunnel configuration, credentials, and related local state instead of blindly replacing them.
+
+Upgrade also avoids overwriting user instructions. If a distributed template changed, WorkForge can place a `<file>.new` candidate next to the user's file for comparison.
+
+---
+
+## Uninstalling WorkForge
+
+Double-click:
+
+```text
+Uninstall.cmd
+```
+
+You get two choices.
+
+### KeepWorkspace recommended
+
+Remove WorkForge's operational connection and runtime state while keeping your workspace.
+
+```text
+Kept
+- WorkForge workspace
+- Git history
+- user-edited policy files
+- user-created files
+
+Removed
+- Tunnel configuration
+- local Runtime credential
+- WorkForge runtime state and logs
+- profile registry connection
+- verified release engine when safe
+```
+
+### RemoveEverything
+
+Remove the workspace too.
+
+Interactive mode requires the exact phrase:
+
+```text
+REMOVE WORKFORGE
+```
+
+WorkForge never automatically deletes a development source checkout.
+
+See [Uninstall WorkForge](docs/UNINSTALL.md) for details.
+
+---
+
+## What WorkForge is not
+
+WorkForge is not:
+
+- a remote-desktop bot that clicks anything on Windows
+- a tool that secretly acquires administrator privileges
+- an always-on background service
+- an automation engine that blindly approves every command
+- a plugin tied only to Unity or one specific IDE
+
+Its job is narrower and more deliberate: **provide a clear, verifiable working path between ChatGPT and a local Windows workspace.**
+
+---
+
+## Technical details
+
+Everything below is for people who want to understand or develop WorkForge itself.
+
+### The 12 MCP tools
+
+```text
+workstation_context
+project_resume
+list_directory
+search_files
+read_text_file
+read_image
+write_text_file
+replace_text
+shell_start
+shell_status
+shell_output
+shell_cancel
+```
+
+### Default profile
+
+The default operating profile is created at:
+
+```text
+%USERPROFILE%\WorkForge
+```
+
+It contains durable instructions and local profile information used while WorkForge operates.
+
+### Runtime behavior
+
+- no Windows startup persistence is created
+- Tunnel start is explicit
+- unexpected Tunnel exits use bounded same-profile recovery
+- disconnected commands are never replayed automatically
+- PowerShell descendants are managed with Windows Job Objects
+- same-profile shell work is serialized to avoid collisions
+
+### Diagnostics
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\Doctor.ps1 -Online
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\Control.ps1 -Action start
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\Control.ps1 -Action status
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\Control.ps1 -Action stop
 ```
 
-See [Troubleshooting](docs/TROUBLESHOOTING.md) for prerequisite, tunnel, recovery,
-folder-move, and shell-lease failures.
+See [Troubleshooting](docs/TROUBLESHOOTING.md) when something goes wrong.
 
-## ChatGPT Images handoff
-
-`read_image` returns a standard MCP image block so ChatGPT can inspect a local PNG,
-JPEG, GIF, or WebP file. ChatGPT Images does not currently promote an image returned
-by a connector into an editable image attachment.
-
-For precise image-to-image editing:
-
-1. use WorkForge to locate and inspect the local image,
-2. attach that same file to the chat with **Add photos & files**, drag and drop, or paste,
-3. ask ChatGPT Images to edit the attached image,
-4. save the generated result into the project,
-5. use WorkForge to inspect the saved file or continue related source changes.
-
-The direct attachment is required for image editing; changing the MCP image response
-format cannot replace it.
-
-## Privacy gate
-
-Public history is required to use GitHub noreply commit addresses. A dedicated privacy
-check scans the full reachable history and tracked text for personal home paths,
-non-example email addresses, private network details, phone numbers, concrete tunnel
-IDs, credential-shaped values, and forbidden runtime artifacts. The same check runs in
-GitHub Actions for every push and pull request.
-## Source development
-
-A source checkout still supports a full local build:
+### Source development
 
 ```powershell
 npm.cmd ci
@@ -169,26 +527,36 @@ npm.cmd run smoke:stdio -- workstation
 npm.cmd run release
 ```
 
-`npm run check` builds the TypeScript server, runs 31 TypeScript tests, runs the
-PowerShell setup and recovery regressions, and audits production dependencies at the
-high-severity threshold. The stdio smoke test that exercises `shell_start` must run in
-a standalone terminal, not from inside a WorkForge shell that already owns the same
-profile lease.
+`npm run check` validates the TypeScript server plus prerequisite detection, installation modes, ForgeUI, Uninstall, privacy, security, Tunnel recovery, and production dependencies.
 
-## What is intentionally not included
+### Privacy gate
 
-- personal project profiles or absolute user paths,
-- API keys, tunnel YAML, generated registries, logs, runtime state, or browser data,
-- browser control, desktop UI automation, or specialized application workers,
-- a Windows service, scheduled task, startup item, or automatic privilege elevation,
-- bundled Node.js, Git, or ripgrep in the v1.1 runtime ZIP,
-- a signed Setup EXE.
+The public repository is scanned to prevent accidental publication of sensitive local data.
 
-The portable runtime and signed installer are specified in
-[`TASK-07-PORTABLE-RUNTIME-SETUP-EXE.md`](docs/implementation/TASK-07-PORTABLE-RUNTIME-SETUP-EXE.md).
+Examples include:
 
-Read [SECURITY.md](SECURITY.md) before enabling shell tools and
-[docs/ADDING_PROFILES.md](docs/ADDING_PROFILES.md) before extending the profile registry.
+```text
+personal user-home paths
+non-example email addresses
+real Tunnel IDs
+credential-shaped values
+phone numbers
+private network information
+runtime logs
+registry and credential files
+```
+
+The same privacy check runs in GitHub Actions on pushes and pull requests.
+
+---
+
+## Learn more
+
+- [Security](SECURITY.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Uninstall](docs/UNINSTALL.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Adding profiles](docs/ADDING_PROFILES.md)
 
 ## License
 

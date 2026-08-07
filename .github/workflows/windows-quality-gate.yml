@@ -1,0 +1,33 @@
+name: Windows Quality Gate
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          architecture: x64
+          package-manager-cache: false
+
+      - name: Install development dependencies
+        shell: powershell
+        run: npm.cmd ci --ignore-scripts --no-audit --no-fund
+
+      - name: Run WorkForge quality gate
+        shell: powershell
+        run: npm.cmd run check

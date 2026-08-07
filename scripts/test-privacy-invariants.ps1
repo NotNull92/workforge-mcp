@@ -21,10 +21,10 @@ function Get-LineNumber {
   return ($Text.Substring(0, $Index) -split "`n").Count
 }
 
-$Tracked = @(& git.exe -C $ToolRoot ls-files)
-if ($LASTEXITCODE -ne 0) { throw "Could not enumerate tracked files for privacy validation." }
+$Tracked = @(& git.exe -C $ToolRoot ls-files --cached --others --exclude-standard | Sort-Object -Unique)
+if ($LASTEXITCODE -ne 0) { throw "Could not enumerate repository files for privacy validation." }
 
-$ForbiddenFileNames = @(".env.local", "tunnel.local.yaml", "profile_registry.json")
+$ForbiddenFileNames = @(".env.local", "tunnel.local.yaml", "profile_registry.json", "install-manifest.json", ".workforge-release.json")
 foreach ($Relative in $Tracked) {
   $Normalized = $Relative.Replace("\", "/")
   if ($ForbiddenFileNames -contains [IO.Path]::GetFileName($Relative)) {
@@ -32,6 +32,9 @@ foreach ($Relative in $Tracked) {
   }
   if ($Normalized -match "^(?:runtime|artifacts|node_modules|dist)/") {
     Add-PrivacyFailure -Type "ForbiddenGeneratedDirectory" -File $Normalized
+  }
+  if ([IO.Path]::GetExtension($Relative) -ieq ".jsonl" -or [IO.Path]::GetFileName($Relative) -match '^uninstall-.+\.json$') {
+    Add-PrivacyFailure -Type "ForbiddenGeneratedLogOrReceipt" -File $Normalized
   }
 }
 

@@ -12,7 +12,7 @@ try {
 
   $StartInfo = [Diagnostics.ProcessStartInfo]::new()
   $StartInfo.FileName = "powershell.exe"
-  $StartInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$InstallerPath`" -WorkspaceRoot `"$TestRoot`" -SkipTunnelDownload -NoDesktopShortcut"
+  $StartInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$InstallerPath`" -WorkspaceRoot `"$TestRoot`" -SkipTunnelDownload -NoDesktopShortcut -Plain -NoLog"
   $StartInfo.WorkingDirectory = $ToolRoot
   $StartInfo.UseShellExecute = $false
   $StartInfo.RedirectStandardOutput = $true

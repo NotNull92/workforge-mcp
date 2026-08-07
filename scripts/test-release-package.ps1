@@ -21,22 +21,46 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $Zip = [IO.Compression.ZipFile]::OpenRead($ArchivePath)
 try {
   $Names = @($Zip.Entries | ForEach-Object { $_.FullName.Replace('\', '/') })
-  if ($Names.Count -lt 40) { throw "Release archive contains too few entries." }
+  if ($Names.Count -lt 50) { throw "Release archive contains too few entries." }
 
   $RequiredSuffixes = @(
+    "/.workforge-release.json",
     "/Setup.cmd",
     "/Install.cmd",
+    "/Uninstall.cmd",
     "/Configure Tunnel.cmd",
     "/WorkForge Control.cmd",
+    "/README.ko.md",
     "/dist/stdio.js",
     "/node_modules/@modelcontextprotocol/sdk/package.json",
     "/node_modules/zod/package.json",
-    "/scripts/Setup.ps1"
+    "/scripts/Setup.ps1",
+    "/scripts/Uninstall.ps1",
+    "/scripts/uninstall-finalizer.ps1",
+    "/scripts/WorkForge.UI.ps1",
+    "/scripts/WorkForge.Prerequisites.ps1",
+    "/scripts/test-prerequisites.ps1",
+    "/docs/UNINSTALL.md"
   )
   foreach ($Suffix in $RequiredSuffixes) {
     if (@($Names | Where-Object { $_.EndsWith($Suffix, [StringComparison]::Ordinal) }).Count -ne 1) {
       throw "Release archive is missing required entry: $Suffix"
     }
+  }
+
+  $ManifestEntry = $Zip.Entries | Where-Object { $_.FullName.Replace('\', '/').EndsWith('/.workforge-release.json', [StringComparison]::Ordinal) } | Select-Object -First 1
+  $Reader = [IO.StreamReader]::new($ManifestEntry.Open(), [Text.UTF8Encoding]::new($false, $true))
+  try {
+    $Manifest = $Reader.ReadToEnd() | ConvertFrom-Json -ErrorAction Stop
+  } finally {
+    $Reader.Dispose()
+  }
+  if (
+    [string]$Manifest.schemaVersion -cne "1" -or
+    [string]$Manifest.product -cne "WorkForge" -or
+    [string]$Manifest.distributionKind -cne "release"
+  ) {
+    throw "Release archive contains an invalid WorkForge release manifest."
   }
 
   foreach ($ForbiddenPattern in @(
@@ -45,6 +69,9 @@ try {
     '(?:^|/)\.env\.local$',
     '(?:^|/)tunnel\.local\.yaml$',
     '(?:^|/)profile_registry\.json$',
+    '(?:^|/)install-manifest\.json$',
+    '(?:^|/).+\.jsonl$',
+    '(?:^|/)uninstall-.+\.json$',
     '^[^/]+/node_modules/(?:typescript|vitest)/package\.json$',
     '^[^/]+/node_modules/@types/node/package\.json$',
     '^[^/]+/release/.+\.zip(?:\.sha256)?$'

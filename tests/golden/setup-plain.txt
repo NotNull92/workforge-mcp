@@ -1,0 +1,18 @@
+WORKFORGE SETUP 1.2.0
+Secure local workstation gateway
+
+PLAN
+  [ ]  Environment
+  [ ]  Runtime
+  [ ]  Handoff
+
+[1/3] ENVIRONMENT
+[OK] Environment: Windows x64 (0.1s)
+[2/3] RUNTIME
+[SKIP] Runtime: Prebuilt runtime already verified
+[3/3] HANDOFF
+[FAIL] Handoff: Browser disabled
+
+SETUP READY
+  Profile:     %USERPROFILE%\WorkForge
+  Startup:     manual

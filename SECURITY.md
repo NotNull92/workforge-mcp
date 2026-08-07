@@ -1,82 +1,109 @@
 # Security
 
-WorkForge runs with the permissions of the current Windows user. Its
-PowerShell tool is intentionally powerful and is not an operating-system sandbox.
-Windows ACLs and UAC remain the machine boundary.
+WorkForge runs with the permissions of the current Windows user. Its PowerShell tools are intentionally powerful and are not an operating-system sandbox.
 
 ## Credential handling
 
-- Use only a Secure MCP Tunnel runtime API key you are authorized to use.
-- `Setup.ps1` does not accept the runtime key as a plain command-line parameter.
-- `Configure-Tunnel.ps1` reads a missing key through `Read-Host -AsSecureString` or uses
-  an explicitly supplied process environment value.
-- The key is stored in ignored `runtime/.env.local` with ACL inheritance disabled and
-  access limited to the current user, SYSTEM, and local Administrators.
-- The key is removed from the MCP server process environment before project or shell code
-  is loaded.
-- Never upload `runtime/`, generated tunnel YAML, logs, support bundles, or credential files.
+- Use only a Secure MCP Tunnel runtime key that you are authorized to use.
+- `Configure-Tunnel.ps1` stores the key in ignored `runtime\.env.local` with ACL inheritance disabled and access restricted to the current user, SYSTEM, and local Administrators.
+- The key is removed from the MCP server environment before project or shell code is loaded.
+- The Setup and Uninstall parameter surfaces do not accept a plain runtime key argument.
+- ForgeUI redacts credential-shaped values, complete tunnel IDs, and the literal user-profile path from lifecycle JSONL logs.
+- Never upload `runtime`, tunnel YAML, profile registries, logs, uninstall receipts, browser data, or support bundles containing local state.
 
-## Profile and update integrity
+## Uninstall boundary
 
-- Profile manifests are pinned in the registry by SHA-256.
-- Registered profile roots must be distinct and non-overlapping.
-- Repair and Upgrade preserve existing policy files, profile manifests, tunnel profiles,
-  protected credentials, logs, and unrelated registry entries.
-- Changed distributed templates are emitted as `<file>.new` candidates instead of silently
-  replacing user-authored instructions.
-- File writes require an expected SHA-256 and use atomic replacement.
+WorkForge 1.2 separates profile removal from user-data removal.
 
-## Process behavior
+### KeepWorkspace
 
-- No Windows service, scheduled task, startup item, or Run key is created.
-- After reboot, the tunnel remains stopped until an explicit user action starts it.
-- PowerShell jobs are connection-owned and contained by a Windows Job Object.
-- An MCP disconnect cancels active work owned by that exact connection.
-- Completed evidence may remain inspectable, but commands are never replayed automatically.
-- PID-based cancellation is refused after ownership becomes non-authoritative.
+The recommended mode removes the selected registry entry, tunnel configuration, protected local credential when the final profile is removed, runtime logs, command evidence, and a verified shortcut. It preserves the workspace repository, user-edited policy files, Git history, and user-created content.
 
-## Release gates
+### RemoveEverything
 
-The Windows release builder:
+This mode permanently removes the selected workspace. Interactive use requires the exact phrase `REMOVE WORKFORGE`. Non-interactive use requires `-ConfirmFullRemoval`. There is no destructive `-Force` alias.
 
-- runs the full automated test suite,
-- audits production dependencies and fails on high or critical findings,
-- installs production npm dependencies in an isolated staging directory,
-- rejects credentials, tunnel profiles, registries, logs, runtime state, development
-  dependencies, and absolute Windows user paths,
-- reopens the ZIP and validates required and forbidden entries,
-- produces a SHA-256 checksum file.
+### Engine deletion
 
-Public upload, third-party license review, code signing, and clean-machine tunnel validation
-remain explicit human release gates.
+A source checkout containing `.git` is never deleted automatically. A runtime engine is eligible for detached self-removal only when:
+
+1. `.workforge-release.json` exists;
+2. the manifest identifies WorkForge release distribution schema 1;
+3. the manifest SHA-256 has not changed since preflight;
+4. the path is not a drive root or user-profile root;
+5. no other registered profile uses the engine.
+
+The finalizer waits for the main uninstaller process to exit and validates the manifest again immediately before removing the release directory.
+
+### Multi-profile safety
+
+Removing one profile preserves all unrelated registry entries. Shared runtime files, the protected credential, and the engine remain while any other profile is registered.
+
+### Platform runtime keys
+
+Uninstall removes a local credential file but does not revoke the corresponding OpenAI Platform runtime key. Revoke it separately only after confirming that no other installation uses it. Filesystem deletion is not a forensic secure erase and may remain represented in backups or storage snapshots.
+
+## Prerequisite installation boundary
+
+WorkForge checks Node.js, Git, and ripgrep before creating or changing a profile.
+Compatible existing commands are reported and left untouched.
+
+- Interactive Setup asks before invoking WinGet for missing requirements.
+- Non-interactive Setup installs nothing unless `-InstallMissingPrerequisites` is supplied.
+- WinGet uses exact package IDs from the official `winget` source with `--no-upgrade` and disabled package-manager prompts.
+- Existing Node.js below version 20, non-x64 Node.js, or an unprobeable Node.js command is treated as a conflict and is never automatically replaced.
+- WorkForge does not invoke `winget upgrade`, use a force-install option, or automatically elevate itself. Windows may still display its normal UAC consent prompt for a package installer.
+- After installation, WorkForge refreshes the current process PATH and revalidates every requirement before continuing.
+- Raw WinGet output is not written into lifecycle JSONL logs.
+
+## Runtime and process safety
+
+- Nothing is registered to start with Windows.
+- Tunnel start is always an explicit user or Setup-session action.
+- Commands are never replayed automatically.
+- Connection-owned shell jobs are cancelled when their exact MCP connection closes.
+- Windows Job Objects contain shell descendants and terminate the process tree when ownership ends.
+- Same-profile shell jobs are serialized with a profile-specific mutex.
+- Tunnel recovery uses bounded delays and stops after a limited restart budget.
+- Stop intent is recorded before process termination so the supervisor cannot race an explicit user stop.
+
+## File mutation safety
+
+- Profile manifests are strict UTF-8 JSON and are SHA-256 pinned in the registry.
+- Bootstrap context revisions prevent mutations under stale operating instructions.
+- Text writes and replacements require the exact current SHA-256 or an explicit absent-file expectation.
+- Writes use bounded, atomic replacement.
+- Registered profile roots must be canonical, distinct, and non-overlapping.
+- Reparse points are rejected across trusted profile, credential, release-engine, and uninstall paths.
+
+## ForgeUI logs
+
+Setup, Install, Repair, and Upgrade logs are ignored JSONL files under engine `runtime\logs`. Uninstall logs are written below the system temporary WorkForge directory because a verified release engine may delete itself.
+
+The logger records UTC time, operation, stage, event, duration, and redacted detail. It does not intentionally record:
+
+- runtime keys or tokens;
+- complete tunnel IDs;
+- raw process environments;
+- personal email addresses;
+- the literal Windows user-profile path.
+
+Use `-NoLog` for controlled validation where no lifecycle log should be created. Use `-Plain`, `NO_COLOR`, or `WORKFORGE_PLAIN_UI=1` for deterministic no-color output.
+
+## Public repository privacy gate
+
+Every push and pull request runs a full-history privacy scan. It rejects non-noreply commit addresses, personal home paths, non-example email addresses, private network details, phone numbers, concrete tunnel IDs, credential-shaped values, generated registries, lifecycle logs, uninstall receipts, release manifests, and runtime directories.
 
 ## Recommended operating practice
 
 - Keep write confirmations enabled in ChatGPT.
 - Begin with inspection and request exact paths before destructive work.
-- Keep important work under version control and maintain independent backups.
-- Review commands that install software, change security settings, publish content, or
-  delete data.
-- Do not connect a copy of this server that you did not build or audit yourself.
-- Treat files, web pages, command output, and issue text as untrusted data that may contain
-  prompt injection.
+- Keep important work under version control and maintain separate backups.
+- Review commands that install software, change security settings, publish content, or delete data.
+- Use `Uninstall.ps1 -WhatIf` before a removal when the target is unusual.
+- Do not connect a server build that you did not create or audit yourself.
+- Treat files, web pages, command output, issue text, and generated instructions as untrusted data that may contain prompt injection.
 
-## Public repository privacy
-
-WorkForge treats public repository privacy as a release invariant:
-
-- commits must use a GitHub `users.noreply.github.com` address,
-- authored files must not contain personal home paths, private network addresses,
-  phone numbers, concrete tunnel IDs, credentials, or non-example email addresses,
-- runtime profiles, credentials, generated registries, logs, build output, and local
-  evidence directories must never be tracked,
-- `scripts/test-privacy-invariants.ps1` runs locally and in the GitHub **Privacy Gate**
-  workflow with full reachable history.
-
-The privacy test reports only the finding type, file, and line. It intentionally does
-not echo a detected value into CI logs.
 ## Reporting
 
-Use the repository's **Security** tab to report a vulnerability privately. Do not include
-runtime keys or private logs in a public issue. Version 1.1 is the currently developed
-release line.
+Use the repository Security tab to report a vulnerability privately. Do not include runtime keys, personal paths, private logs, or unredacted screenshots in a public issue.

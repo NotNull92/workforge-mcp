@@ -21,8 +21,8 @@ $HashPath = "$ArchivePath.sha256"
 $StagingParent = Join-Path $env:TEMP ("WorkForgeMcp-Release-" + [guid]::NewGuid().ToString("N"))
 $StagingRoot = Join-Path $StagingParent "WorkForge"
 $Include = @(
-  ".gitattributes", ".gitignore", "AGENTS.md", "Setup.cmd", "Configure Tunnel.cmd", "WorkForge Control.cmd", "Install.cmd",
-  "README.md", "SECURITY.md", "THIRD_PARTY_NOTICES.md", "LICENSE", "package.json", "package-lock.json",
+  ".gitattributes", ".gitignore", "AGENTS.md", "Setup.cmd", "Configure Tunnel.cmd", "WorkForge Control.cmd", "Install.cmd", "Uninstall.cmd",
+  "README.md", "README.ko.md", "SECURITY.md", "THIRD_PARTY_NOTICES.md", "LICENSE", "package.json", "package-lock.json",
   "tsconfig.json", "docs", "scripts", "src", "templates", "tests", "dist"
 )
 
@@ -41,6 +41,18 @@ try {
     if (-not (Test-Path -LiteralPath $Source)) { throw "Release input is missing: $RelativePath" }
     Copy-Item -LiteralPath $Source -Destination (Join-Path $StagingRoot $RelativePath) -Recurse -Force
   }
+
+  $ReleaseManifest = [ordered]@{
+    schemaVersion = 1
+    product = "WorkForge"
+    version = $Version
+    distributionKind = "release"
+  }
+  [IO.File]::WriteAllText(
+    (Join-Path $StagingRoot ".workforge-release.json"),
+    (($ReleaseManifest | ConvertTo-Json -Depth 4) + [Environment]::NewLine),
+    [Text.UTF8Encoding]::new($false)
+  )
 
   & npm.cmd --prefix $StagingRoot ci --omit=dev --ignore-scripts --no-audit --no-fund
   if ($LASTEXITCODE -ne 0) { throw "Production dependency staging failed." }
@@ -67,9 +79,10 @@ try {
     Get-ChildItem -LiteralPath $StagingRoot -Recurse -Force | Where-Object {
       $Relative = Get-StagedRelativePath -Path $_.FullName
       $TopLevelRuntime = $Relative -match '^(?:runtime|artifacts)(?:\\|$)'
-      $SecretName = $_.Name -in @(".env.local", "tunnel.local.yaml", "profile_registry.json")
-      $GeneratedLog = -not $_.PSIsContainer -and $Relative -notmatch '^node_modules\\' -and $_.Extension -ieq ".log"
-      $TopLevelRuntime -or $SecretName -or $GeneratedLog
+      $SecretName = $_.Name -in @(".env.local", "tunnel.local.yaml", "profile_registry.json", "install-manifest.json")
+      $GeneratedLog = -not $_.PSIsContainer -and $Relative -notmatch '^node_modules\\' -and ($_.Extension -ieq ".log" -or $_.Extension -ieq ".jsonl")
+      $Receipt = -not $_.PSIsContainer -and $_.Name -match '^uninstall-.+\.json$'
+      $TopLevelRuntime -or $SecretName -or $GeneratedLog -or $Receipt
     }
   )
   if ($ForbiddenFiles.Count -gt 0) {
@@ -79,7 +92,7 @@ try {
   $AuthoredFiles = @(
     Get-ChildItem -LiteralPath $StagingRoot -Recurse -File | Where-Object {
       $Relative = Get-StagedRelativePath -Path $_.FullName
-      $Relative -notmatch '^node_modules\\' -and $_.Extension -in @(".md", ".ps1", ".cmd", ".json", ".ts", ".mjs", ".txt")
+      $Relative -notmatch '^node_modules\\' -and $_.Extension -in @(".md", ".ps1", ".cmd", ".json", ".ts", ".mjs", ".txt", ".yml")
     }
   )
   $UserProfile = [Environment]::GetFolderPath("UserProfile")

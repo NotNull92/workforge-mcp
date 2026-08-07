@@ -23,7 +23,9 @@ function Invoke-TestSetup {
     "-NoBrowser",
     "-SkipTunnelDownload",
     "-NoDesktopShortcut",
-    "-NonInteractive"
+    "-NonInteractive",
+    "-Plain",
+    "-NoLog"
   ) -join " "
   $StartInfo.WorkingDirectory = $ToolRoot
   $StartInfo.UseShellExecute = $false
@@ -38,10 +40,10 @@ function Invoke-TestSetup {
 try {
   $First = Invoke-TestSetup
   if ($First.ExitCode -ne 0) { throw "Initial Setup test failed with exit $($First.ExitCode). Output: $($First.Output)" }
-  if ($First.Output -notmatch '\[2/6\] install') { throw "Setup did not report the install stage. Output: $($First.Output)" }
+  if ($First.Output -notmatch '\[2/6\] RUNTIME AND PROFILE') { throw "Setup did not report the runtime and profile stage. Output: $($First.Output)" }
   if ($First.Output -notmatch 'WorkForge Install completed') { throw "Auto mode did not choose Install for a missing profile. Output: $($First.Output)" }
   if ($First.Output -notmatch 'Tunnel configuration skipped by request') { throw "Setup did not honor the tunnel skip. Output: $($First.Output)" }
-  if ($First.Output -notmatch 'setup completed') { throw "Setup did not report completion. Output: $($First.Output)" }
+  if ($First.Output -notmatch 'WORKFORGE READY') { throw "Setup did not report completion. Output: $($First.Output)" }
 
   $ProfilePath = Join-Path $WorkspaceRoot "tools\workforge-mcp\profile.json"
   $AgentsPath = Join-Path $WorkspaceRoot "AGENTS.md"

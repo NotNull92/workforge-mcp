@@ -14,7 +14,9 @@ try {
     -RegistryPath $RegistryPath `
     -Mode Install `
     -SkipTunnelDownload `
-    -NoDesktopShortcut
+    -NoDesktopShortcut `
+    -Plain `
+    -NoLog
 
   $ProfilePath = Join-Path $WorkspaceRoot "tools\workforge-mcp\profile.json"
   $AgentsPath = Join-Path $WorkspaceRoot "AGENTS.md"
@@ -39,7 +41,9 @@ try {
     -RegistryPath $RegistryPath `
     -Mode Repair `
     -SkipTunnelDownload `
-    -NoDesktopShortcut
+    -NoDesktopShortcut `
+    -Plain `
+    -NoLog
 
   if ((Get-FileHash -LiteralPath $AgentsPath -Algorithm SHA256).Hash -ne $AgentsHashBefore) {
     throw "Repair overwrote the user policy file."
@@ -57,7 +61,9 @@ try {
     -RegistryPath $RegistryPath `
     -Mode Upgrade `
     -SkipTunnelDownload `
-    -NoDesktopShortcut
+    -NoDesktopShortcut `
+    -Plain `
+    -NoLog
 
   if ((Get-FileHash -LiteralPath $AgentsPath -Algorithm SHA256).Hash -ne $AgentsHashBefore) {
     throw "Upgrade overwrote the user policy file."
@@ -79,7 +85,9 @@ try {
     -RegistryPath $RegistryPath `
     -Mode Upgrade `
     -SkipTunnelDownload `
-    -NoDesktopShortcut
+    -NoDesktopShortcut `
+    -Plain `
+    -NoLog
   if ((Get-FileHash -LiteralPath $CandidatePath -Algorithm SHA256).Hash -ne $CandidateHashBefore) {
     throw "Upgrade overwrote an existing user-modified template candidate."
   }

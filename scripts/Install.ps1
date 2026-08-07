@@ -15,13 +15,30 @@ param(
 
   [switch]$NoDesktopShortcut,
 
-  [string]$RegistryPath
+  [switch]$InstallMissingPrerequisites,
+
+  [switch]$NonInteractive,
+
+  [string]$RegistryPath,
+
+  [switch]$Embedded,
+
+  [switch]$Plain,
+
+  [switch]$NoLog,
+
+  [string]$LogPath
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 3.0
 
 $ToolRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..") -ErrorAction Stop).Path
+$PackageManifest = Get-Content -Raw -LiteralPath (Join-Path $ToolRoot "package.json") | ConvertFrom-Json -ErrorAction Stop
+$Version = [string]$PackageManifest.version
+. (Join-Path $PSScriptRoot "WorkForge.UI.ps1")
+. (Join-Path $PSScriptRoot "WorkForge.Prerequisites.ps1")
+$Ui = Initialize-WorkForgeUi -Operation "install" -Version $Version -ToolRoot $ToolRoot -Plain:$Plain -NoLog:$NoLog -LogPath $LogPath
 $WorkspaceRoot = [IO.Path]::GetFullPath($WorkspaceRoot)
 $ProfileDirectory = Join-Path $WorkspaceRoot "tools\workforge-mcp"
 $ProfilePath = Join-Path $ProfileDirectory "profile.json"
@@ -35,7 +52,7 @@ $Utf8 = [Text.UTF8Encoding]::new($false)
 $StrictUtf8 = [Text.UTF8Encoding]::new($false, $true)
 
 if ($Force) {
-  Write-Warning "-Force is deprecated. Using Repair mode without overwriting profile policy files."
+  Write-WorkForgeNotice -Level "warning" -Message "-Force is deprecated. Using Repair mode without overwriting profile policy files."
   $Mode = "Repair"
 }
 
@@ -81,7 +98,7 @@ function Write-AtomicUtf8 {
 function Get-RequiredApplication {
   param([Parameter(Mandatory = $true)][string]$Name)
 
-  $Command = Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue
+  $Command = Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not $Command) { throw "Required command is missing: $Name" }
   return $Command.Source
 }
@@ -130,7 +147,7 @@ function Install-UserTemplate {
       if (-not (Test-Path -LiteralPath $Candidate -PathType Leaf)) {
         Copy-Item -LiteralPath $Source -Destination $Candidate
       } elseif (-not $SourceHash.Equals((Get-FileHash -LiteralPath $Candidate -Algorithm SHA256).Hash, [StringComparison]::OrdinalIgnoreCase)) {
-        Write-Warning "Existing upgrade candidate is user-modified and was preserved: $Candidate"
+        Write-WorkForgeNotice -Level "warning" -Message "Existing upgrade candidate is user-modified and was preserved: $Candidate"
       }
     }
   }
@@ -234,13 +251,13 @@ function Ensure-TunnelClient {
   if (Test-Path -LiteralPath $InstalledPath -PathType Leaf) {
     $Observed = (Get-FileHash -LiteralPath $InstalledPath -Algorithm SHA256).Hash
     if ($Observed.Equals($ExpectedExeHash, [StringComparison]::OrdinalIgnoreCase)) {
-      Write-Output "Verified existing tunnel-client $Version."
+      Write-WorkForgeDetail -Text "Verified existing tunnel-client $Version." -Tone "success"
       return
     }
   }
 
   if ($SkipTunnelDownload) {
-    Write-Output "Tunnel-client download skipped by request."
+    Write-WorkForgeDetail -Text "Tunnel-client download skipped by request."
     return
   }
 
@@ -279,95 +296,185 @@ function Ensure-TunnelClient {
   }
 }
 
-if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
-  throw "WorkForge currently supports Windows only."
-}
-if ($ProfileId -cnotmatch "^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$") { throw "ProfileId is invalid." }
-if ([string]::IsNullOrWhiteSpace($DisplayName) -or $DisplayName.Length -gt 80) { throw "DisplayName is invalid." }
+$script:CurrentInstallStage = $null
+$script:InstallStageDetail = $null
 
-$ProfileExists = Test-Path -LiteralPath $ProfilePath -PathType Leaf
-if ($Mode -eq "Install" -and $ProfileExists) {
-  throw "Profile already exists. Run Repair or Upgrade after reviewing it: $ProfilePath"
-}
-if (($Mode -eq "Repair" -or $Mode -eq "Upgrade") -and -not $ProfileExists) {
-  throw "$Mode requires an existing profile: $ProfilePath"
+function Set-InstallStageDetail {
+  param([string]$Detail)
+  $script:InstallStageDetail = $Detail
 }
 
-$NodePath = Get-RequiredApplication -Name "node.exe"
-$null = Get-RequiredApplication -Name "git.exe"
-$null = Get-RequiredApplication -Name "rg.exe"
-$NodeVersion = (& $NodePath -p "process.versions.node").Trim()
-if ([version]$NodeVersion -lt [version]"20.0.0") { throw "Node.js 20 or newer is required; found $NodeVersion." }
-$NodeArchitecture = (& $NodePath -p "process.arch").Trim()
-if ($NodeArchitecture -cne "x64") { throw "This release supports Windows x64 only; found Node architecture $NodeArchitecture." }
+function Invoke-InstallStage {
+  param(
+    [Parameter(Mandatory = $true)][int]$Number,
+    [Parameter(Mandatory = $true)][string]$Name,
+    [Parameter(Mandatory = $true)][scriptblock]$Body
+  )
 
-$Runtime = Test-PrebuiltRuntime
-if ($Runtime.Ready) {
-  Write-Output "Using prebuilt MCP runtime; npm build and tests are skipped."
-} else {
-  $NpmPath = Get-RequiredApplication -Name "npm.cmd"
-  Write-Output "Prebuilt runtime unavailable ($($Runtime.Reason)); building the source checkout."
-  & $NpmPath --prefix $ToolRoot ci --ignore-scripts --no-audit --no-fund
-  if ($LASTEXITCODE -ne 0) { throw "npm ci failed." }
-  & $NpmPath --prefix $ToolRoot run check
-  if ($LASTEXITCODE -ne 0) { throw "MCP build or test failed." }
-  $Runtime = Test-PrebuiltRuntime
-  if (-not $Runtime.Ready) { throw "MCP build completed without a valid prebuilt runtime: $($Runtime.Reason)" }
-}
-
-New-Item -ItemType Directory -Path $WorkspaceRoot -Force | Out-Null
-New-Item -ItemType Directory -Path $ProfileDirectory -Force | Out-Null
-New-Item -ItemType Directory -Path (Join-Path $WorkspaceRoot "artifacts\workforge-mcp") -Force | Out-Null
-foreach ($Name in @("AGENTS.md", "README.md", "WORKSTATION_POLICY.md", ".gitignore")) {
-  Install-UserTemplate -Name $Name
-}
-Ensure-IdentityMarker
-
-if (-not (Test-Path -LiteralPath (Join-Path $WorkspaceRoot ".git") -PathType Container)) {
-  & git.exe -C $WorkspaceRoot init --initial-branch=main | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw "Could not initialize the profile repository." }
-}
-
-if (-not $ProfileExists) {
-  $Profile = [ordered]@{
-    id = $ProfileId
-    displayName = $DisplayName
-    appName = $DisplayName
-    serverName = "workforge-$ProfileId-mcp"
-    defaultWorkingDirectoryRelative = "."
-    httpPort = 2198
-    bootstrapFiles = @("AGENTS.md", "README.md", "WORKSTATION_POLICY.md")
-    identityMarkers = @([ordered]@{ relativePath = "workstation.marker"; expectedLiteral = "identity=workforge-workstation" })
+  $script:InstallStageDetail = $null
+  if ($Embedded) {
+    Write-WorkForgeDetail -Text $Name -Tone "primary"
+    & $Body
+    if (-not [string]::IsNullOrWhiteSpace($script:InstallStageDetail)) {
+      Write-WorkForgeDetail -Text $script:InstallStageDetail -Tone "success"
+    }
+    return
   }
-  [IO.File]::WriteAllText($ProfilePath, ($Profile | ConvertTo-Json -Depth 6) + [Environment]::NewLine, $Utf8)
-} else {
-  $ExistingProfile = Read-StrictJson -Path $ProfilePath -Description "Existing workforge profile"
-  if ($ExistingProfile.id -isnot [string] -or $ExistingProfile.id -cne $ProfileId) {
-    throw "Existing profile id does not match the requested profile: $ProfilePath"
+
+  $script:CurrentInstallStage = Start-WorkForgeStage -Number $Number -Total 6 -Name $Name
+  try {
+    & $Body
+    Complete-WorkForgeStage -Stage $script:CurrentInstallStage -Detail $script:InstallStageDetail
+  } catch {
+    Fail-WorkForgeStage -Stage $script:CurrentInstallStage -Reason $_.Exception.Message
+    throw
   }
 }
 
-$ProfileHash = (Get-FileHash -LiteralPath $ProfilePath -Algorithm SHA256).Hash.ToLowerInvariant()
-Merge-ProfileRegistry -Path $RegistryPath -CurrentProfilePath ([IO.Path]::GetFullPath($ProfilePath)) -CurrentProfileHash $ProfileHash
-Ensure-TunnelClient
-
-if (-not $NoDesktopShortcut) {
-  $Desktop = [Environment]::GetFolderPath("Desktop")
-  if ($Desktop -and (Test-Path -LiteralPath $Desktop -PathType Container)) {
-    $Shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $Desktop "WorkForge Control.lnk"))
-    $Shortcut.TargetPath = (Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe")
-    $Shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $ToolRoot 'scripts\Control.ps1')`""
-    $Shortcut.WorkingDirectory = $ToolRoot
-    $Shortcut.Save()
+try {
+  if (-not $Embedded) {
+    Write-WorkForgeBanner -Action $Mode.ToUpperInvariant() -Subtitle "Shape a secure local workstation gateway"
+    Write-WorkForgePlan -Items @(
+      "Verify prerequisites",
+      "Prepare the MCP runtime",
+      "Create or preserve the workspace",
+      "Register the profile",
+      "Verify the secure tunnel client",
+      "Create the control shortcut"
+    )
   }
-}
 
-Write-Output "WorkForge $Mode completed."
-Write-Output "Profile root: $WorkspaceRoot"
-Write-Output "Registry: $RegistryPath"
-$TunnelConfigPath = Join-Path $ProfileDirectory "tunnel.local.yaml"
-if (Test-Path -LiteralPath $TunnelConfigPath -PathType Leaf) {
-  Write-Output "Tunnel configuration preserved. Run Doctor or Start from WorkForge Control."
-} else {
-  Write-Output "Next: configure your OpenAI tunnel through Setup.cmd or Configure Tunnel.cmd."
+  Invoke-InstallStage -Number 1 -Name "Prerequisites" -Body {
+    if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
+      throw "WorkForge currently supports Windows only."
+    }
+    if ($ProfileId -cnotmatch "^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$") { throw "ProfileId is invalid." }
+    if ([string]::IsNullOrWhiteSpace($DisplayName) -or $DisplayName.Length -gt 80) { throw "DisplayName is invalid." }
+
+    $script:ProfileExists = Test-Path -LiteralPath $ProfilePath -PathType Leaf
+    if ($Mode -eq "Install" -and $script:ProfileExists) {
+      throw "Profile already exists. Run Repair or Upgrade after reviewing it: $ProfilePath"
+    }
+    if (($Mode -eq "Repair" -or $Mode -eq "Upgrade") -and -not $script:ProfileExists) {
+      throw "$Mode requires an existing profile: $ProfilePath"
+    }
+
+    $script:PrerequisiteSnapshot = Ensure-WorkForgePrerequisites `
+      -InstallMissing:$InstallMissingPrerequisites `
+      -NonInteractive:$NonInteractive
+    $script:NodePath = [string](Get-WorkForgePrerequisiteItem -Snapshot $script:PrerequisiteSnapshot -Id "node").CommandPath
+    $script:GitPath = [string](Get-WorkForgePrerequisiteItem -Snapshot $script:PrerequisiteSnapshot -Id "git").CommandPath
+    $script:RipgrepPath = [string](Get-WorkForgePrerequisiteItem -Snapshot $script:PrerequisiteSnapshot -Id "ripgrep").CommandPath
+    Set-InstallStageDetail -Detail (Get-WorkForgePrerequisiteSummary -Snapshot $script:PrerequisiteSnapshot)
+  }
+
+  Invoke-InstallStage -Number 2 -Name "MCP runtime" -Body {
+    $script:Runtime = Test-PrebuiltRuntime
+    if ($script:Runtime.Ready) {
+      Write-WorkForgeDetail -Text "Using the prebuilt MCP runtime; source build and tests are skipped." -Tone "success"
+      Set-InstallStageDetail -Detail "prebuilt runtime"
+    } else {
+      $NpmPath = Get-RequiredApplication -Name "npm.cmd"
+      Write-WorkForgeDetail -Text "Prebuilt runtime unavailable ($($script:Runtime.Reason)); building the source checkout." -Tone "warning"
+      & $NpmPath --prefix $ToolRoot ci --ignore-scripts --no-audit --no-fund
+      if ($LASTEXITCODE -ne 0) { throw "npm ci failed." }
+      & $NpmPath --prefix $ToolRoot run check
+      if ($LASTEXITCODE -ne 0) { throw "MCP build or test failed." }
+      $script:Runtime = Test-PrebuiltRuntime
+      if (-not $script:Runtime.Ready) { throw "MCP build completed without a valid prebuilt runtime: $($script:Runtime.Reason)" }
+      Set-InstallStageDetail -Detail "source build verified"
+    }
+  }
+
+  Invoke-InstallStage -Number 3 -Name "Workspace" -Body {
+    New-Item -ItemType Directory -Path $WorkspaceRoot -Force | Out-Null
+    New-Item -ItemType Directory -Path $ProfileDirectory -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $WorkspaceRoot "artifacts\workforge-mcp") -Force | Out-Null
+    foreach ($Name in @("AGENTS.md", "README.md", "WORKSTATION_POLICY.md", ".gitignore")) {
+      Install-UserTemplate -Name $Name
+    }
+    Ensure-IdentityMarker
+
+    if (-not (Test-Path -LiteralPath (Join-Path $WorkspaceRoot ".git") -PathType Container)) {
+      & $script:GitPath -C $WorkspaceRoot init --initial-branch=main | Out-Null
+      if ($LASTEXITCODE -ne 0) { throw "Could not initialize the profile repository." }
+    }
+
+    if (-not $script:ProfileExists) {
+      $Profile = [ordered]@{
+        id = $ProfileId
+        displayName = $DisplayName
+        appName = $DisplayName
+        serverName = "workforge-$ProfileId-mcp"
+        defaultWorkingDirectoryRelative = "."
+        httpPort = 2198
+        bootstrapFiles = @("AGENTS.md", "README.md", "WORKSTATION_POLICY.md")
+        identityMarkers = @([ordered]@{ relativePath = "workstation.marker"; expectedLiteral = "identity=workforge-workstation" })
+      }
+      [IO.File]::WriteAllText($ProfilePath, ($Profile | ConvertTo-Json -Depth 6) + [Environment]::NewLine, $Utf8)
+    } else {
+      $ExistingProfile = Read-StrictJson -Path $ProfilePath -Description "Existing workforge profile"
+      if ($ExistingProfile.id -isnot [string] -or $ExistingProfile.id -cne $ProfileId) {
+        throw "Existing profile id does not match the requested profile: $ProfilePath"
+      }
+    }
+    Set-InstallStageDetail -Detail $WorkspaceRoot
+  }
+
+  Invoke-InstallStage -Number 4 -Name "Profile registry" -Body {
+    $ProfileHash = (Get-FileHash -LiteralPath $ProfilePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    Merge-ProfileRegistry -Path $RegistryPath -CurrentProfilePath ([IO.Path]::GetFullPath($ProfilePath)) -CurrentProfileHash $ProfileHash
+    Set-InstallStageDetail -Detail "profile $ProfileId registered"
+  }
+
+  Invoke-InstallStage -Number 5 -Name "Tunnel client" -Body {
+    Ensure-TunnelClient
+    Set-InstallStageDetail -Detail $(if ($SkipTunnelDownload) { "download skipped" } else { "verified" })
+  }
+
+  Invoke-InstallStage -Number 6 -Name "Control shortcut" -Body {
+    if ($NoDesktopShortcut) {
+      Set-InstallStageDetail -Detail "skipped"
+      return
+    }
+    $Desktop = [Environment]::GetFolderPath("Desktop")
+    if ($Desktop -and (Test-Path -LiteralPath $Desktop -PathType Container)) {
+      $Shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $Desktop "WorkForge Control.lnk"))
+      $Shortcut.TargetPath = (Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe")
+      $Shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $ToolRoot 'scripts\Control.ps1')`""
+      $Shortcut.WorkingDirectory = $ToolRoot
+      $Shortcut.Save()
+      Set-InstallStageDetail -Detail "WorkForge Control.lnk"
+    } else {
+      Set-InstallStageDetail -Detail "desktop unavailable"
+    }
+  }
+
+  $TunnelConfigPath = Join-Path $ProfileDirectory "tunnel.local.yaml"
+  $NextStep = if (Test-Path -LiteralPath $TunnelConfigPath -PathType Leaf) {
+    "Tunnel configuration preserved. Run Doctor or Start from WorkForge Control."
+  } else {
+    "Next: configure your OpenAI tunnel through Setup.cmd or Configure Tunnel.cmd."
+  }
+
+  if ($Embedded) {
+    Write-WorkForgeDetail -Text "WorkForge $Mode completed." -Tone "success"
+    Write-WorkForgeDetail -Text $NextStep -Tone "info"
+  } else {
+    Write-WorkForgeSummary -Title ("{0} COMPLETE" -f $Mode.ToUpperInvariant()) -Values ([ordered]@{
+      Profile = $WorkspaceRoot
+      Registry = $RegistryPath
+      Runtime = $(if ($script:Runtime.Ready) { "ready" } else { "unavailable" })
+      Startup = "manual"
+    }) -Tone "success"
+    Write-WorkForgeNotice -Level "info" -Message $NextStep
+  }
+} catch {
+  if (-not $Embedded) {
+    try {
+      Write-WorkForgeErrorPanel -Title ("{0} STOPPED" -f $Mode.ToUpperInvariant()) -Reason $_.Exception.Message -Stage $(if ($null -ne $script:CurrentInstallStage) { $script:CurrentInstallStage.Name } else { "initialization" }) -Fix "Correct the reported problem and run the command again."
+    } catch {}
+    exit 1
+  }
+  throw
 }

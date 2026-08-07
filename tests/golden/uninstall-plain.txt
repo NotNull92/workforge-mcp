@@ -1,0 +1,16 @@
+WORKFORGE UNINSTALL 1.2.0
+Remove the gateway without leaving a loose thread
+
+PLAN
+  [ ]  Verify installation identity
+  [ ]  Preserve the workspace
+
+[1/2] PREFLIGHT
+[OK] Preflight: last profile; engine release (0.1s)
+[2/2] ENGINE
+[SKIP] Engine: Source checkout protected
+
+UNINSTALL COMPLETE
+  Mode:        KeepWorkspace
+  Workspace:   preserved
+  Engine:      source

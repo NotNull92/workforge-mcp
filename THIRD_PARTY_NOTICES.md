@@ -1,24 +1,20 @@
 # Third-party notices
 
-WorkForge is licensed under MIT. The Windows runtime ZIP contains production
-npm packages installed from the versions pinned by `package-lock.json`; each package keeps
-its own bundled package metadata and license files under `node_modules/`.
+WorkForge does not vendor npm dependency source code in Git. `npm ci` installs versions pinned by `package-lock.json`, and the release builder stages production dependencies only.
 
-Direct project dependencies and build tools:
+| Component | Version | License |
+|---|---:|---|
+| `@modelcontextprotocol/sdk` | 1.29.0 | MIT |
+| `zod` | 4.4.3 | MIT |
+| `typescript` | 7.0.2 | Apache-2.0 |
+| `vitest` | 4.1.10 | MIT |
+| `@types/node` | 24.13.3 | MIT |
+| OpenAI `tunnel-client` | 0.0.10 | Apache-2.0 |
 
-| Component | Version | License | Distribution role |
-|---|---:|---|---|
-| `@modelcontextprotocol/sdk` | 1.29.0 | MIT | Runtime ZIP |
-| `zod` | 4.4.3 | MIT | Runtime ZIP |
-| `typescript` | 7.0.2 | Apache-2.0 | Source build only |
-| `vitest` | 4.1.10 | MIT | Source test only |
-| `@types/node` | 24.13.3 | MIT | Source build only |
-| OpenAI `tunnel-client` | 0.0.10 | Apache-2.0 | Downloaded and SHA-256 verified during installation |
+The installer downloads the pinned official Windows x64 `tunnel-client` release from `openai/tunnel-client` and verifies both its release archive and executable SHA-256 before installation.
 
-The exact transitive production graph is locked in `package-lock.json` and reconstructed in
-an isolated release staging directory with `npm ci --omit=dev --ignore-scripts`. The release
-builder rejects development-only packages and runs the production dependency audit gate.
+ForgeUI is an original dependency-free PowerShell implementation. Its terminal composition is informed by publicly documented interaction patterns common to Charmbracelet projects, but WorkForge does not vendor, redistribute, compile, or require Gum, Bubble Tea, Lip Gloss, Huh, Charm Log, Bubbles, VHS, or other Charmbracelet source code or binaries.
 
-Before public upload, review the complete staged dependency graph and all upstream license
-files. Dependency upgrades, portable runtime bundling, and installer tooling require a new
-third-party license review rather than relying on this summary alone.
+The optional prerequisite bootstrap invokes Windows Package Manager for `OpenJS.NodeJS.LTS`, `Git.Git`, and `BurntSushi.ripgrep.MSVC` only after consent. These applications are installed from the external WinGet source and are not bundled or redistributed inside the WorkForge archive. Their package manifests, installers, and licenses remain governed by their respective publishers.
+
+Review upstream license texts and the complete dependency graph whenever dependencies, bundled executables, or release packaging change.

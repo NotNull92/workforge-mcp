@@ -25,15 +25,23 @@ param(
 
   [switch]$NoDesktopShortcut,
 
+  [switch]$InstallMissingPrerequisites,
+
   [switch]$NonInteractive,
 
-  [string]$RegistryPath
+  [string]$RegistryPath,
+
+  [switch]$Plain,
+
+  [switch]$NoLog
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 3.0
 
 $ToolRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..") -ErrorAction Stop).Path
+$Package = Get-Content -Raw -LiteralPath (Join-Path $ToolRoot "package.json") | ConvertFrom-Json -ErrorAction Stop
+$Version = [string]$Package.version
 $WorkspaceRoot = [IO.Path]::GetFullPath($WorkspaceRoot)
 $ProfilePath = Join-Path $WorkspaceRoot "tools\workforge-mcp\profile.json"
 $TunnelManagementUrl = "https://platform.openai.com/settings/organization/tunnels"
@@ -44,7 +52,16 @@ if (-not [string]::IsNullOrWhiteSpace($RegistryPath)) {
   [Environment]::SetEnvironmentVariable("WORKFORGE_MCP_PROFILE_REGISTRY", $RegistryPath, "Process")
 }
 
+. (Join-Path $PSScriptRoot "WorkForge.UI.ps1")
 . (Join-Path $PSScriptRoot "profile-registry.ps1")
+$Ui = Initialize-WorkForgeUi -Operation "setup" -Version $Version -ToolRoot $ToolRoot -Plain:$Plain -NoLog:$NoLog
+$CurrentStage = $null
+$script:SetupStageDetail = $null
+
+function Set-SetupStageDetail {
+  param([string]$Detail)
+  $script:SetupStageDetail = $Detail
+}
 
 function Invoke-SetupStage {
   param(
@@ -53,11 +70,13 @@ function Invoke-SetupStage {
     [Parameter(Mandatory = $true)][scriptblock]$Body
   )
 
-  Write-Host ""
-  Write-Host "[$Number/6] $Name" -ForegroundColor Cyan
+  $script:SetupStageDetail = $null
+  $script:CurrentStage = Start-WorkForgeStage -Number $Number -Total 6 -Name $Name
   try {
     & $Body
+    Complete-WorkForgeStage -Stage $script:CurrentStage -Detail $script:SetupStageDetail
   } catch {
+    Fail-WorkForgeStage -Stage $script:CurrentStage -Reason $_.Exception.Message
     throw "Setup stage '$Name' failed: $($_.Exception.Message)"
   }
 }
@@ -66,7 +85,7 @@ function Open-SetupPage {
   param([Parameter(Mandatory = $true)][string]$Url)
 
   if ($NoBrowser) {
-    Write-Output "Browser handoff disabled: $Url"
+    Write-WorkForgeDetail -Text "Browser handoff disabled: $Url" -Tone "muted"
     return
   }
   Start-Process $Url
@@ -85,18 +104,29 @@ function Test-ConfiguredTunnel {
 $TunnelConfigured = $false
 $ResolvedMode = $Mode
 try {
-  Invoke-SetupStage -Number 1 -Name "environment" -Body {
+  Write-WorkForgeBanner -Action "SETUP"
+  Write-WorkForgePlan -Items @(
+    "Environment",
+    "Runtime and profile",
+    "Secure tunnel",
+    "Health check",
+    "Tunnel start",
+    "ChatGPT handoff"
+  )
+
+  Invoke-SetupStage -Number 1 -Name "Environment" -Body {
     if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
       throw "WorkForge currently supports Windows only."
     }
     if (-not [Environment]::Is64BitOperatingSystem) {
       throw "WorkForge requires 64-bit Windows."
     }
-    Write-Output "Engine root: $ToolRoot"
-    Write-Output "Profile root: $WorkspaceRoot"
+    Write-WorkForgeDetail -Text "Engine root: $ToolRoot"
+    Write-WorkForgeDetail -Text "Profile root: $WorkspaceRoot"
+    Set-SetupStageDetail -Detail "Windows x64"
   }
 
-  Invoke-SetupStage -Number 2 -Name "install" -Body {
+  Invoke-SetupStage -Number 2 -Name "Runtime and profile" -Body {
     if ($ResolvedMode -eq "Auto") {
       $ResolvedMode = if (Test-Path -LiteralPath $ProfilePath -PathType Leaf) { "Repair" } else { "Install" }
     }
@@ -105,20 +135,29 @@ try {
       ProfileId = $ProfileId
       DisplayName = $DisplayName
       Mode = $ResolvedMode
+      Embedded = $true
+      InstallMissingPrerequisites = [bool]$InstallMissingPrerequisites
+      NonInteractive = [bool]$NonInteractive
+      Plain = [bool]$Plain
+      NoLog = [bool]$NoLog
+      LogPath = Get-WorkForgeUiLogPath
     }
     if (-not [string]::IsNullOrWhiteSpace($RegistryPath)) { $InstallParameters.RegistryPath = $RegistryPath }
     if ($SkipTunnelDownload) { $InstallParameters.SkipTunnelDownload = $true }
     if ($NoDesktopShortcut) { $InstallParameters.NoDesktopShortcut = $true }
     & (Join-Path $PSScriptRoot "Install.ps1") @InstallParameters
+    Set-SetupStageDetail -Detail $ResolvedMode
   }
 
-  Invoke-SetupStage -Number 3 -Name "tunnel configuration" -Body {
+  Invoke-SetupStage -Number 3 -Name "Secure tunnel" -Body {
     $TunnelConfigured = Test-ConfiguredTunnel
     if ($SkipTunnelConfiguration) {
       if ($TunnelConfigured) {
-        Write-Output "Existing tunnel configuration and protected credential are valid."
+        Write-WorkForgeDetail -Text "Existing tunnel configuration and protected credential are valid." -Tone "success"
+        Set-SetupStageDetail -Detail "existing configuration"
       } else {
-        Write-Output "Tunnel configuration skipped by request."
+        Write-WorkForgeDetail -Text "Tunnel configuration skipped by request."
+        Set-SetupStageDetail -Detail "skipped"
       }
       return
     }
@@ -128,10 +167,10 @@ try {
         throw "Non-interactive setup requires -TunnelId or an existing valid tunnel configuration."
       }
       if (-not $NoBrowser) {
-        Write-Output "Opening OpenAI tunnel management. Create or select a tunnel, then return here."
+        Write-WorkForgeDetail -Text "Opening OpenAI tunnel management. Create or select a tunnel, then return here." -Tone "info"
         Open-SetupPage -Url $TunnelManagementUrl
       } else {
-        Write-Output "OpenAI tunnel management: $TunnelManagementUrl"
+        Write-WorkForgeDetail -Text "OpenAI tunnel management: $TunnelManagementUrl" -Tone "info"
       }
 
       $ExistingKey = [Environment]::GetEnvironmentVariable("CONTROL_PLANE_API_KEY", "Process")
@@ -148,28 +187,34 @@ try {
       & (Join-Path $PSScriptRoot "Configure-Tunnel.ps1") @ConfigureParameters
       $TunnelConfigured = Test-ConfiguredTunnel
       if (-not $TunnelConfigured) { throw "Tunnel configuration did not pass local validation." }
+      Set-SetupStageDetail -Detail "configured"
     } else {
-      Write-Output "Existing tunnel configuration and protected credential are valid."
+      Write-WorkForgeDetail -Text "Existing tunnel configuration and protected credential are valid." -Tone "success"
+      Set-SetupStageDetail -Detail "existing configuration"
     }
   }
 
-  Invoke-SetupStage -Number 4 -Name "doctor" -Body {
+  Invoke-SetupStage -Number 4 -Name "Health check" -Body {
     if (-not $TunnelConfigured) {
-      Write-Output "Doctor skipped because no validated tunnel configuration is available."
+      Write-WorkForgeDetail -Text "Doctor skipped because no validated tunnel configuration is available."
+      Set-SetupStageDetail -Detail "skipped"
       return
     }
     $DoctorParameters = @{ ProfileId = $ProfileId }
     if (-not $SkipOnlineDoctor) { $DoctorParameters.Online = $true }
     & (Join-Path $PSScriptRoot "Doctor.ps1") @DoctorParameters
+    Set-SetupStageDetail -Detail $(if ($SkipOnlineDoctor) { "local" } else { "online" })
   }
 
-  Invoke-SetupStage -Number 5 -Name "start" -Body {
+  Invoke-SetupStage -Number 5 -Name "Tunnel start" -Body {
     if (-not $TunnelConfigured) {
-      Write-Output "Start skipped because no validated tunnel configuration is available."
+      Write-WorkForgeDetail -Text "Start skipped because no validated tunnel configuration is available."
+      Set-SetupStageDetail -Detail "skipped"
       return
     }
     if ($SkipStart) {
-      Write-Output "Tunnel start skipped by request."
+      Write-WorkForgeDetail -Text "Tunnel start skipped by request."
+      Set-SetupStageDetail -Detail "skipped"
       return
     }
 
@@ -182,25 +227,38 @@ try {
       $AlreadyRunning = $false
     }
     if ($AlreadyRunning) {
-      Write-Output "Tunnel profile $ProfileId is already running."
+      Write-WorkForgeDetail -Text "Tunnel profile $ProfileId is already running." -Tone "success"
+      Set-SetupStageDetail -Detail "already running"
     } else {
       & (Join-Path $PSScriptRoot "start-tunnel.ps1") -ProfileId $ProfileId
+      Set-SetupStageDetail -Detail "running"
     }
   }
 
   Invoke-SetupStage -Number 6 -Name "ChatGPT handoff" -Body {
     if (-not $TunnelConfigured) {
-      Write-Output "ChatGPT handoff skipped until tunnel configuration is complete."
+      Write-WorkForgeDetail -Text "ChatGPT handoff skipped until tunnel configuration is complete."
+      Set-SetupStageDetail -Detail "skipped"
       return
     }
-    Write-Output "In ChatGPT, enable Settings > Security and login > Developer mode."
-    Write-Output "Then select the plus button on the Plugins page, choose Tunnel, and select or enter the same tunnel."
+    Write-WorkForgeDetail -Text "Enable Settings > Security and login > Developer mode in ChatGPT." -Tone "info"
+    Write-WorkForgeDetail -Text "On the Plugins page, choose Tunnel and select the same tunnel." -Tone "info"
     Open-SetupPage -Url $ChatGptPluginsUrl
+    Set-SetupStageDetail -Detail $(if ($NoBrowser) { "instructions printed" } else { "Plugins opened" })
   }
 
-  Write-Host ""
-  Write-Host "WorkForge setup completed." -ForegroundColor Green
-  Write-Host "Windows startup was not registered; after a reboot the tunnel remains stopped."
+  Write-WorkForgeSummary -Title "WORKFORGE READY" -Values ([ordered]@{
+    Profile = $WorkspaceRoot
+    Tunnel = $(if ($TunnelConfigured -and -not $SkipStart) { "live or already running" } elseif ($TunnelConfigured) { "configured" } else { "not configured" })
+    Tools = "12 available after connection"
+    Startup = "manual"
+  }) -Tone "success"
+  Write-WorkForgeNotice -Level "info" -Message "Nothing was registered to start with Windows."
+} catch {
+  try {
+    Write-WorkForgeErrorPanel -Title "SETUP COULD NOT COMPLETE" -Reason $_.Exception.Message -Stage $(if ($null -ne $script:CurrentStage) { $script:CurrentStage.Name } else { "initialization" }) -Fix "Review the detail log, correct the reported problem, and run Setup.cmd again."
+  } catch {}
+  exit 1
 } finally {
   [Environment]::SetEnvironmentVariable("WORKFORGE_MCP_PROFILE_REGISTRY", $OriginalRegistryEnvironment, "Process")
 }

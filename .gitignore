@@ -4,4 +4,7 @@ runtime/
 release/*
 !release/README.md
 *.log
+*.jsonl
+uninstall-*.json
+.workforge-release.json
 *.user
