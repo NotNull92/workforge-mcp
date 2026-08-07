@@ -2,6 +2,10 @@
 
 **English** | [한국어](README.ko.md)
 
+<p align="center">
+  <img src="docs/logo/logo.png" alt="WorkForge MCP logo" width="360" />
+</p>
+
 > **ChatGPT is smart, but it does not normally have hands inside your PC. WorkForge gives it a safe pair of hands.**
 
 WorkForge connects ChatGPT to your Windows workstation so it can inspect real project files, understand Git state, make guarded edits, read local images, and run supervised PowerShell commands.

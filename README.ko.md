@@ -2,6 +2,10 @@
 
 [English](README.md) | **한국어**
 
+<p align="center">
+  <img src="docs/logo/logo.png" alt="WorkForge MCP 로고" width="360" />
+</p>
+
 > **ChatGPT는 머리는 좋지만 내 PC에 손이 없습니다. WorkForge는 그 손을 안전하게 연결해 줍니다.**
 
 WorkForge는 ChatGPT가 내 Windows PC의 파일과 프로젝트를 직접 살펴보고, 필요한 파일을 수정하고, Git 상태를 확인하고, PowerShell 명령을 실행할 수 있게 해주는 연결 도구입니다.
