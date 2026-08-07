@@ -31,15 +31,22 @@ try {
     "/Configure Tunnel.cmd",
     "/WorkForge Control.cmd",
     "/README.ko.md",
+    "/control-ui/index.html",
+    "/control-ui/app.js",
+    "/control-ui/style.css",
     "/dist/stdio.js",
     "/node_modules/@modelcontextprotocol/sdk/package.json",
     "/node_modules/zod/package.json",
     "/scripts/Setup.ps1",
+    "/scripts/Launch-Control.ps1",
+    "/scripts/control-server.mjs",
+    "/scripts/test-control-dashboard.mjs",
     "/scripts/Uninstall.ps1",
     "/scripts/uninstall-finalizer.ps1",
     "/scripts/WorkForge.UI.ps1",
     "/scripts/WorkForge.Prerequisites.ps1",
     "/scripts/test-prerequisites.ps1",
+    "/docs/logo/logo.png",
     "/docs/UNINSTALL.md"
   )
   foreach ($Suffix in $RequiredSuffixes) {

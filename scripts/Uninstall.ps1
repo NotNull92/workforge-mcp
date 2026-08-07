@@ -194,14 +194,22 @@ function Remove-VerifiedShortcut {
 
   $Shell = New-Object -ComObject WScript.Shell
   $Shortcut = $Shell.CreateShortcut($ShortcutPath)
-  $ExpectedTarget = (Get-WorkForgePowerShellExecutablePath)
-  $ExpectedControl = [IO.Path]::GetFullPath((Join-Path $ToolRoot "scripts\Control.ps1"))
+  $ExpectedDashboardTarget = [IO.Path]::GetFullPath((Join-Path $ToolRoot "WorkForge Control.cmd"))
+  $ExpectedLegacyTarget = (Get-WorkForgePowerShellExecutablePath)
+  $ExpectedLegacyControl = [IO.Path]::GetFullPath((Join-Path $ToolRoot "scripts\Control.ps1"))
   $ObservedTarget = [IO.Path]::GetFullPath([string]$Shortcut.TargetPath)
   $Arguments = [string]$Shortcut.Arguments
   $WorkingDirectory = [IO.Path]::GetFullPath([string]$Shortcut.WorkingDirectory)
+  $MatchesDashboard = (
+    $ObservedTarget.Equals($ExpectedDashboardTarget, [StringComparison]::OrdinalIgnoreCase) -and
+    [string]::IsNullOrWhiteSpace($Arguments)
+  )
+  $MatchesLegacy = (
+    $ObservedTarget.Equals($ExpectedLegacyTarget, [StringComparison]::OrdinalIgnoreCase) -and
+    $Arguments.IndexOf($ExpectedLegacyControl, [StringComparison]::OrdinalIgnoreCase) -ge 0
+  )
   if (
-    -not $ObservedTarget.Equals($ExpectedTarget, [StringComparison]::OrdinalIgnoreCase) -or
-    $Arguments.IndexOf($ExpectedControl, [StringComparison]::OrdinalIgnoreCase) -lt 0 -or
+    (-not $MatchesDashboard -and -not $MatchesLegacy) -or
     -not $WorkingDirectory.Equals($ToolRoot, [StringComparison]::OrdinalIgnoreCase)
   ) {
     return [pscustomobject]@{ Removed = $false; Detail = "Shortcut target did not match this WorkForge engine and was preserved." }

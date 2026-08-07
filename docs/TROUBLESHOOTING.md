@@ -101,15 +101,29 @@ Create or copy it from OpenAI Platform tunnel management. Do not enter an Admin 
 
 Do not paste the key into an issue, log, command argument, or support bundle. Re-run `Configure Tunnel.cmd` from the same Windows account that owns the installation. A credential copied from another machine or account must be reviewed and deliberately replaced.
 
-## Control opens and immediately closes
+## Control Dashboard does not open
 
-WorkForge wrappers preserve non-zero exit codes and pause on failure. For automation without prompts:
+`WorkForge Control.cmd` now launches a hidden local Node control server and opens the Dashboard in the default browser. The server binds only to `127.0.0.1` on a temporary port.
+
+If the browser does not open:
+
+1. confirm that `node.exe` is available with `Get-Command node.exe`;
+2. run `Setup.cmd` again if Node.js or the WorkForge runtime is missing;
+3. try the retained terminal fallback:
+
+```text
+WorkForge Control.cmd --cli
+```
+
+For direct diagnostics or automation without a browser:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\Control.ps1 -Action status -NoPause -Plain -NoLog
 ```
 
-The error panel identifies the failed action, provides a sanitized reason, and prints a Doctor or uninstall hint.
+If the Dashboard opens but shows **WorkForge status is unavailable**, run Doctor from the Dashboard or use the CLI command above. The Dashboard intentionally does not listen on LAN addresses and will reject requests whose Host, session cookie, or POST Origin does not match its local session.
+
+Closing the browser tab does not create a permanent background service. Once the browser stops polling, the hidden Control Server exits automatically after a bounded idle period.
 
 ## Tunnel does not become ready
 

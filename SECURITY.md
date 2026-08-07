@@ -56,6 +56,24 @@ Compatible existing commands are reported and left untouched.
 - After installation, WorkForge refreshes the current process PATH and revalidates every requirement before continuing.
 - Raw WinGet output is not written into lifecycle JSONL logs.
 
+## Local Control Dashboard boundary
+
+`WorkForge Control.cmd` launches a temporary local HTML dashboard instead of exposing a network administration service.
+
+- The Node control server binds only to `127.0.0.1` on an ephemeral local port.
+- It never binds to `0.0.0.0` and does not enable CORS.
+- The exact `Host` header must match the loopback address and selected port, reducing DNS-rebinding exposure.
+- A fresh cryptographically random session secret lives only in server memory and is delivered through an HttpOnly, SameSite=Strict cookie.
+- Mutating POST requests additionally require the exact same-origin `Origin` header.
+- Browser JavaScript never receives the Secure MCP Tunnel Runtime API Key.
+- Responses use a restrictive Content Security Policy, deny framing, disable caching, and load no remote scripts, styles, fonts, or analytics.
+- The dashboard calls the same PowerShell Start, Stop, Status, Doctor, and Uninstall implementations used by the CLI. The browser layer does not bypass their existing validation.
+- RemoveEverything still requires the exact `REMOVE WORKFORGE` phrase. The dashboard also requires an uninstall preview and explicit confirmation before invoking removal.
+- The control server changes its working directory to the system temporary directory before serving requests so verified release self-removal is not blocked by its current directory.
+- No service, scheduled task, startup item, or persistent dashboard process is created. When polling stops, the local server exits after a bounded idle period.
+
+The terminal path remains available through `WorkForge Control.cmd --cli` or direct `scripts\Control.ps1` actions for diagnostics and recovery.
+
 ## Runtime and process safety
 
 - Nothing is registered to start with Windows.

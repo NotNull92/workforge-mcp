@@ -335,6 +335,47 @@ ChatGPT chooses the WorkForge tools it needs.
 
 ---
 
+## Day to day, just open WorkForge Control
+
+After setup, you do not need to run `Setup.cmd` again for normal use.
+
+Double-click:
+
+```text
+WorkForge Control.cmd
+```
+
+Instead of a console menu, WorkForge now opens a **local browser dashboard** where you can see the important state at a glance and manage it with buttons.
+
+```text
+Secure Tunnel   Online / Offline
+Health          Healthy / Attention
+Readiness       Ready / Waiting
+Supervisor      Running / Stopped
+Recovery        Normal / Recovering
+```
+
+From the Dashboard you can:
+
+- **Start Tunnel** so ChatGPT can reach WorkForge.
+- **Stop Tunnel** and its supervisor safely.
+- **Refresh** the current state immediately.
+- **Run Doctor** to check the profile, runtime, tunnel client, credential and online path.
+- Review **Recent Activity** in short human-readable messages.
+- Open **Uninstall**, preview the removal with `WhatIf`, and confirm before anything is deleted.
+
+The Dashboard is not a remotely exposed admin site. It binds only to **`127.0.0.1` on the current PC**, uses a fresh local session each time, rejects cross-origin control requests, and shuts its background Control Server down after the browser stops making requests for a while.
+
+The old terminal control path is still available as a recovery and advanced-user fallback:
+
+```text
+WorkForge Control.cmd --cli
+```
+
+Advanced users can also invoke `scripts\Control.ps1` actions such as `start`, `stop`, `status`, and `doctor` directly.
+
+---
+
 ## Is it safe?
 
 WorkForge gives ChatGPT meaningful access to a workstation, so safety is part of the design rather than an afterthought.
@@ -531,7 +572,7 @@ npm.cmd run smoke:stdio -- workstation
 npm.cmd run release
 ```
 
-`npm run check` validates the TypeScript server plus prerequisite detection, installation modes, ForgeUI, Uninstall, privacy, security, Tunnel recovery, and production dependencies.
+`npm run check` validates the TypeScript server plus prerequisite detection, installation modes, the loopback-only Control Dashboard, CLI fallback, ForgeUI, Uninstall, privacy, security, Tunnel recovery, and production dependencies.
 
 ### Privacy gate
 

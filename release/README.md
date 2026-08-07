@@ -6,6 +6,7 @@ The WorkForge 1.2 runtime ZIP includes:
 
 - `dist` and production `node_modules`;
 - Setup, Install, Configure Tunnel, Control, and Uninstall entry points;
+- a local HTML Control Dashboard served only on `127.0.0.1`, with the terminal Control path retained as a fallback;
 - ForgeUI, plain-mode rendering, and the consent-gated missing-prerequisite bootstrap;
 - the detached uninstall finalizer;
 - `.workforge-release.json`, generated only in release staging;

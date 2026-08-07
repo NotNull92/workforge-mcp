@@ -340,6 +340,47 @@ ChatGPT가 필요한 WorkForge 도구를 선택해서 사용합니다.
 
 ---
 
+## 평소에는 WorkForge Control만 열면 됩니다
+
+설치가 끝난 뒤에는 `Setup.cmd`를 반복해서 실행할 필요가 없습니다.
+
+다음을 더블클릭합니다.
+
+```text
+WorkForge Control.cmd
+```
+
+그러면 콘솔 메뉴 대신 **로컬 WorkForge Dashboard가 기본 브라우저에서 열립니다.** 여기서 현재 상태를 한눈에 확인하고 버튼으로 관리할 수 있습니다.
+
+```text
+Secure Tunnel   Online / Offline
+Health          Healthy / Attention
+Readiness       Ready / Waiting
+Supervisor      Running / Stopped
+Recovery        Normal / Recovering
+```
+
+Dashboard에서 바로 할 수 있는 일:
+
+- **Start Tunnel**: ChatGPT가 WorkForge에 접속할 수 있도록 Tunnel을 켭니다.
+- **Stop Tunnel**: Tunnel과 Supervisor를 안전하게 중지합니다.
+- **Refresh**: 현재 상태를 즉시 다시 확인합니다.
+- **Run Doctor**: 프로필, Runtime, Tunnel Client, 자격 증명, 온라인 연결을 검사합니다.
+- **Recent Activity**: 방금 어떤 일이 일어났는지 쉬운 문장으로 확인합니다.
+- **Uninstall**: 실제 삭제 전에 `WhatIf` 미리보기를 보여주고 다시 확인을 받습니다.
+
+Dashboard는 인터넷에 공개되는 관리 페이지가 아닙니다. **현재 PC의 `127.0.0.1`에서만 열리는 로컬 화면**이며, 실행할 때마다 새로운 세션을 사용합니다. 브라우저 탭을 닫고 요청이 없어지면 백그라운드 Control Server도 일정 시간 뒤 자동 종료됩니다.
+
+기존 터미널 Control은 삭제하지 않았습니다. 브라우저 GUI가 열리지 않거나 복구 작업이 필요하면 다음처럼 사용할 수 있습니다.
+
+```text
+WorkForge Control.cmd --cli
+```
+
+또는 고급 사용자는 `scripts\Control.ps1`의 `start`, `stop`, `status`, `doctor` 액션을 직접 호출할 수 있습니다.
+
+---
+
 ## 안전한가요?
 
 WorkForge는 PC에 강한 권한을 부여하는 도구이기 때문에 편리함만큼 안전장치도 중요하게 다룹니다.
@@ -532,7 +573,7 @@ npm.cmd run smoke:stdio -- workstation
 npm.cmd run release
 ```
 
-`npm run check`는 TypeScript 테스트뿐 아니라 설치, prerequisite 감지, ForgeUI, Uninstall, Privacy, Security, Tunnel Recovery, 운영 의존성까지 함께 검증합니다.
+`npm run check`는 TypeScript 테스트뿐 아니라 설치, prerequisite 감지, 로컬 Control Dashboard, CLI fallback, ForgeUI, Uninstall, Privacy, Security, Tunnel Recovery, 운영 의존성까지 함께 검증합니다.
 
 ### Privacy Gate
 

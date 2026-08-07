@@ -35,6 +35,39 @@ scripts/Setup.ps1
 
 Setup is orchestration, not a new security boundary. The lower-level scripts remain the source of truth and can be invoked independently. Setup creates no startup persistence.
 
+## Local Control Dashboard
+
+```text
+WorkForge Control.cmd
+    |
+scripts/Launch-Control.ps1
+    |-- resolve system Node.js
+    |-- start hidden control-server.mjs
+    `-- return immediately; no startup persistence
+            |
+            v
+    127.0.0.1:<ephemeral-port>
+            |
+      control-ui/index.html
+            |
+            |-- GET  /api/status
+            |-- POST /api/start
+            |-- POST /api/stop
+            |-- POST /api/doctor
+            |-- POST /api/uninstall/preview
+            |-- POST /api/uninstall
+            `-- POST /api/shutdown
+                    |
+                    v
+          existing PowerShell lifecycle scripts
+```
+
+The browser dashboard is a presentation layer over the existing PowerShell source of truth. `Control.ps1` remains available through `WorkForge Control.cmd --cli` and direct action invocation.
+
+The dashboard server binds only to IPv4 loopback (`127.0.0.1`) on an ephemeral port. It does not enable CORS and rejects unexpected `Host` headers. A random in-memory session secret is delivered only through an HttpOnly, SameSite=Strict cookie. Mutating POST requests additionally require the exact same-origin `Origin` header. Responses use a restrictive Content Security Policy, deny framing, disable caching, and do not expose the Runtime API Key to browser JavaScript.
+
+The Node control process changes its working directory to the system temporary directory so a verified release engine can still remove itself during uninstall. When browser polling stops, the server exits after a bounded idle period. No service, scheduled task, Run key, or other persistent dashboard process is created.
+
 ## Prerequisite bootstrap
 
 ```text

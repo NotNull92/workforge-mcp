@@ -440,8 +440,8 @@ try {
     $Desktop = [Environment]::GetFolderPath("Desktop")
     if ($Desktop -and (Test-Path -LiteralPath $Desktop -PathType Container)) {
       $Shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $Desktop "WorkForge Control.lnk"))
-      $Shortcut.TargetPath = (Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe")
-      $Shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $ToolRoot 'scripts\Control.ps1')`""
+      $Shortcut.TargetPath = (Join-Path $ToolRoot "WorkForge Control.cmd")
+      $Shortcut.Arguments = ""
       $Shortcut.WorkingDirectory = $ToolRoot
       $Shortcut.Save()
       Set-InstallStageDetail -Detail "WorkForge Control.lnk"

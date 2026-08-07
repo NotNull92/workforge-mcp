@@ -23,7 +23,7 @@ $StagingRoot = Join-Path $StagingParent "WorkForge"
 $Include = @(
   ".gitattributes", ".gitignore", "AGENTS.md", "Setup.cmd", "Configure Tunnel.cmd", "WorkForge Control.cmd", "Install.cmd", "Uninstall.cmd",
   "README.md", "README.ko.md", "SECURITY.md", "THIRD_PARTY_NOTICES.md", "LICENSE", "package.json", "package-lock.json",
-  "tsconfig.json", "docs", "scripts", "src", "templates", "tests", "dist"
+  "tsconfig.json", "control-ui", "docs", "scripts", "src", "templates", "tests", "dist"
 )
 
 function Get-StagedRelativePath {
@@ -92,7 +92,7 @@ try {
   $AuthoredFiles = @(
     Get-ChildItem -LiteralPath $StagingRoot -Recurse -File | Where-Object {
       $Relative = Get-StagedRelativePath -Path $_.FullName
-      $Relative -notmatch '^node_modules\\' -and $_.Extension -in @(".md", ".ps1", ".cmd", ".json", ".ts", ".mjs", ".txt", ".yml")
+      $Relative -notmatch '^node_modules\\' -and $_.Extension -in @(".md", ".ps1", ".cmd", ".json", ".ts", ".mjs", ".js", ".html", ".css", ".txt", ".yml")
     }
   )
   $UserProfile = [Environment]::GetFolderPath("UserProfile")

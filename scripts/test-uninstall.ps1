@@ -63,6 +63,7 @@ function New-TestEngine {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $ScriptName) -Destination (Join-Path $ScriptsRoot $ScriptName) -Force
   }
   [IO.File]::WriteAllText((Join-Path $ScriptsRoot "Control.ps1"), "# test control fixture`n", $Utf8)
+  [IO.File]::WriteAllText((Join-Path $EngineRoot "WorkForge Control.cmd"), "@echo off`r`nexit /b 0`r`n", $Utf8)
   Write-JsonFile -Path (Join-Path $EngineRoot "package.json") -Value ([ordered]@{ name = "workforge-mcp"; version = "1.2.0" })
 
   if ($SourceCheckout) {
@@ -117,8 +118,8 @@ function New-TestShortcut {
   New-Item -ItemType Directory -Path $DesktopDirectory -Force | Out-Null
   $ShortcutPath = Join-Path $DesktopDirectory "WorkForge Control.lnk"
   $Shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($ShortcutPath)
-  $Shortcut.TargetPath = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
-  $Shortcut.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $EngineRoot 'scripts\Control.ps1')`""
+  $Shortcut.TargetPath = Join-Path $EngineRoot "WorkForge Control.cmd"
+  $Shortcut.Arguments = ""
   $Shortcut.WorkingDirectory = $EngineRoot
   $Shortcut.Save()
   return $ShortcutPath

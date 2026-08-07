@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WorkForge Control</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <img class="brand-logo" src="/logo.png" alt="WorkForge" />
+        <div>
+          <p class="eyebrow">LOCAL CONTROL DASHBOARD</p>
+          <h1>WorkForge Control</h1>
+          <p class="subtitle">Your AI's hands on Windows, with a dashboard you can actually read.</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span id="profileChip" class="chip">profile: …</span>
+        <span id="connectionChip" class="chip chip-neutral"><span class="dot"></span> Checking</span>
+        <button id="closeControlButton" class="button button-ghost" type="button">Close Control</button>
+      </div>
+    </header>
+
+    <section class="hero-grid">
+      <article class="panel panel-hero">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">SECURE TUNNEL</p>
+            <h2 id="tunnelTitle">Checking your connection…</h2>
+          </div>
+          <div id="heroStatus" class="status-orb status-neutral" aria-label="Tunnel status"></div>
+        </div>
+        <p id="tunnelSummary" class="panel-copy">WorkForge is asking the local supervisor for the current state.</p>
+
+        <div class="metric-row">
+          <div class="metric">
+            <span class="metric-label">Health</span>
+            <strong id="healthMetric">Checking</strong>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Readiness</span>
+            <strong id="readyMetric">Checking</strong>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Supervisor</span>
+            <strong id="supervisorMetric">Checking</strong>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Recovery</span>
+            <strong id="recoveryMetric">Checking</strong>
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button id="startButton" class="button button-primary" type="button">▶ Start Tunnel</button>
+          <button id="stopButton" class="button button-secondary" type="button">■ Stop Tunnel</button>
+          <button id="refreshButton" class="button button-ghost" type="button">↻ Refresh</button>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-heading compact">
+          <div>
+            <p class="eyebrow">SYSTEM CHECK</p>
+            <h2>Doctor</h2>
+          </div>
+          <span id="doctorBadge" class="badge badge-neutral">Not run yet</span>
+        </div>
+        <p class="panel-copy">One click checks the local profile, runtime, tunnel client, credential and online tunnel path.</p>
+
+        <div id="healthChecklist" class="checklist">
+          <div class="check-row"><span>Profile</span><span id="profileCheck" class="check-state">…</span></div>
+          <div class="check-row"><span>Tunnel process</span><span id="processCheck" class="check-state">…</span></div>
+          <div class="check-row"><span>Supervisor</span><span id="supervisorCheck" class="check-state">…</span></div>
+          <div class="check-row"><span>MCP readiness</span><span id="readyCheck" class="check-state">…</span></div>
+        </div>
+
+        <button id="doctorButton" class="button button-primary button-full" type="button">Run Doctor</button>
+        <details id="doctorDetails" class="details-box">
+          <summary>View technical details</summary>
+          <pre id="doctorOutput">Doctor has not been run in this dashboard session.</pre>
+        </details>
+      </article>
+    </section>
+
+    <section class="content-grid">
+      <article class="panel activity-panel">
+        <div class="panel-heading compact">
+          <div>
+            <p class="eyebrow">RECENT ACTIVITY</p>
+            <h2>What just happened?</h2>
+          </div>
+          <span id="busyBadge" class="badge badge-neutral">Idle</span>
+        </div>
+        <div id="activityList" class="activity-list" aria-live="polite"></div>
+      </article>
+
+      <article class="panel help-panel">
+        <p class="eyebrow">QUICK GUIDE</p>
+        <h2>Green means go.</h2>
+        <p class="panel-copy">If Tunnel, Health and Ready are green, ChatGPT can reach WorkForge. If something turns red, run Doctor before changing anything else.</p>
+        <div class="legend">
+          <span><i class="legend-dot legend-green"></i> Ready</span>
+          <span><i class="legend-dot legend-amber"></i> Working / attention</span>
+          <span><i class="legend-dot legend-red"></i> Needs help</span>
+        </div>
+      </article>
+    </section>
+
+    <section class="panel danger-panel">
+      <div class="danger-copy">
+        <p class="eyebrow">DANGER ZONE</p>
+        <h2>Remove WorkForge</h2>
+        <p class="panel-copy">You can remove WorkForge while keeping your workspace, or remove everything. Nothing happens until you preview and explicitly confirm it.</p>
+      </div>
+      <button id="openUninstallButton" class="button button-danger" type="button">Uninstall…</button>
+    </section>
+
+    <footer>
+      <span id="versionText">WorkForge</span>
+      <span>Local only · 127.0.0.1 · No remote dashboard access</span>
+    </footer>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <dialog id="uninstallDialog" class="modal">
+    <form method="dialog" class="modal-card" id="uninstallForm">
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">SAFE REMOVAL</p>
+          <h2>Choose what to keep</h2>
+        </div>
+        <button class="icon-button" value="cancel" aria-label="Close">×</button>
+      </div>
+
+      <label class="choice-card">
+        <input type="radio" name="uninstallMode" value="KeepWorkspace" checked />
+        <span>
+          <strong>Keep my workspace <em>Recommended</em></strong>
+          <small>Remove WorkForge operational state while preserving your workspace, Git history and user files.</small>
+        </span>
+      </label>
+
+      <label class="choice-card choice-danger">
+        <input type="radio" name="uninstallMode" value="RemoveEverything" />
+        <span>
+          <strong>Remove everything</strong>
+          <small>Remove WorkForge and the selected workspace. This is permanent.</small>
+        </span>
+      </label>
+
+      <button id="previewUninstallButton" class="button button-secondary button-full" type="button">Preview what will happen</button>
+
+      <details id="uninstallPreviewDetails" class="details-box" open>
+        <summary>Removal preview</summary>
+        <pre id="uninstallPreview">Run the preview before removing anything.</pre>
+      </details>
+
+      <label class="confirm-row">
+        <input id="uninstallConfirm" type="checkbox" />
+        <span>I reviewed the preview and want to continue.</span>
+      </label>
+
+      <div id="destructivePhraseBox" class="phrase-box hidden">
+        <label for="destructivePhrase">Type <strong>REMOVE WORKFORGE</strong> exactly:</label>
+        <input id="destructivePhrase" autocomplete="off" spellcheck="false" />
+      </div>
+
+      <div class="modal-actions">
+        <button class="button button-ghost" value="cancel">Cancel</button>
+        <button id="confirmUninstallButton" class="button button-danger" type="button">Remove WorkForge</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>
