@@ -416,7 +416,7 @@ ChatGPT가 필요한 WorkForge 도구를 선택해서 사용합니다.
 
 ## 평소에는 WorkForge Control만 열면 됩니다
 
-설치가 끝난 뒤에는 `Setup.cmd`를 반복해서 실행할 필요가 없습니다.
+설치가 끝난 뒤에는 `Setup.cmd`를 반복해서 실행할 필요가 없습니다. 평소에는 설치된 **WorkForge Control** 바로가기나 `%LOCALAPPDATA%\Programs\WorkForge\WorkForge Control.cmd`를 사용하는 것을 권장합니다. 압축을 푼 release root의 lifecycle wrapper도 별도의 두 번째 Runtime으로 동작하지 않고 현재 설치된 active engine으로 위임됩니다.
 
 다음을 더블클릭합니다.
 
@@ -628,6 +628,7 @@ shell_cancel
 - 명령은 연결이 끊긴 뒤 자동 재실행되지 않습니다.
 - PowerShell 자식 프로세스는 Windows Job Object로 관리됩니다.
 - 같은 프로필에서 동시에 여러 Shell 작업이 충돌하지 않도록 직렬화합니다.
+- 직접 파일 도구는 등록 프로필 경계를 강제하지만, PowerShell은 작업 디렉터리만 같은 경계를 검증합니다. PowerShell 명령 자체는 OS 샌드박스가 아니며 현재 Windows 사용자의 ACL/UAC 권한을 그대로 가집니다.
 
 ### 진단
 

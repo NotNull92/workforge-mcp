@@ -413,7 +413,7 @@ ChatGPT chooses the WorkForge tools it needs.
 
 ## Day to day, just open WorkForge Control
 
-After setup, you do not need to run `Setup.cmd` again for normal use.
+After setup, you do not need to run `Setup.cmd` again for normal use. Prefer the installed **WorkForge Control** shortcut or `%LOCALAPPDATA%\Programs\WorkForge\WorkForge Control.cmd`; release-root lifecycle wrappers delegate to that active installed engine instead of acting as a second runtime.
 
 Double-click:
 
@@ -629,6 +629,7 @@ It contains durable instructions and local profile information used while WorkFo
 - disconnected commands are never replayed automatically
 - PowerShell descendants are managed with Windows Job Objects
 - same-profile shell work is serialized to avoid collisions
+- direct file tools enforce registered-profile path boundaries; PowerShell validates its working directory but is not an OS sandbox and retains the current Windows user's ACL/UAC access
 
 ### Diagnostics
 

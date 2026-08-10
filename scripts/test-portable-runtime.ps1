@@ -15,7 +15,7 @@ function New-PortableFixture {
   )
 
   $Root = Join-Path $TestRoot ("source-" + $Version)
-  foreach ($Directory in @("dist", "runtimes\node", "runtimes\ripgrep", "runtimes\tunnel-client", "scripts")) {
+  foreach ($Directory in @("dist", "runtimes\node", "runtimes\ripgrep", "runtimes\tunnel-client", "scripts", "control-ui", "plugins", "templates")) {
     New-Item -ItemType Directory -Path (Join-Path $Root $Directory) -Force | Out-Null
   }
   $Files = [ordered]@{
@@ -30,6 +30,14 @@ function New-PortableFixture {
     "scripts\WorkForge.Portable.ps1" = "Set-StrictMode -Version 3.0"
     "scripts\Portable-Control.ps1" = "Write-Output control-$Marker"
     "scripts\Portable-Control.cmd" = "@echo off"
+    "scripts\Portable-Dispatch.ps1" = "Write-Output dispatch-$Marker"
+    "scripts\Portable-Dispatch.cmd" = "@echo off"
+    "control-ui\app.js" = "console.log('ui-$Marker')"
+    "Setup.cmd" = "@echo off"
+    "Install.cmd" = "@echo off"
+    "Configure Tunnel.cmd" = "@echo off"
+    "WorkForge Control.cmd" = "@echo off"
+    "Uninstall.cmd" = "@echo off"
   }
   foreach ($Entry in $Files.GetEnumerator()) {
     [IO.File]::WriteAllText((Join-Path $Root $Entry.Key), ([string]$Entry.Value + [Environment]::NewLine), $Utf8)
@@ -41,6 +49,31 @@ try {
   [Environment]::SetEnvironmentVariable("WORKFORGE_PORTABLE_PROGRAMS_ROOT", $ProgramsRoot, "Process")
   [Environment]::SetEnvironmentVariable("WORKFORGE_PORTABLE_STATE_ROOT", $StateRoot, "Process")
   . (Join-Path $PSScriptRoot "WorkForge.Portable.ps1")
+
+  $LegacySource = New-PortableFixture -Version "0.1.0" -Marker "legacy"
+  $LegacyDestination = Join-Path $ProgramsRoot "versions\0.1.0"
+  New-Item -ItemType Directory -Path $LegacyDestination -Force | Out-Null
+  foreach ($Item in Get-ChildItem -LiteralPath $LegacySource -Force) {
+    Copy-Item -LiteralPath $Item.FullName -Destination (Join-Path $LegacyDestination $Item.Name) -Recurse -Force
+  }
+  $LegacyFiles = @(
+    foreach ($RelativePath in $script:WorkForgePortableLegacyCriticalFiles) {
+      [ordered]@{
+        path = $RelativePath
+        sha256 = (Get-WorkForgeFileSha256 -Path (Join-Path $LegacyDestination $RelativePath)).ToLowerInvariant()
+      }
+    }
+  )
+  Write-WorkForgePortableAtomicJson -Path (Join-Path $LegacyDestination ".workforge-install.json") -Value ([ordered]@{
+    schemaVersion = 1
+    product = "WorkForge"
+    version = "0.1.0"
+    files = $LegacyFiles
+  })
+  $LegacyInstalled = Set-WorkForgePortableCurrent -Version "0.1.0"
+  if ([string]$LegacyInstalled.ManifestSchemaVersion -cne "1") {
+    throw "Legacy v0.1.0 install manifest compatibility was lost."
+  }
 
   $V1Source = New-PortableFixture -Version "1.3.0" -Marker "one"
   $V1 = Install-WorkForgePortableVersion -SourceRoot $V1Source
@@ -72,7 +105,7 @@ try {
   $RolledBack = Invoke-WorkForgePortableRollback
   if ($RolledBack.Version -cne "1.3.0") { throw "Portable rollback did not restore the prior version." }
 
-  [IO.File]::AppendAllText((Join-Path $RolledBack.EngineRoot "dist\stdio.js"), "tampered", $Utf8)
+  [IO.File]::AppendAllText((Join-Path $RolledBack.EngineRoot "control-ui\app.js"), "tampered", $Utf8)
   try {
     $null = Resolve-WorkForgePortableEngine
     throw "Tampered portable engine unexpectedly resolved."

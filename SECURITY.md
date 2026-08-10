@@ -13,7 +13,7 @@ WorkForge runs with the permissions of the current Windows user. Its PowerShell 
 
 ## Uninstall boundary
 
-WorkForge 1.2 separates profile removal from user-data removal.
+WorkForge separates profile removal from user-data removal.
 
 ### KeepWorkspace
 
@@ -81,6 +81,8 @@ Compatible existing commands are reported and left untouched.
 The terminal path remains available through `WorkForge Control.cmd --cli` or direct `scripts\Control.ps1` actions for diagnostics and recovery.
 
 ## Runtime and process safety
+
+Direct filesystem tools enforce registered-profile path boundaries. `shell_start` validates its working directory against those boundaries, but the PowerShell command itself is not path-sandboxed: it runs as the current Windows user and can access any location allowed by Windows ACLs and UAC.
 
 - Nothing is registered to start with Windows.
 - Tunnel start is always an explicit user or Setup-session action.

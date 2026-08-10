@@ -19,7 +19,7 @@ import { resolveAuthorizedWorkstationPath } from "./workstation.js";
 const MAX_TEXT_BYTES = 64 * 1024 * 1024;
 const MAX_WRITE_BYTES = 16 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
-const MAX_SEARCH_OUTPUT_BYTES = 8 * 1024 * 1024;
+const MAX_SEARCH_OUTPUT_BYTES = 4 * 1024 * 1024;
 
 export type DirectoryEntryKind = "file" | "directory" | "symlink" | "other";
 
@@ -288,7 +288,7 @@ export async function searchFiles(input: {
       path: resolve(cwd, pathText),
       line: lineNumber,
       column: typeof firstStart === "number" ? firstStart + 1 : 1,
-      text: lineText.replace(/[\r\n]+$/u, "").slice(0, 4096),
+      text: lineText.replace(/[\r\n]+$/u, "").slice(0, 1024),
     });
   }
   return {
@@ -315,22 +315,26 @@ export async function readTextFile(input: {
   path: string;
   startLine: number;
   maxLines: number;
+  maxCharacters?: number;
 }) {
   const path = await resolveAuthorizedWorkstationPath(input.context, input.path);
+  const maxCharacters = input.maxCharacters ?? 60_000;
   const current = await readTextBytes(path);
   const lines = current.text.split(/\r\n|\n|\r/u);
   const startIndex = Math.min(input.startLine - 1, lines.length);
   const selected = lines.slice(startIndex, startIndex + input.maxLines);
+  const selectedText = selected.join("\n");
+  const text = selectedText.slice(0, maxCharacters);
   const endLine = selected.length === 0 ? input.startLine - 1 : startIndex + selected.length;
   return {
     path,
-    text: selected.join("\n"),
+    text,
     sha256: current.sha256,
     byteLength: current.bytes.byteLength,
     startLine: input.startLine,
     endLine,
     totalLines: lines.length,
-    truncated: startIndex > 0 || endLine < lines.length,
+    truncated: startIndex > 0 || endLine < lines.length || text.length < selectedText.length,
   };
 }
 

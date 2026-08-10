@@ -152,7 +152,7 @@ describe("workstation shell", { timeout: 30_000 }, () => {
     await expect(access(join(primary, "artifacts", "workforge-mcp", "shell"))).rejects.toThrow();
   });
 
-  it("serializes same-profile shell jobs without blocking another project profile", async () => {
+  it("rejects same-profile concurrent starts before spawn without blocking another project profile", async () => {
     const { context, outside } = await fixture();
     const marker = join(outside, "writer-started.txt");
     const escapedMarker = marker.replaceAll("'", "''");
@@ -183,20 +183,12 @@ describe("workstation shell", { timeout: 30_000 }, () => {
     expect(firstEvidence.containmentEnforced).toBe(true);
     expect(firstEvidence.processId).toEqual(expect.any(Number));
 
-    const blocked = await startShellJob({
+    await expect(startShellJob({
       context,
       cwd: outside,
       command: "Write-Output 'must-not-run'",
       timeoutMs: 10_000,
-    });
-    const blockedStatus = await waitForTerminal(context, blocked.id);
-    expect(blockedStatus.status).toBe("failed");
-    expect(blockedStatus.exitCode).toBe(75);
-    const blockedOutput = await getShellOutput({ context, id: blocked.id, stdoutOffset: 0, stderrOffset: 0, maxCharacters: 20_000 });
-    expect(blockedOutput.stderr.text).toContain("PROFILE_SHELL_LEASE_BUSY");
-    expect(blockedOutput.stderr.text).toContain(first.id);
-    expect(blockedOutput.stderr.text).toContain(String(firstEvidence.processId));
-    expect(blockedOutput.stdout.text).not.toContain("must-not-run");
+    })).rejects.toThrow("1 active shell jobs");
 
     const otherProfile = await fixture();
     const other = await startShellJob({
@@ -248,9 +240,9 @@ describe("workstation shell", { timeout: 30_000 }, () => {
     await expect(access(forbiddenMarker)).rejects.toThrow();
   }, 30_000);
 
-  it("counts pending starts in the per-profile admission limit", async () => {
+  it("rejects same-process concurrent starts before spawning redundant shells", async () => {
     const { context, outside } = await fixture();
-    const attempts = await Promise.allSettled(Array.from({ length: 9 }, () => startShellJob({
+    const attempts = await Promise.allSettled(Array.from({ length: 2 }, () => startShellJob({
       context,
       cwd: outside,
       command: "Start-Sleep -Seconds 30",
@@ -258,9 +250,9 @@ describe("workstation shell", { timeout: 30_000 }, () => {
     })));
     const accepted = attempts.filter((attempt): attempt is PromiseFulfilledResult<Awaited<ReturnType<typeof startShellJob>>> => attempt.status === "fulfilled");
     const rejected = attempts.filter((attempt): attempt is PromiseRejectedResult => attempt.status === "rejected");
-    expect(accepted).toHaveLength(8);
+    expect(accepted).toHaveLength(1);
     expect(rejected).toHaveLength(1);
-    expect(String(rejected[0]?.reason)).toContain("8 active shell jobs");
+    expect(String(rejected[0]?.reason)).toContain("1 active shell jobs");
 
     cancelActiveShellJobs(context);
     await Promise.all(accepted.map((attempt) => waitForTerminal(context, attempt.value.id)));

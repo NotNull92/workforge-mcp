@@ -1,10 +1,19 @@
 @echo off
 setlocal
 set "PSModulePath="
-set "UNINSTALL_SCRIPT=%~dp0scripts\Uninstall.ps1"
 cd /d "%TEMP%"
+if exist "%~dp0.workforge-release.json" goto RELEASE_ROOT
+
+set "UNINSTALL_SCRIPT=%~dp0scripts\Uninstall.ps1"
 "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%UNINSTALL_SCRIPT%" %*
 set "EXIT_CODE=%ERRORLEVEL%"
+goto AFTER_RUN
+
+:RELEASE_ROOT
+call "%~dp0scripts\Portable-Dispatch.cmd" Uninstall %*
+set "EXIT_CODE=%ERRORLEVEL%"
+
+:AFTER_RUN
 set "NON_INTERACTIVE="
 :scan_args
 if "%~1"=="" goto args_scanned

@@ -15,6 +15,24 @@ if ($Wrapper -notmatch 'Portable-Control\.cmd') { throw "Release-root Control wr
 if ($Wrapper -notmatch 'if not "%EXIT_CODE%"=="0"') { throw "Control wrapper does not preserve a visible error path." }
 if ($Wrapper -notmatch 'exit /b %EXIT_CODE%') { throw "Control wrapper does not propagate the launcher exit code." }
 
+$ReleaseDispatchWrappers = [ordered]@{
+  "Install.cmd" = "Install"
+  "Configure Tunnel.cmd" = "Configure-Tunnel"
+  "Uninstall.cmd" = "Uninstall"
+}
+foreach ($Entry in $ReleaseDispatchWrappers.GetEnumerator()) {
+  $ReleaseWrapperText = Get-Content -Raw -LiteralPath (Join-Path $ToolRoot $Entry.Key)
+  if ($ReleaseWrapperText -notmatch '\.workforge-release\.json') {
+    throw "$($Entry.Key) does not distinguish a portable release root from a source checkout."
+  }
+  if ($ReleaseWrapperText -notmatch 'Portable-Dispatch\.cmd') {
+    throw "$($Entry.Key) does not delegate release-root lifecycle work to the installed engine."
+  }
+  if ($ReleaseWrapperText.IndexOf([string]$Entry.Value, [StringComparison]::Ordinal) -lt 0) {
+    throw "$($Entry.Key) does not dispatch the expected installed-engine action $($Entry.Value)."
+  }
+}
+
 $LaunchText = Get-Content -Raw -LiteralPath $LaunchPath
 if ($LaunchText -notmatch 'Start-Process') { throw "Control launcher does not detach the local dashboard process." }
 if ($LaunchText -notmatch 'WindowStyle Hidden') { throw "Control launcher does not hide the background server window." }

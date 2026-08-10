@@ -387,8 +387,8 @@ function Get-WorkForgeRegistry {
     throw "WorkForge profile registry has an unsupported version."
   }
   $Entries = @($Registry.profiles)
-  if ($Entries.Count -lt 1 -or $Entries.Count -gt 256) {
-    throw "WorkForge profile registry must contain between 1 and 256 profiles."
+  if ($Entries.Count -lt 1 -or $Entries.Count -gt 128) {
+    throw "WorkForge profile registry must contain between 1 and 128 profiles."
   }
 
   $SeenIds = @{}

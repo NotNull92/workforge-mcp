@@ -1,10 +1,49 @@
 Set-StrictMode -Version 3.0
 
-$script:WorkForgePortableCriticalFiles = @(
+$script:WorkForgePortableLegacyCriticalFiles = @(
   ".workforge-release.json", "package.json", "runtime-lock.json", "dist\stdio.js",
   "runtimes\node\node.exe", "runtimes\ripgrep\rg.exe", "runtimes\tunnel-client\tunnel-client.exe",
   "scripts\Setup.ps1", "scripts\WorkForge.Portable.ps1", "scripts\Portable-Control.ps1", "scripts\Portable-Control.cmd"
 )
+$script:WorkForgePortableCriticalFiles = @(
+  $script:WorkForgePortableLegacyCriticalFiles
+  "scripts\Portable-Dispatch.ps1"
+  "scripts\Portable-Dispatch.cmd"
+)
+$script:WorkForgePortableIntegrityRootFiles = @(
+  ".workforge-release.json", "package.json", "runtime-lock.json",
+  "Setup.cmd", "Install.cmd", "Configure Tunnel.cmd", "WorkForge Control.cmd", "Uninstall.cmd"
+)
+$script:WorkForgePortableIntegrityDirectories = @("dist", "scripts", "control-ui", "plugins", "templates", "runtimes")
+
+function Get-WorkForgePortableIntegrityRelativePaths {
+  param([Parameter(Mandatory = $true)][string]$Root)
+
+  $ResolvedRoot = Assert-WorkForgePortablePath -Path $Root -Description "Portable integrity root"
+  $RootPrefix = $ResolvedRoot.TrimEnd([char[]]@('\', '/'))
+  $Paths = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+  foreach ($RelativePath in $script:WorkForgePortableIntegrityRootFiles) {
+    $Item = Get-Item -LiteralPath (Join-Path $ResolvedRoot $RelativePath) -Force -ErrorAction Stop
+    if ($Item.PSIsContainer -or ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "Portable integrity file is invalid: $RelativePath"
+    }
+    $null = $Paths.Add($RelativePath)
+  }
+  foreach ($DirectoryName in $script:WorkForgePortableIntegrityDirectories) {
+    $Directory = Get-Item -LiteralPath (Join-Path $ResolvedRoot $DirectoryName) -Force -ErrorAction Stop
+    if (-not $Directory.PSIsContainer -or ($Directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "Portable integrity directory is invalid: $DirectoryName"
+    }
+    foreach ($File in Get-ChildItem -LiteralPath $Directory.FullName -Recurse -Force -File) {
+      if (($File.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Portable integrity tree cannot contain a reparse-point file: $($File.FullName)"
+      }
+      $RelativePath = $File.FullName.Substring($RootPrefix.Length).TrimStart([char[]]@('\', '/'))
+      $null = $Paths.Add($RelativePath)
+    }
+  }
+  return @($Paths | Sort-Object)
+}
 
 function Get-WorkForgePortableRoots {
   $ProgramsRoot = [Environment]::GetEnvironmentVariable("WORKFORGE_PORTABLE_PROGRAMS_ROOT", "Process")
@@ -137,29 +176,43 @@ function Read-WorkForgePortableInstalledVersion {
       throw "Portable install manifest failed its SHA-256 check."
     }
   }
-  if ([string]$Manifest.Value.schemaVersion -cne "1" -or [string]$Manifest.Value.version -cne $Version) {
+  $SchemaVersion = [string]$Manifest.Value.schemaVersion
+  if (($SchemaVersion -cne "1" -and $SchemaVersion -cne "2") -or [string]$Manifest.Value.version -cne $Version) {
     throw "Portable install manifest identity is invalid."
   }
   $Files = @($Manifest.Value.files)
-  if ($Files.Count -ne $script:WorkForgePortableCriticalFiles.Count) {
-    throw "Portable install manifest has an invalid critical file set."
+  $ExpectedPaths = if ($SchemaVersion -ceq "1") {
+    @($script:WorkForgePortableLegacyCriticalFiles | Sort-Object)
+  } else {
+    @(Get-WorkForgePortableIntegrityRelativePaths -Root $ResolvedRoot)
   }
+  if ($Files.Count -ne $ExpectedPaths.Count) {
+    throw "Portable install manifest has an invalid immutable file set."
+  }
+  $SeenPaths = @{}
   foreach ($Entry in $Files) {
     $RelativePath = [string]$Entry.path
     $ExpectedHash = [string]$Entry.sha256
-    if ($RelativePath -notin $script:WorkForgePortableCriticalFiles -or $ExpectedHash -cnotmatch '^[A-Fa-f0-9]{64}$') {
+    if (
+      [string]::IsNullOrWhiteSpace($RelativePath) -or
+      $ExpectedHash.Length -ne 64 -or
+      $ExpectedHash -match '[^A-Fa-f0-9]' -or
+      $RelativePath -notin $ExpectedPaths -or
+      $SeenPaths.ContainsKey($RelativePath)
+    ) {
       throw "Portable install manifest contains an invalid file entry."
     }
+    $SeenPaths[$RelativePath] = $true
     $File = Get-Item -LiteralPath (Join-Path $ResolvedRoot $RelativePath) -Force -ErrorAction Stop
     if ($File.PSIsContainer -or ($File.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-      throw "Portable engine critical file is invalid: $RelativePath"
+      throw "Portable engine immutable file is invalid: $RelativePath"
     }
     $ObservedHash = Get-WorkForgeFileSha256 -Path $File.FullName
     if (-not $ObservedHash.Equals($ExpectedHash, [StringComparison]::OrdinalIgnoreCase)) {
-      throw "Portable engine critical file failed its SHA-256 check: $RelativePath"
+      throw "Portable engine immutable file failed its SHA-256 check: $RelativePath"
     }
   }
-  return [pscustomobject]@{ EngineRoot = $ResolvedRoot; Version = $Version; ManifestPath = $Manifest.Path }
+  return [pscustomobject]@{ EngineRoot = $ResolvedRoot; Version = $Version; ManifestPath = $Manifest.Path; ManifestSchemaVersion = $SchemaVersion }
 }
 
 function Set-WorkForgePortableCurrent {
@@ -200,8 +253,9 @@ function Install-WorkForgePortableVersion {
       foreach ($Item in Get-ChildItem -LiteralPath $Release.Root -Force) {
         Copy-Item -LiteralPath $Item.FullName -Destination (Join-Path $Staging $Item.Name) -Recurse -Force
       }
+      $IntegrityPaths = @(Get-WorkForgePortableIntegrityRelativePaths -Root $Staging)
       $Files = @(
-        foreach ($RelativePath in $script:WorkForgePortableCriticalFiles) {
+        foreach ($RelativePath in $IntegrityPaths) {
           [ordered]@{
             path = $RelativePath
             sha256 = (Get-WorkForgeFileSha256 -Path (Join-Path $Staging $RelativePath)).ToLowerInvariant()
@@ -209,7 +263,7 @@ function Install-WorkForgePortableVersion {
         }
       )
       Write-WorkForgePortableAtomicJson -Path (Join-Path $Staging ".workforge-install.json") -Value ([ordered]@{
-        schemaVersion = 1
+        schemaVersion = 2
         product = "WorkForge"
         version = $Release.Version
         files = $Files

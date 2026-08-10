@@ -219,6 +219,18 @@ describe("workstation filesystem", () => {
     await expect(readTextFile({ context, path: join(alias, "secret.txt"), startLine: 1, maxLines: 10 })).rejects.toThrow("foreign-profile");
   });
 
+  it("caps text responses by character count even when a single line is huge", async () => {
+    const { context, outside } = await fixture();
+    const path = join(outside, "one-long-line.txt");
+    await writeFile(path, "x".repeat(20_000), "utf8");
+
+    const read = await readTextFile({ context, path, startLine: 1, maxLines: 10, maxCharacters: 1024 });
+
+    expect(read.text).toHaveLength(1024);
+    expect(read.truncated).toBe(true);
+    expect(read.totalLines).toBe(1);
+  });
+
   it("allows an unmanaged sibling whose name only shares a foreign-root prefix", async () => {
     const { context, foreign } = await fixture();
     const sibling = `${foreign}-backup`;

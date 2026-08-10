@@ -26,7 +26,7 @@ import {
 import { resolveAuthorizedWorkstationPath } from "./workstation.js";
 
 const JOB_ID_PATTERN = /^shell_[a-f0-9]{32}$/u;
-const MAX_ACTIVE_JOBS_PER_PROFILE = 8;
+const MAX_ACTIVE_JOBS_PER_PROFILE = 1;
 const MAX_LOG_BYTES_PER_STREAM = 16 * 1024 * 1024;
 const MAX_STATUS_MANIFEST_BYTES = 64 * 1024;
 const PROFILE_SHELL_BUSY_EXIT_CODE = 75;

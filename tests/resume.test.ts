@@ -148,18 +148,33 @@ describe("project resume snapshot", () => {
     expect(resume.error).toBeTruthy();
   });
 
-  it("refuses to summarize a parent repository outside the registered project root", async () => {
-    const repositoryRoot = await mkdtemp(join(tmpdir(), "project-resume-parent-"));
+  it("summarizes an explicitly selected workstation repository outside the operating root", async () => {
+    const { context } = await makeContext();
+    const repositoryRoot = await mkdtemp(join(tmpdir(), "project-resume-external-"));
     temporaryRoots.push(repositoryRoot);
     await initializeRepository(repositoryRoot);
-    const childRoot = join(repositoryRoot, "registered-child");
-    await mkdir(childRoot, { recursive: true });
-    const { context } = await makeContext(childRoot);
 
-    const resume = await getProjectResume(context);
+    const resume = await getProjectResume(context, 5, 200, repositoryRoot);
 
     expect(resume.gitAvailable).toBe(true);
-    expect(resume.isGitRepository).toBe(false);
-    expect(resume.error).toMatch(/outside the registered project root/u);
+    expect(resume.isGitRepository).toBe(true);
+    expect(resume.workingDirectory).toBe(repositoryRoot);
+    expect(resume.repositoryRoot).toBe(await realpath(repositoryRoot));
+  });
+
+  it("still refuses an explicitly selected repository owned by another registered profile", async () => {
+    const { context } = await makeContext();
+    const foreignRoot = await mkdtemp(join(tmpdir(), "project-resume-foreign-"));
+    temporaryRoots.push(foreignRoot);
+    await initializeRepository(foreignRoot);
+    const isolatedContext = Object.freeze({
+      ...context,
+      managedProjectRoots: Object.freeze([
+        ...context.managedProjectRoots,
+        Object.freeze({ profileId: "foreign", primaryRoot: foreignRoot }),
+      ]),
+    }) satisfies ProjectContext;
+
+    await expect(getProjectResume(isolatedContext, 5, 200, foreignRoot)).rejects.toThrow("Cross-profile path denied");
   });
 });

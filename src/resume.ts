@@ -1,8 +1,9 @@
-import { realpath } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { isPathWithinOrEqual } from "./path-policy.js";
 import type { ProjectContext } from "./profile.js";
 import { makeSafeEnvironment, runProcess, type ProcessResult } from "./process.js";
+import { resolveAuthorizedWorkstationPath } from "./workstation.js";
 
 const GIT_EXECUTABLE = "git.exe";
 const GIT_TIMEOUT_MS = 20_000;
@@ -189,20 +190,28 @@ function parseCommits(output: string): readonly ResumeCommit[] {
     .filter((commit) => commit.hash.length > 0);
 }
 
-function baseResult(context: ProjectContext): Omit<ProjectResume, "gitAvailable" | "isGitRepository" | "repositoryRoot" | "branch" | "detachedHead" | "head" | "upstream" | "ahead" | "behind" | "status" | "recentCommits" | "stagedDiffStat" | "unstagedDiffStat" | "statusTruncated" | "diffStatTruncated" | "truncated" | "error"> {
+function baseResult(
+  context: ProjectContext,
+  workingDirectory: string,
+): Omit<ProjectResume, "gitAvailable" | "isGitRepository" | "repositoryRoot" | "branch" | "detachedHead" | "head" | "upstream" | "ahead" | "behind" | "status" | "recentCommits" | "stagedDiffStat" | "unstagedDiffStat" | "statusTruncated" | "diffStatTruncated" | "truncated" | "error"> {
   return {
     generatedAt: new Date().toISOString(),
     profileId: context.profile.id,
     primaryRoot: context.primaryRoot,
-    workingDirectory: context.defaultWorkingDirectory,
+    workingDirectory,
     bootstrapFiles: [...context.profile.bootstrapFiles],
     resumeFiles: context.profile.bootstrapFiles.filter((path) => RESUME_FILE_PATTERN.test(path.replaceAll("\\", "/"))),
   };
 }
 
-function unavailableResult(context: ProjectContext, gitAvailable: boolean, error: string): ProjectResume {
+function unavailableResult(
+  context: ProjectContext,
+  workingDirectory: string,
+  gitAvailable: boolean,
+  error: string,
+): ProjectResume {
   return {
-    ...baseResult(context),
+    ...baseResult(context, workingDirectory),
     gitAvailable,
     isGitRepository: false,
     repositoryRoot: null,
@@ -227,31 +236,39 @@ export async function getProjectResume(
   context: ProjectContext,
   recentCommitLimit = 8,
   maxChangedPaths = 200,
+  rawPath = ".",
 ): Promise<ProjectResume> {
+  const workingDirectory = await resolveAuthorizedWorkstationPath(context, rawPath, "tree");
+  const workingInfo = await stat(workingDirectory);
+  if (!workingInfo.isDirectory()) {
+    throw new Error(`Project resume path is not a directory: ${workingDirectory}`);
+  }
+
   let rootResult: ProcessResult;
   try {
-    rootResult = await runGit(context.defaultWorkingDirectory, ["rev-parse", "--show-toplevel"], 32 * 1024);
+    rootResult = await runGit(workingDirectory, ["rev-parse", "--show-toplevel"], 32 * 1024);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return unavailableResult(context, false, `Git is unavailable: ${message}`);
+    return unavailableResult(context, workingDirectory, false, `Git is unavailable: ${message}`);
   }
 
   if (rootResult.exitCode !== 0 || rootResult.timedOut || rootResult.truncated) {
     return unavailableResult(
       context,
+      workingDirectory,
       true,
-      firstDiagnostic(rootResult, "The default working directory is not inside a Git worktree."),
+      firstDiagnostic(rootResult, "The requested working directory is not inside a Git worktree."),
     );
   }
 
   const reportedRoot = rootResult.stdout.trim();
   if (reportedRoot.length === 0) {
-    return unavailableResult(context, true, "Git returned an empty worktree root.");
+    return unavailableResult(context, workingDirectory, true, "Git returned an empty worktree root.");
   }
   const repositoryRoot = await realpath(resolve(reportedRoot));
-  const primaryRoot = await realpath(context.primaryRoot);
-  if (!isPathWithinOrEqual(primaryRoot, repositoryRoot)) {
-    return unavailableResult(context, true, "Git worktree root resolves outside the registered project root.");
+  await resolveAuthorizedWorkstationPath(context, repositoryRoot, "tree");
+  if (!isPathWithinOrEqual(repositoryRoot, workingDirectory)) {
+    return unavailableResult(context, workingDirectory, true, "Git worktree root does not contain the requested working directory.");
   }
 
   const [statusResult, logResult, stagedStatResult, unstagedStatResult] = await Promise.all([
@@ -283,7 +300,7 @@ export async function getProjectResume(
   const parsed = parseStatus(statusResult.stdout, statusResult.truncated, maxChangedPaths);
   const diffStatTruncated = stagedStatResult.truncated || unstagedStatResult.truncated;
   return {
-    ...baseResult(context),
+    ...baseResult(context, workingDirectory),
     gitAvailable: true,
     isGitRepository: true,
     repositoryRoot,

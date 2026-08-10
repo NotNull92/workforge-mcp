@@ -33,11 +33,23 @@ $ArchivePath = Join-Path $ReleaseRoot $ArchiveName
 $HashPath = "$ArchivePath.sha256"
 $StagingParent = Join-Path $env:TEMP ("WorkForgeMcp-Release-" + [guid]::NewGuid().ToString("N"))
 $StagingRoot = Join-Path $StagingParent "WorkForge"
-$Include = @(
-  ".gitattributes", ".gitignore", "AGENTS.md", "Setup.cmd", "Configure Tunnel.cmd", "WorkForge Control.cmd", "Install.cmd", "Uninstall.cmd",
-  "README.md", "README.ko.md", "SECURITY.md", "THIRD_PARTY_NOTICES.md", "LICENSE", "package.json", "package-lock.json",
-  "runtime-lock.json", "tsconfig.json", "control-ui", "docs", "plugins", "scripts", "src", "templates", "tests", "dist"
+$RuntimeScripts = @(
+  "scripts\Configure-Tunnel.ps1", "scripts\Control.ps1", "scripts\Doctor.ps1", "scripts\Install.ps1",
+  "scripts\Launch-Control.ps1", "scripts\Portable-Control.cmd", "scripts\Portable-Control.ps1",
+  "scripts\Portable-Dispatch.cmd", "scripts\Portable-Dispatch.ps1", "scripts\Portable-Runtime.ps1",
+  "scripts\Setup-Entry.ps1", "scripts\Setup.ps1", "scripts\start-tunnel.ps1", "scripts\stop-tunnel.ps1",
+  "scripts\tunnel-status.ps1", "scripts\tunnel-supervisor.ps1", "scripts\Uninstall.ps1",
+  "scripts\uninstall-finalizer.ps1", "scripts\WorkForge.Portable.ps1", "scripts\WorkForge.Prerequisites.ps1",
+  "scripts\WorkForge.UI.ps1", "scripts\profile-registry.ps1", "scripts\control-server.mjs"
 )
+$RuntimeDocs = @(
+  "docs\logo", "docs\ADDING_PROFILES.md", "docs\ARCHITECTURE.md", "docs\TROUBLESHOOTING.md", "docs\UNINSTALL.md"
+)
+$Include = @(
+  "Setup.cmd", "Configure Tunnel.cmd", "WorkForge Control.cmd", "Install.cmd", "Uninstall.cmd",
+  "README.md", "README.ko.md", "SECURITY.md", "THIRD_PARTY_NOTICES.md", "LICENSE", "package.json", "package-lock.json",
+  "runtime-lock.json", "control-ui", "plugins", "templates", "dist"
+) + $RuntimeScripts + $RuntimeDocs
 
 function Expand-LockedRuntime {
   param(
@@ -86,7 +98,12 @@ try {
   foreach ($RelativePath in $Include) {
     $Source = Join-Path $ToolRoot $RelativePath
     if (-not (Test-Path -LiteralPath $Source)) { throw "Release input is missing: $RelativePath" }
-    Copy-Item -LiteralPath $Source -Destination (Join-Path $StagingRoot $RelativePath) -Recurse -Force
+    $Destination = Join-Path $StagingRoot $RelativePath
+    $DestinationParent = [IO.Path]::GetDirectoryName($Destination)
+    if (-not [string]::IsNullOrWhiteSpace($DestinationParent)) {
+      New-Item -ItemType Directory -Path $DestinationParent -Force | Out-Null
+    }
+    Copy-Item -LiteralPath $Source -Destination $Destination -Recurse -Force
   }
 
   $ReleaseManifest = [ordered]@{

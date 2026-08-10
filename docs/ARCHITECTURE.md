@@ -160,7 +160,7 @@ The engine and generated mutable state are separated from the durable workstatio
   artifacts/workforge-mcp/      ignored logs, PIDs, leases, and command evidence
 ```
 
-The registry supports multiple distinct profile roots. Each profile manifest is pinned by SHA-256. New profiles no longer emit the unused `httpPort` field; older v1 profiles that still contain a valid port remain readable for compatibility, and duplicate legacy values do not affect profile identity. A selected profile cannot use direct filesystem or shell tools inside another registered profile's root.
+The registry supports multiple distinct profile roots. Each profile manifest is pinned by SHA-256. New profiles no longer emit the unused `httpPort` field; older v1 profiles that still contain a valid port remain readable for compatibility, and duplicate legacy values do not affect profile identity. Direct filesystem tools reject another registered profile's root, and `shell_start` applies the same rule to its working directory. The PowerShell command itself is not an OS sandbox and retains the current Windows user's ACL/UAC access.
 
 ## Mutation gates
 
@@ -216,7 +216,7 @@ source checkout
           `-- reopen and validate archive contents and release identity
 ```
 
-The WorkForge 1.3 portable ZIP needs no system Node.js, ripgrep, npm, or Git.
+The portable WorkForge ZIP needs no system Node.js, ripgrep, npm, or Git.
 `Setup.cmd` stages it into the stable per-user application directory and leaves
 Windows startup unchanged. Source checkouts retain the older prerequisite path.
 Normal release creation remains blocked until third-party license review is
