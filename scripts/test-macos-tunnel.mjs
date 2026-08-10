@@ -99,6 +99,8 @@ const environment = {
   EXPECTED_KEY_SHA256: keySha256,
   FAKE_CONTROL_PLANE_OK: "1",
 };
+const originalStateRoot = process.env.WORKFORGE_MACOS_STATE_ROOT;
+process.env.WORKFORGE_MACOS_STATE_ROOT = stateRoot;
 try {
   deleteStoredControlPlaneKey(profileId);
   storeControlPlaneKey(profileId, longRuntimeKey);
@@ -131,6 +133,8 @@ try {
   console.log("MACOS_TUNNEL_LIFECYCLE_TEST_OK");
 } finally {
   try { execFileSync(process.execPath, [resolve(root, "scripts", "macos", "stop-tunnel.mjs"), "--profile", profileId], { env: environment, stdio: "ignore" }); } catch { /* best effort */ }
+  if (originalStateRoot === undefined) delete process.env.WORKFORGE_MACOS_STATE_ROOT;
+  else process.env.WORKFORGE_MACOS_STATE_ROOT = originalStateRoot;
   deleteStoredControlPlaneKey(profileId);
   rmSync(fixture, { recursive: true, force: true });
 }
