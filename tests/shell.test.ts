@@ -7,6 +7,8 @@ import type { ProjectContext, ProjectProfile } from "../src/profile.js";
 import { cancelActiveShellJobs, cancelShellJob, getShellOutput, getShellStatus, startShellJob } from "../src/shell.js";
 
 const temporaryRoots: string[] = [];
+const shellCommand = (powerShell: string, zsh: string): string => process.platform === "win32" ? powerShell : zsh;
+const quoteZsh = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
 
 async function fixture(): Promise<{ context: ProjectContext; primary: string; foreign: string; outside: string }> {
   const root = await realpath(await mkdtemp(join(tmpdir(), "workstation-shell-")));
@@ -62,7 +64,10 @@ describe("workstation shell", { timeout: 30_000 }, () => {
     const started = await startShellJob({
       context,
       cwd: outside,
-      command: "$here=(Get-Location).Path\nWrite-Output $here\n[Console]::Error.WriteLine('stderr-marker')\nWrite-Output '한글-marker'",
+      command: shellCommand(
+        "$here=(Get-Location).Path\nWrite-Output $here\n[Console]::Error.WriteLine('stderr-marker')\nWrite-Output '한글-marker'",
+        "pwd\nprintf '%s\\n' 'stderr-marker' >&2\nprintf '%s\\n' '한글-marker'",
+      ),
       timeoutMs: 10_000,
     });
     const status = await waitForTerminal(context, started.id);
@@ -102,7 +107,10 @@ describe("workstation shell", { timeout: 30_000 }, () => {
       const started = await startShellJob({
         context,
         cwd: outside,
-        command: "if ($null -eq $env:CONTROL_PLANE_API_KEY) { Write-Output 'SCRUBBED' } else { Write-Output 'LEAKED' }",
+        command: shellCommand(
+          "if ($null -eq $env:CONTROL_PLANE_API_KEY) { Write-Output 'SCRUBBED' } else { Write-Output 'LEAKED' }",
+          "if [[ -z ${CONTROL_PLANE_API_KEY+x} ]]; then printf '%s\\n' SCRUBBED; else printf '%s\\n' LEAKED; fi",
+        ),
         timeoutMs: 10_000,
       });
       await waitForTerminal(context, started.id);
@@ -117,12 +125,17 @@ describe("workstation shell", { timeout: 30_000 }, () => {
 
   it("reports nonzero exits and can cancel an active process tree", async () => {
     const { context, outside } = await fixture();
-    const failed = await startShellJob({ context, cwd: outside, command: "Write-Error 'expected failure'\nexit 7", timeoutMs: 10_000 });
+    const failed = await startShellJob({
+      context,
+      cwd: outside,
+      command: shellCommand("Write-Error 'expected failure'\nexit 7", "printf '%s\\n' 'expected failure' >&2\nexit 7"),
+      timeoutMs: 10_000,
+    });
     const failedStatus = await waitForTerminal(context, failed.id);
     expect(failedStatus.status).toBe("failed");
     expect(failedStatus.exitCode).toBe(7);
 
-    const long = await startShellJob({ context, cwd: outside, command: "Start-Sleep -Seconds 30", timeoutMs: 60_000 });
+    const long = await startShellJob({ context, cwd: outside, command: shellCommand("Start-Sleep -Seconds 30", "sleep 30"), timeoutMs: 60_000 });
     const cancelled = cancelShellJob(context, long.id);
     expect(cancelled.status).toBe("running");
     expect(cancelled.cancelRequested).toBe(true);
@@ -132,7 +145,7 @@ describe("workstation shell", { timeout: 30_000 }, () => {
 
   it("cancels the active job for the profile when its stdio owner closes", async () => {
     const { context, outside } = await fixture();
-    const first = await startShellJob({ context, cwd: outside, command: "Start-Sleep -Seconds 30", timeoutMs: 60_000 });
+    const first = await startShellJob({ context, cwd: outside, command: shellCommand("Start-Sleep -Seconds 30", "sleep 30"), timeoutMs: 60_000 });
     expect(cancelActiveShellJobs(context)).toBe(1);
     expect(cancelActiveShellJobs(context)).toBe(0);
     const firstStatus = await waitForTerminal(context, first.id);
@@ -145,7 +158,10 @@ describe("workstation shell", { timeout: 30_000 }, () => {
     await expect(startShellJob({
       context,
       cwd: foreign,
-      command: `Set-Content -LiteralPath '${marker.replaceAll("'", "''")}' -Value 'unexpected'`,
+      command: shellCommand(
+        `Set-Content -LiteralPath '${marker.replaceAll("'", "''")}' -Value 'unexpected'`,
+        `printf '%s\\n' unexpected > ${quoteZsh(marker)}`,
+      ),
       timeoutMs: 10_000,
     })).rejects.toThrow("foreign-profile");
     await expect(access(marker)).rejects.toThrow();
@@ -159,7 +175,10 @@ describe("workstation shell", { timeout: 30_000 }, () => {
     const first = await startShellJob({
       context,
       cwd: outside,
-      command: `Set-Content -LiteralPath '${escapedMarker}' -Value 'started'\nStart-Sleep -Seconds 30`,
+      command: shellCommand(
+        `Set-Content -LiteralPath '${escapedMarker}' -Value 'started'\nStart-Sleep -Seconds 30`,
+        `printf '%s\\n' started > ${quoteZsh(marker)}\nsleep 30`,
+      ),
       timeoutMs: 60_000,
     });
     const markerDeadline = Date.now() + 10_000;
@@ -179,14 +198,14 @@ describe("workstation shell", { timeout: 30_000 }, () => {
       firstEvidence = getShellStatus(context, first.id);
     }
     expect(firstEvidence.leaseAcquired).toBe(true);
-    expect(firstEvidence.containmentKind).toBe("windows_job_object_kill_on_close");
+    expect(firstEvidence.containmentKind).toBe(process.platform === "win32" ? "windows_job_object_kill_on_close" : "posix_process_group");
     expect(firstEvidence.containmentEnforced).toBe(true);
     expect(firstEvidence.processId).toEqual(expect.any(Number));
 
     const blocked = await startShellJob({
       context,
       cwd: outside,
-      command: "Write-Output 'must-not-run'",
+      command: shellCommand("Write-Output 'must-not-run'", "printf '%s\\n' must-not-run"),
       timeoutMs: 10_000,
     });
     const blockedStatus = await waitForTerminal(context, blocked.id);
@@ -202,7 +221,7 @@ describe("workstation shell", { timeout: 30_000 }, () => {
     const other = await startShellJob({
       context: otherProfile.context,
       cwd: otherProfile.outside,
-      command: "Write-Output 'other-profile-ran'",
+      command: shellCommand("Write-Output 'other-profile-ran'", "printf '%s\\n' other-profile-ran"),
       timeoutMs: 10_000,
     });
     expect((await waitForTerminal(otherProfile.context, other.id)).status).toBe("completed");
@@ -212,11 +231,28 @@ describe("workstation shell", { timeout: 30_000 }, () => {
     const afterRelease = await startShellJob({
       context,
       cwd: outside,
-      command: "Write-Output 'writer-after-release'",
+      command: shellCommand("Write-Output 'writer-after-release'", "printf '%s\\n' writer-after-release"),
       timeoutMs: 10_000,
     });
     expect((await waitForTerminal(context, afterRelease.id)).status).toBe("completed");
   }, 30_000);
+
+  it.runIf(process.platform !== "win32")("recovers a stale POSIX profile lease whose owner is gone", async () => {
+    const { context, primary, outside } = await fixture();
+    const runtimeRoot = join(primary, "artifacts", "workforge-mcp", "shell");
+    await mkdir(runtimeRoot, { recursive: true });
+    await writeFile(join(runtimeRoot, "profile-shell-owner.lock"), "", "utf8");
+    await writeFile(join(runtimeRoot, "profile-shell-owner.json"), JSON.stringify({ processId: 999_999_999 }), "utf8");
+    const started = await startShellJob({
+      context,
+      cwd: outside,
+      command: "printf '%s\\n' recovered",
+      timeoutMs: 10_000,
+    });
+    const terminal = await waitForTerminal(context, started.id);
+    expect(terminal.status).toBe("completed");
+    expect(terminal.leaseAcquired).toBe(true);
+  });
 
   it("kills a detached descendant when the owning shell exits", async () => {
     const { context, outside } = await fixture();
@@ -230,13 +266,23 @@ describe("workstation shell", { timeout: 30_000 }, () => {
       `Set-Content -LiteralPath '${escapedForbiddenMarker}' -Value 'escaped'`,
     ].join("\n");
     const encodedDescendant = Buffer.from(descendantScript, "utf16le").toString("base64");
-    const command = [
+    const powerShellCommand = [
       `$child = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand','${encodedDescendant}') -PassThru`,
       "$deadline = [DateTime]::UtcNow.AddSeconds(15)",
       `while (-not (Test-Path -LiteralPath '${escapedStartedMarker}') -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 25 }`,
       `if (-not (Test-Path -LiteralPath '${escapedStartedMarker}')) { throw 'descendant did not start' }`,
       "Write-Output ('descendant=' + $child.Id)",
     ].join("\n");
+    const command = shellCommand(
+      powerShellCommand,
+      [
+        `(printf '%s\\n' $$ > ${quoteZsh(startedMarker)}; sleep 2; printf '%s\\n' escaped > ${quoteZsh(forbiddenMarker)}) &`,
+        "descendant=$!",
+        `deadline=$((SECONDS + 15)); while [[ ! -f ${quoteZsh(startedMarker)} && $SECONDS -lt $deadline ]]; do sleep 0.025; done`,
+        `[[ -f ${quoteZsh(startedMarker)} ]] || exit 9`,
+        "printf 'descendant=%s\\n' $descendant",
+      ].join("\n"),
+    );
 
     const started = await startShellJob({ context, cwd: outside, command, timeoutMs: 30_000 });
     const terminal = await waitForTerminal(context, started.id);
@@ -253,7 +299,7 @@ describe("workstation shell", { timeout: 30_000 }, () => {
     const attempts = await Promise.allSettled(Array.from({ length: 9 }, () => startShellJob({
       context,
       cwd: outside,
-      command: "Start-Sleep -Seconds 30",
+      command: shellCommand("Start-Sleep -Seconds 30", "sleep 30"),
       timeoutMs: 60_000,
     })));
     const accepted = attempts.filter((attempt): attempt is PromiseFulfilledResult<Awaited<ReturnType<typeof startShellJob>>> => attempt.status === "fulfilled");

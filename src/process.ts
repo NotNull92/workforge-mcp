@@ -25,6 +25,15 @@ const SAFE_ENV_KEYS = new Set([
   "USERNAME",
   "USERPROFILE",
   "windir",
+  "HOME",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "LOGNAME",
+  "SHELL",
+  "SSH_AUTH_SOCK",
+  "TMPDIR",
+  "USER",
 ].map((key) => key.toLowerCase()));
 
 export function makeSafeEnvironment(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
@@ -123,7 +132,11 @@ function terminateProcessTree(child: ChildProcessWithoutNullStreams): void {
     );
     killer.unref();
   } else {
-    child.kill("SIGTERM");
+    try {
+      process.kill(-child.pid, "SIGTERM");
+    } catch {
+      child.kill("SIGTERM");
+    }
   }
 }
 
@@ -135,6 +148,10 @@ export function resolveSystemExecutable(name: "cmd.exe" | "taskkill.exe"): strin
 export function resolvePowerShellExecutable(): string {
   const systemRoot = process.env.SystemRoot ?? process.env.WINDIR ?? "C:\\Windows";
   return `${systemRoot}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`;
+}
+
+export function resolveToolExecutable(name: "git" | "rg"): string {
+  return process.platform === "win32" ? `${name}.exe` : name;
 }
 
 export async function runProcess(
@@ -151,6 +168,7 @@ export async function runProcess(
       cwd: options.cwd,
       env: options.env ?? makeSafeEnvironment(),
       windowsHide: true,
+      detached: process.platform !== "win32",
       shell: false,
       stdio: ["pipe", "pipe", "pipe"],
     });

@@ -1,6 +1,6 @@
 ---
 name: workforge
-description: Use WorkForge for secure profile-scoped Windows workstation file, shell, and project operations through its bundled MCP server.
+description: Use WorkForge for secure profile-scoped Windows or macOS workstation file, shell, and project operations through its bundled MCP server.
 ---
 
 # WorkForge

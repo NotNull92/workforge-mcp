@@ -61,7 +61,9 @@ try {
     arguments: {
       contextRevision: workstation.contextRevision,
       cwd: tempRoot,
-      command: "if ($null -eq $env:CONTROL_PLANE_API_KEY) { Write-Output 'KEY_SCRUBBED' } else { Write-Output 'KEY_LEAKED' }",
+      command: process.platform === "win32"
+        ? "if ($null -eq $env:CONTROL_PLANE_API_KEY) { Write-Output 'KEY_SCRUBBED' } else { Write-Output 'KEY_LEAKED' }"
+        : "if [[ -z ${CONTROL_PLANE_API_KEY+x} ]]; then printf '%s\\n' KEY_SCRUBBED; else printf '%s\\n' KEY_LEAKED; fi",
       timeoutMs: 10_000,
     },
   }));

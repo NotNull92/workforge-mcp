@@ -10,16 +10,16 @@ const expectedTools = [
   "search_files", "shell_cancel", "shell_output", "shell_start", "shell_status",
   "workstation_context", "write_text_file",
 ];
-const powershell = resolve(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
 const client = new Client({ name: "workforge-plugin-stdio-smoke", version: "1.0.0" });
+const command = process.platform === "win32"
+  ? resolve(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+  : process.execPath;
+const args = process.platform === "win32"
+  ? ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", resolve(pluginRoot, "bin", "workforge-stdio.ps1"), "-ProfileId", profileId]
+  : [resolve(pluginRoot, "bin", "workforge-stdio.mjs"), "--profile", profileId];
 const transport = new StdioClientTransport({
-  command: powershell,
-  args: [
-    "-NoProfile",
-    "-ExecutionPolicy", "Bypass",
-    "-File", resolve(pluginRoot, "bin", "workforge-stdio.ps1"),
-    "-ProfileId", profileId,
-  ],
+  command,
+  args,
   cwd: pluginRoot,
   env: { ...process.env, CONTROL_PLANE_API_KEY: "plugin-smoke-sentinel" },
   stderr: "inherit",
