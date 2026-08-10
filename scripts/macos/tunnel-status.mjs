@@ -3,8 +3,8 @@ import { resolve } from "node:path";
 import {
   loadInstallation,
   processMatches,
-  readControlPlaneKey,
   readPidRecord,
+  readStoredControlPlaneKey,
   runtimePaths,
   tunnelDoctor,
 } from "./tunnel-common.mjs";
@@ -32,7 +32,7 @@ if (running && existsSync(paths.healthUrlPath)) {
 }
 let controlPlaneHealthy = false;
 if (running && localReady) {
-  try { controlPlaneHealthy = tunnelDoctor(installation, readControlPlaneKey(profileId)); } catch { /* key unavailable */ }
+  try { controlPlaneHealthy = tunnelDoctor(installation, readStoredControlPlaneKey(profileId)); } catch { /* key unavailable */ }
 }
 const ready = localReady && controlPlaneHealthy;
 let state = null;

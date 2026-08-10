@@ -24,11 +24,16 @@ The canonical Agent Plugins `plugin.json` and `mcp.json` generate the OpenAI
 either package. ChatGPT intentionally remains on the Secure MCP Tunnel path.
 
 On macOS, the private source preview supports both direct Codex stdio and ChatGPT
-through the OpenAI Secure MCP Tunnel. It uses the system Node.js and ripgrep,
-stores a non-secret engine pointer below `~/Library/Application Support/WorkForge`,
-stores the Runtime API Key in macOS Keychain, and runs commands with `/bin/zsh -f`
-inside a dedicated POSIX process group. The portable runtime and control dashboard
-remain Windows-only; macOS uses explicit CLI start, status, and stop commands.
+through the OpenAI Secure MCP Tunnel on Apple Silicon and Intel Macs. It uses the
+system Node.js and ripgrep, stores a non-secret engine pointer below
+`~/Library/Application Support/WorkForge`, and selects the architecture-specific
+OpenAI tunnel-client archive from `runtime-lock.json`. The Runtime API Key is kept
+in macOS Keychain and is never passed in process command-line arguments. The
+long-running supervisor starts with that credential removed from its inherited
+environment and runs tunnel children inside the explicit lifecycle contract. Shell
+commands use `/bin/zsh -f` inside a dedicated POSIX process group. The Windows
+portable runtime and Control dashboard remain Windows-only; macOS uses explicit CLI
+install, configure, start, status, and stop commands.
 
 ## Setup orchestration
 

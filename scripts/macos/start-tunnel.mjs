@@ -7,9 +7,10 @@ import {
   delay,
   loadInstallation,
   processMatches,
-  readControlPlaneKey,
   readPidRecord,
+  readStoredControlPlaneKey,
   runtimePaths,
+  scrubControlPlaneEnvironment,
   tunnelDoctor,
   tunnelClientPath,
 } from "./tunnel-common.mjs";
@@ -21,10 +22,11 @@ const paths = runtimePaths(installation);
 const executable = tunnelClientPath(installation);
 if (!existsSync(executable)) throw new Error("Tunnel runtime is not installed.");
 if (!existsSync(installation.tunnelConfigPath)) throw new Error("Tunnel is not configured.");
-const controlPlaneKey = readControlPlaneKey(profileId);
+let controlPlaneKey = readStoredControlPlaneKey(profileId);
 if (!tunnelDoctor(installation, controlPlaneKey, "inherit")) {
   throw new Error("Tunnel control-plane authentication failed.");
 }
+controlPlaneKey = undefined;
 mkdirSync(installation.runtimeRoot, { recursive: true, mode: 0o700 });
 const supervisorScript = resolve(installation.engineRoot, "scripts", "macos", "tunnel-supervisor.mjs");
 const existing = readPidRecord(paths.supervisorPath);
@@ -39,7 +41,7 @@ const outputHandle = openSync(paths.supervisorLogPath, "a", 0o600);
 const child = spawn(installation.nodePath, [supervisorScript, "--profile", profileId, "--instance", instance], {
   cwd: installation.engineRoot,
   detached: true,
-  env: { ...process.env },
+  env: scrubControlPlaneEnvironment(),
   shell: false,
   stdio: ["ignore", outputHandle, outputHandle],
 });

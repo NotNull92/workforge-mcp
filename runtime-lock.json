@@ -28,6 +28,23 @@
       "sha256": "5e64a056f1d96786da0a6f8db1da5f5f4a03fd19a90d951a25cf2ca8d9093d00",
       "license": "Apache-2.0",
       "licenseUrl": "https://raw.githubusercontent.com/openai/tunnel-client/v0.0.10/LICENSE"
+    },
+    "tunnelClientMacos": {
+      "version": "0.0.11",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://raw.githubusercontent.com/openai/tunnel-client/v0.0.11/LICENSE",
+      "archives": {
+        "arm64": {
+          "archiveName": "tunnel-client-v0.0.11-darwin-arm64.zip",
+          "url": "https://github.com/openai/tunnel-client/releases/download/v0.0.11/tunnel-client-v0.0.11-darwin-arm64.zip",
+          "sha256": "3685443b057614ff932d2d477dab94be2082e60bcf4e8b4e378bebc89121b714"
+        },
+        "x64": {
+          "archiveName": "tunnel-client-v0.0.11-darwin-amd64.zip",
+          "url": "https://github.com/openai/tunnel-client/releases/download/v0.0.11/tunnel-client-v0.0.11-darwin-amd64.zip",
+          "sha256": "a48c8a37983d9bf9442309cb661cd2f14d7321cfacf72375d7fa31a6a7420db0"
+        }
+      }
     }
   }
 }

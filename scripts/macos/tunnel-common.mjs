@@ -1,12 +1,9 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { closeSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, resolve } from "node:path";
 
-export const TUNNEL_VERSION = "0.0.11";
-export const TUNNEL_ARCHIVE_SHA256 = "3685443b057614ff932d2d477dab94be2082e60bcf4e8b4e378bebc89121b714";
-export const TUNNEL_ARCHIVE_URL = "https://github.com/openai/tunnel-client/releases/download/v0.0.11/tunnel-client-v0.0.11-darwin-arm64.zip";
 export const KEYCHAIN_SERVICE = "io.workforge.control-plane";
 
 export function assertProfileId(profileId) {
@@ -37,7 +34,14 @@ export function loadInstallation(profileId = "workstation") {
   const nodePath = realpathSync(state.nodePath);
   const registry = readJson(registryPath, "WorkForge profile registry");
   const entry = registry.profiles?.find((candidate) => candidate.id === profileId);
-  if (!entry || !isAbsolute(entry.profilePath)) throw new Error(`Unknown WorkForge profile: ${profileId}`);
+  if (!entry || !isAbsolute(entry.profilePath) || !/^[a-f0-9]{64}$/u.test(entry.profileSha256 ?? "")) {
+    throw new Error(`Unknown or invalid WorkForge profile: ${profileId}`);
+  }
+  const profileDocument = readJson(entry.profilePath, `WorkForge profile ${profileId}`);
+  if (profileDocument.id !== profileId) throw new Error(`WorkForge profile identity mismatch: ${profileId}`);
+  const profileBytes = readFileSync(entry.profilePath);
+  const profileSha256 = createHash("sha256").update(profileBytes).digest("hex");
+  if (profileSha256 !== entry.profileSha256) throw new Error(`WorkForge profile hash mismatch: ${profileId}`);
   const profilePath = realpathSync(entry.profilePath);
   return {
     root,
@@ -52,10 +56,42 @@ export function loadInstallation(profileId = "workstation") {
   };
 }
 
+export function resolveTunnelRuntimeDescriptor(installation = loadInstallation(), architecture = process.arch) {
+  if (!new Set(["arm64", "x64"]).has(architecture)) throw new Error(`Unsupported macOS architecture: ${architecture}`);
+  const lock = readJson(resolve(installation.engineRoot, "runtime-lock.json"), "WorkForge runtime lock");
+  if (lock.schemaVersion !== 1 || lock.product !== "WorkForge") throw new Error("WorkForge runtime lock is invalid.");
+  const runtime = lock.runtimes?.tunnelClientMacos;
+  const archive = runtime?.archives?.[architecture];
+  if (!runtime || !/^\d+\.\d+\.\d+$/u.test(runtime.version ?? "") || !archive) {
+    throw new Error(`WorkForge runtime lock does not support macOS ${architecture}.`);
+  }
+  const platformArch = architecture === "x64" ? "amd64" : "arm64";
+  const expectedArchiveName = `tunnel-client-v${runtime.version}-darwin-${platformArch}.zip`;
+  const expectedUrl = `https://github.com/openai/tunnel-client/releases/download/v${runtime.version}/${expectedArchiveName}`;
+  if (
+    archive.archiveName !== expectedArchiveName
+    || archive.url !== expectedUrl
+    || !/^[a-f0-9]{64}$/u.test(archive.sha256 ?? "")
+  ) {
+    throw new Error(`WorkForge macOS tunnel runtime lock is invalid for ${architecture}.`);
+  }
+  return {
+    version: runtime.version,
+    archiveName: archive.archiveName,
+    url: archive.url,
+    sha256: archive.sha256,
+    license: runtime.license,
+    licenseUrl: runtime.licenseUrl,
+    architecture,
+  };
+}
+
 export function tunnelClientPath(installation = loadInstallation()) {
   const override = process.env.WORKFORGE_TUNNEL_CLIENT_PATH;
   if (override && !isAbsolute(override)) throw new Error("WORKFORGE_TUNNEL_CLIENT_PATH must be absolute.");
-  return resolve(override ?? resolve(installation.root, "runtimes", "tunnel-client", `v${TUNNEL_VERSION}`, "tunnel-client"));
+  if (override) return resolve(override);
+  const runtime = resolveTunnelRuntimeDescriptor(installation);
+  return resolve(installation.root, "runtimes", "tunnel-client", `v${runtime.version}`, "tunnel-client");
 }
 
 export function runtimePaths(installation) {
@@ -80,15 +116,6 @@ export function atomicWrite(path, value, mode = 0o600) {
   renameSync(temporaryPath, path);
 }
 
-export function readControlPlaneKey(profileId) {
-  const environmentKey = process.env.CONTROL_PLANE_API_KEY;
-  if (environmentKey) return validateControlPlaneKey(environmentKey);
-  const key = execFileSync("/usr/bin/security", [
-    "find-generic-password", "-a", profileId, "-s", KEYCHAIN_SERVICE, "-w",
-  ], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-  return validateControlPlaneKey(key);
-}
-
 export function validateControlPlaneKey(key) {
   if (!key || key.length > 4096 || !/^[\x21-\x7e]+$/u.test(key)) {
     throw new Error("Runtime API Key is invalid.");
@@ -96,15 +123,64 @@ export function validateControlPlaneKey(key) {
   return key;
 }
 
-export function keychainPasswordHex(key) {
-  return Buffer.from(validateControlPlaneKey(key), "utf8").toString("hex");
+export function scrubControlPlaneEnvironment(environment = process.env) {
+  const scrubbed = { ...environment };
+  delete scrubbed.CONTROL_PLANE_API_KEY;
+  return scrubbed;
+}
+
+export function hasStoredControlPlaneKey(profileId) {
+  assertProfileId(profileId);
+  const result = spawnSync("/usr/bin/security", [
+    "find-generic-password", "-a", profileId, "-s", KEYCHAIN_SERVICE,
+  ], { env: scrubControlPlaneEnvironment(), stdio: "ignore" });
+  return result.status === 0;
+}
+
+export function readStoredControlPlaneKey(profileId) {
+  assertProfileId(profileId);
+  const key = execFileSync("/usr/bin/security", [
+    "find-generic-password", "-a", profileId, "-s", KEYCHAIN_SERVICE, "-w",
+  ], {
+    encoding: "utf8",
+    env: scrubControlPlaneEnvironment(),
+    stdio: ["ignore", "pipe", "ignore"],
+  }).trim();
+  return validateControlPlaneKey(key);
+}
+
+export function storeControlPlaneKey(profileId, key) {
+  assertProfileId(profileId);
+  const value = validateControlPlaneKey(key);
+  const stored = spawnSync("/usr/bin/security", [
+    "add-generic-password",
+    "-a", profileId,
+    "-s", KEYCHAIN_SERVICE,
+    "-l", `WorkForge ${profileId} Runtime API Key`,
+    "-U",
+    "-w",
+  ], {
+    input: `${value}\n`,
+    encoding: "utf8",
+    env: scrubControlPlaneEnvironment(),
+    stdio: ["pipe", "ignore", "ignore"],
+  });
+  if (stored.status !== 0) throw new Error("Runtime API Key was not stored in Keychain.");
+}
+
+export function deleteStoredControlPlaneKey(profileId) {
+  assertProfileId(profileId);
+  const deleted = spawnSync("/usr/bin/security", [
+    "delete-generic-password", "-a", profileId, "-s", KEYCHAIN_SERVICE,
+  ], { env: scrubControlPlaneEnvironment(), stdio: "ignore" });
+  return deleted.status === 0;
 }
 
 export function tunnelDoctor(installation, key, stdio = "ignore") {
   const result = spawnSync(tunnelClientPath(installation), [
     "doctor", "--profile-file", installation.tunnelConfigPath,
   ], {
-    env: { ...process.env, CONTROL_PLANE_API_KEY: validateControlPlaneKey(key) },
+    env: { ...scrubControlPlaneEnvironment(), CONTROL_PLANE_API_KEY: validateControlPlaneKey(key) },
     stdio,
   });
   return result.status === 0;

@@ -1,30 +1,32 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import {
-  TUNNEL_ARCHIVE_SHA256,
-  TUNNEL_ARCHIVE_URL,
-  TUNNEL_VERSION,
   loadInstallation,
+  resolveTunnelRuntimeDescriptor,
   tunnelClientPath,
 } from "./tunnel-common.mjs";
 
-if (process.platform !== "darwin" || process.arch !== "arm64") throw new Error("This preview supports macOS arm64 only.");
-const installation = loadInstallation(process.argv[process.argv.indexOf("--profile") + 1] ?? "workstation");
+if (process.platform !== "darwin") throw new Error("This tunnel runtime installer supports macOS only.");
+const profileIndex = process.argv.indexOf("--profile");
+const profileId = profileIndex >= 0 ? process.argv[profileIndex + 1] : "workstation";
+const installation = loadInstallation(profileId);
+const runtime = resolveTunnelRuntimeDescriptor(installation);
 const targetBinary = tunnelClientPath(installation);
 const sha256File = (path) => createHash("sha256").update(readFileSync(path)).digest("hex");
 
-const response = await fetch(TUNNEL_ARCHIVE_URL, { redirect: "follow" });
+const response = await fetch(runtime.url, { redirect: "follow", signal: AbortSignal.timeout(120_000) });
 if (!response.ok) throw new Error(`Tunnel runtime download failed: HTTP ${response.status}`);
 const archive = Buffer.from(await response.arrayBuffer());
 const digest = createHash("sha256").update(archive).digest("hex");
-if (digest !== TUNNEL_ARCHIVE_SHA256) throw new Error("Tunnel runtime SHA-256 mismatch.");
+if (digest !== runtime.sha256) throw new Error("Tunnel runtime SHA-256 mismatch.");
 
 const temporaryRoot = mkdtempSync(resolve(tmpdir(), "workforge-tunnel-runtime-"));
+let stagingRoot = null;
 try {
-  const archivePath = resolve(temporaryRoot, "runtime.zip");
+  const archivePath = resolve(temporaryRoot, runtime.archiveName);
   const extractedPath = resolve(temporaryRoot, "extracted");
   writeFileSync(archivePath, archive, { mode: 0o600 });
   mkdirSync(extractedPath, { mode: 0o700 });
@@ -36,11 +38,13 @@ try {
   execFileSync(stagedBinary, ["--version"], { stdio: "ignore" });
   const targetRoot = dirname(targetBinary);
   const runtimeManifest = {
-    version: TUNNEL_VERSION,
+    version: runtime.version,
+    architecture: runtime.architecture,
+    archiveName: runtime.archiveName,
     archiveSha256: digest,
     tunnelClientSha256: sha256File(stagedBinary),
     cloudflaredSha256: sha256File(stagedCloudflared),
-    source: TUNNEL_ARCHIVE_URL,
+    source: runtime.url,
   };
   if (existsSync(targetBinary)) {
     const installedCloudflared = resolve(targetRoot, "cloudflared");
@@ -55,11 +59,15 @@ try {
     process.exit(0);
   }
   mkdirSync(dirname(targetRoot), { recursive: true, mode: 0o700 });
-  const stagingRoot = `${targetRoot}.${randomUUID()}.tmp`;
-  renameSync(extractedPath, stagingRoot);
+  stagingRoot = `${targetRoot}.${randomUUID()}.tmp`;
+  cpSync(extractedPath, stagingRoot, { recursive: true, errorOnExist: true, force: false });
+  chmodSync(resolve(stagingRoot, "tunnel-client"), 0o755);
+  chmodSync(resolve(stagingRoot, "cloudflared"), 0o755);
   renameSync(stagingRoot, targetRoot);
+  stagingRoot = null;
   writeFileSync(resolve(targetRoot, "workforge-runtime.json"), `${JSON.stringify(runtimeManifest, null, 2)}\n`, { mode: 0o600 });
 } finally {
+  if (stagingRoot) rmSync(stagingRoot, { recursive: true, force: true });
   rmSync(temporaryRoot, { recursive: true, force: true });
 }
 console.log(`Tunnel runtime installed and verified: ${targetBinary}`);

@@ -148,6 +148,26 @@ $RequiredChecks = [ordered]@{
     "artifacts\workforge-mcp",
     "Optional WorkForge profile .git path"
   )
+  "scripts\macos\tunnel-common.mjs" = @(
+    "storeControlPlaneKey",
+    "readStoredControlPlaneKey",
+    "scrubControlPlaneEnvironment",
+    "resolveTunnelRuntimeDescriptor"
+  )
+  "scripts\macos\configure-tunnel.mjs" = @(
+    "storeControlPlaneKey",
+    "atomicWrite(installation.tunnelConfigPath",
+    "scrubControlPlaneEnvironment"
+  )
+  "scripts\macos\install-tunnel-runtime.mjs" = @(
+    "resolveTunnelRuntimeDescriptor",
+    "AbortSignal.timeout",
+    "cpSync(extractedPath, stagingRoot"
+  )
+  "scripts\macos\start-tunnel.mjs" = @(
+    "readStoredControlPlaneKey",
+    "scrubControlPlaneEnvironment"
+  )
   "scripts\WorkForge.TunnelRuntime.ps1" = @(
     "WorkForgeMcp-Tunnel"
   )

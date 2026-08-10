@@ -1,16 +1,19 @@
 import { spawn } from "node:child_process";
-import { closeSync, createWriteStream, existsSync, mkdirSync, openSync, readFileSync, rmSync } from "node:fs";
-import { resolve } from "node:path";
+import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import {
   atomicWrite,
   delay,
   loadInstallation,
-  readControlPlaneKey,
+  readStoredControlPlaneKey,
   runtimePaths,
+  scrubControlPlaneEnvironment,
   tunnelClientPath,
 } from "./tunnel-common.mjs";
 
-const valueAfter = (name) => process.argv[process.argv.indexOf(name) + 1];
+const valueAfter = (name) => {
+  const index = process.argv.indexOf(name);
+  return index >= 0 ? process.argv[index + 1] : undefined;
+};
 const profileId = valueAfter("--profile") ?? "workstation";
 const instance = valueAfter("--instance");
 if (!/^[a-f0-9-]{36}$/u.test(instance ?? "")) throw new Error("Supervisor instance is invalid.");
@@ -18,7 +21,6 @@ const installation = loadInstallation(profileId);
 const paths = runtimePaths(installation);
 const executable = tunnelClientPath(installation);
 mkdirSync(installation.runtimeRoot, { recursive: true, mode: 0o700 });
-const key = readControlPlaneKey(profileId);
 let stopping = false;
 let child;
 
@@ -42,6 +44,7 @@ try {
     rmSync(paths.tunnelPidPath, { force: true });
     const stdout = createWriteStream(paths.tunnelStdoutPath, { flags: "a", mode: 0o600 });
     const stderr = createWriteStream(paths.tunnelStderrPath, { flags: "a", mode: 0o600 });
+    let key = readStoredControlPlaneKey(profileId);
     child = spawn(executable, [
       "run", "--profile-file", installation.tunnelConfigPath,
       "--control-plane.api-key", "env:CONTROL_PLANE_API_KEY",
@@ -51,10 +54,11 @@ try {
       "--log.file", paths.tunnelLogPath,
     ], {
       cwd: installation.engineRoot,
-      env: { ...process.env, CONTROL_PLANE_API_KEY: key },
+      env: { ...scrubControlPlaneEnvironment(), CONTROL_PLANE_API_KEY: key },
       shell: false,
       stdio: ["ignore", "pipe", "pipe"],
     });
+    key = undefined;
     child.stdout.pipe(stdout);
     child.stderr.pipe(stderr);
     atomicWrite(paths.statusPath, `${JSON.stringify({
