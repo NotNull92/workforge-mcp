@@ -25,8 +25,10 @@ configuration run. The complete key is stored as password data in macOS Keychain
 service `io.workforge.control-plane`.
 
 The Runtime API Key is not placed in command-line arguments. WorkForge invokes the macOS
-`security` tool in password-prompt mode and sends the secret through the child process stdin.
-Long-running supervisor processes are started with `CONTROL_PLANE_API_KEY` removed from their
+`security` tool in interactive mode and sends an `add-generic-password` command with the
+hex-encoded password data through the child process stdin. The hex form is only transport
+encoding inside stdin; it is never placed in the OS process argument list. Long-running
+supervisor processes are started with `CONTROL_PLANE_API_KEY` removed from their
 environment; only the short-lived `tunnel-client` child receives the Keychain value through
 its environment because the OpenAI tunnel client explicitly supports
 `--control-plane.api-key env:CONTROL_PLANE_API_KEY`.

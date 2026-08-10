@@ -152,20 +152,20 @@ export function readStoredControlPlaneKey(profileId) {
 export function storeControlPlaneKey(profileId, key) {
   assertProfileId(profileId);
   const value = validateControlPlaneKey(key);
-  const stored = spawnSync("/usr/bin/security", [
-    "add-generic-password",
-    "-a", profileId,
-    "-s", KEYCHAIN_SERVICE,
-    "-l", `WorkForge ${profileId} Runtime API Key`,
-    "-U",
-    "-w",
-  ], {
-    input: `${value}\n`,
+  const passwordHex = Buffer.from(value, "utf8").toString("hex");
+  const command = `add-generic-password -a ${profileId} -s ${KEYCHAIN_SERVICE} -U -X ${passwordHex}\n`;
+  const stored = spawnSync("/usr/bin/security", ["-i"], {
+    input: command,
     encoding: "utf8",
     env: scrubControlPlaneEnvironment(),
     stdio: ["pipe", "ignore", "ignore"],
   });
   if (stored.status !== 0) throw new Error("Runtime API Key was not stored in Keychain.");
+  let observed;
+  try { observed = readStoredControlPlaneKey(profileId); } catch {
+    throw new Error("Runtime API Key Keychain verification failed after storage.");
+  }
+  if (observed !== value) throw new Error("Runtime API Key Keychain verification did not match the supplied value.");
 }
 
 export function deleteStoredControlPlaneKey(profileId) {

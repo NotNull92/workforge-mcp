@@ -15,11 +15,15 @@ import {
 } from "./macos/tunnel-common.mjs";
 
 const root = resolve(import.meta.dirname, "..");
+const commonSource = readFileSync(resolve(root, "scripts", "macos", "tunnel-common.mjs"), "utf8");
 const configureSource = readFileSync(resolve(root, "scripts", "macos", "configure-tunnel.mjs"), "utf8");
 const startSource = readFileSync(resolve(root, "scripts", "macos", "start-tunnel.mjs"), "utf8");
 const installSource = readFileSync(resolve(root, "scripts", "macos", "install-tunnel-runtime.mjs"), "utf8");
 assert.equal(configureSource.includes("keychainPasswordHex"), false, "Runtime API Key encoding helper must not return to macOS configure flow.");
-assert.equal(configureSource.includes('"-X"'), false, "Runtime API Key must never be passed through security -X argv.");
+assert.equal(configureSource.includes('"-X"'), false, "Runtime API Key must never be passed through configure-process argv.");
+assert.match(commonSource, /spawnSync\("\/usr\/bin\/security", \["-i"\]/u, "Keychain storage must use security interactive stdin mode.");
+assert.match(commonSource, /input: command/u, "Keychain storage must send the credential command through stdin.");
+assert.doesNotMatch(commonSource, /spawnSync\("\/usr\/bin\/security", \[\s*"add-generic-password"/u, "Keychain storage must not put add-generic-password secret data in process argv.");
 assert.match(configureSource, /storeControlPlaneKey/u, "macOS configure flow must use the Keychain stdin helper.");
 assert.match(configureSource, /atomicWrite\(installation\.tunnelConfigPath/u, "macOS tunnel config must be written atomically in the destination directory.");
 assert.match(startSource, /scrubControlPlaneEnvironment/u, "macOS supervisor launch must scrub CONTROL_PLANE_API_KEY.");

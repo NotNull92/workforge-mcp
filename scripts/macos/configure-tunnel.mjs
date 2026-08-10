@@ -27,7 +27,7 @@ if (!tunnelId) {
   prompt.close();
 }
 if (!/^tunnel_[a-f0-9]{32}$/u.test(tunnelId)) throw new Error("tunnel_id is invalid.");
-const environmentReplacementKey = process.env.CONTROL_PLANE_API_KEY;
+let environmentReplacementKey = process.env.CONTROL_PLANE_API_KEY;
 delete process.env.CONTROL_PLANE_API_KEY;
 const installation = loadInstallation(profileId);
 const executable = tunnelClientPath(installation);
@@ -35,33 +35,35 @@ execFileSync(executable, ["--version"], { env: scrubControlPlaneEnvironment(), s
 
 const hadStoredKey = hasStoredControlPlaneKey(profileId);
 const previousKey = hadStoredKey ? readStoredControlPlaneKey(profileId) : null;
-let keyChanged = false;
-if (!hadStoredKey || process.argv.includes("--replace-key")) {
-  let replacementKey = environmentReplacementKey;
-  if (!replacementKey) {
-    console.log("Enter the OpenAI Runtime API Key in the hidden macOS dialog.");
-    const prompted = spawnSync("/usr/bin/osascript", [
-      "-e",
-      'text returned of (display dialog "OpenAI Runtime API Key" default answer "" with hidden answer buttons {"Cancel", "Save"} default button "Save")',
-    ], {
-      encoding: "utf8",
-      env: scrubControlPlaneEnvironment(),
-      stdio: ["ignore", "pipe", "inherit"],
-    });
-    if (prompted.status !== 0) throw new Error("Runtime API Key entry was cancelled.");
-    replacementKey = prompted.stdout.trim();
-  }
-  storeControlPlaneKey(profileId, validateControlPlaneKey(replacementKey));
-  replacementKey = undefined;
-  keyChanged = true;
-}
-
-const key = readStoredControlPlaneKey(profileId);
-const command = `"${installation.nodePath.replaceAll('"', '\\"')}" "${resolve(installation.engineRoot, "dist", "stdio.js").replaceAll('"', '\\"')}" --profile ${profileId}`;
-const buildRoot = mkdtempSync(resolve(tmpdir(), "workforge-tunnel-profile-"));
 const previousConfig = existsSync(installation.tunnelConfigPath) ? readFileSync(installation.tunnelConfigPath) : null;
+let keyChanged = false;
 let configChanged = false;
+let buildRoot = null;
 try {
+  if (!hadStoredKey || process.argv.includes("--replace-key")) {
+    let replacementKey = environmentReplacementKey;
+    environmentReplacementKey = undefined;
+    if (!replacementKey) {
+      console.log("Enter the OpenAI Runtime API Key in the hidden macOS dialog.");
+      const prompted = spawnSync("/usr/bin/osascript", [
+        "-e",
+        'text returned of (display dialog "OpenAI Runtime API Key" default answer "" with hidden answer buttons {"Cancel", "Save"} default button "Save")',
+      ], {
+        encoding: "utf8",
+        env: scrubControlPlaneEnvironment(),
+        stdio: ["ignore", "pipe", "inherit"],
+      });
+      if (prompted.status !== 0) throw new Error("Runtime API Key entry was cancelled.");
+      replacementKey = prompted.stdout.trim();
+    }
+    keyChanged = true;
+    storeControlPlaneKey(profileId, validateControlPlaneKey(replacementKey));
+    replacementKey = undefined;
+  }
+
+  const key = readStoredControlPlaneKey(profileId);
+  const command = `"${installation.nodePath.replaceAll('"', '\\"')}" "${resolve(installation.engineRoot, "dist", "stdio.js").replaceAll('"', '\\"')}" --profile ${profileId}`;
+  buildRoot = mkdtempSync(resolve(tmpdir(), "workforge-tunnel-profile-"));
   execFileSync(executable, [
     "init", "--sample", "sample_mcp_stdio_local", "--profile", profileId,
     "--profile-dir", buildRoot, "--tunnel-id", tunnelId,
@@ -87,6 +89,7 @@ try {
   }
   throw error;
 } finally {
-  rmSync(buildRoot, { recursive: true, force: true });
+  environmentReplacementKey = undefined;
+  if (buildRoot) rmSync(buildRoot, { recursive: true, force: true });
 }
 console.log(`Tunnel configured for ${profileId}. It remains stopped until explicitly started.`);
