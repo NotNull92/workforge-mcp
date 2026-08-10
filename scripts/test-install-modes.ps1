@@ -2,6 +2,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 3.0
 
 $ToolRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..") -ErrorAction Stop).Path
+. (Join-Path $PSScriptRoot "WorkForge.Portable.ps1")
 $InstallerPath = Join-Path $PSScriptRoot "Install.ps1"
 $TestRoot = Join-Path ([IO.Path]::GetTempPath()) ("workforge-install-modes-" + [guid]::NewGuid().ToString("N"))
 $WorkspaceRoot = Join-Path $TestRoot "workspace"
@@ -24,8 +25,8 @@ try {
   $CustomAgents = "# User policy`n`nKeep this exact content.`n"
   [IO.File]::WriteAllText($AgentsPath, $CustomAgents, $Utf8)
   [IO.File]::WriteAllText($TunnelPath, "version: 1`nfixture: true`n", $Utf8)
-  $AgentsHashBefore = (Get-FileHash -LiteralPath $AgentsPath -Algorithm SHA256).Hash
-  $TunnelHashBefore = (Get-FileHash -LiteralPath $TunnelPath -Algorithm SHA256).Hash
+  $AgentsHashBefore = Get-WorkForgeFileSha256 -Path $AgentsPath
+  $TunnelHashBefore = Get-WorkForgeFileSha256 -Path $TunnelPath
 
   $Registry = Get-Content -Raw -LiteralPath $RegistryPath | ConvertFrom-Json
   $OtherPath = Join-Path $TestRoot "other\tools\workforge-mcp\profile.json"
@@ -45,10 +46,10 @@ try {
     -Plain `
     -NoLog
 
-  if ((Get-FileHash -LiteralPath $AgentsPath -Algorithm SHA256).Hash -ne $AgentsHashBefore) {
+  if ((Get-WorkForgeFileSha256 -Path $AgentsPath) -ne $AgentsHashBefore) {
     throw "Repair overwrote the user policy file."
   }
-  if ((Get-FileHash -LiteralPath $TunnelPath -Algorithm SHA256).Hash -ne $TunnelHashBefore) {
+  if ((Get-WorkForgeFileSha256 -Path $TunnelPath) -ne $TunnelHashBefore) {
     throw "Repair overwrote the tunnel configuration."
   }
   $AfterRepair = Get-Content -Raw -LiteralPath $RegistryPath | ConvertFrom-Json
@@ -65,7 +66,7 @@ try {
     -Plain `
     -NoLog
 
-  if ((Get-FileHash -LiteralPath $AgentsPath -Algorithm SHA256).Hash -ne $AgentsHashBefore) {
+  if ((Get-WorkForgeFileSha256 -Path $AgentsPath) -ne $AgentsHashBefore) {
     throw "Upgrade overwrote the user policy file."
   }
   $CandidatePath = "$AgentsPath.new"
@@ -73,13 +74,13 @@ try {
     throw "Upgrade did not emit a changed template candidate."
   }
   $TemplatePath = Join-Path $ToolRoot "templates\workstation\AGENTS.md"
-  if ((Get-FileHash -LiteralPath $CandidatePath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $TemplatePath -Algorithm SHA256).Hash) {
+  if ((Get-WorkForgeFileSha256 -Path $CandidatePath) -ne (Get-WorkForgeFileSha256 -Path $TemplatePath)) {
     throw "Upgrade template candidate does not match the distributed template."
   }
 
   $CustomCandidate = "# Reviewed candidate`n`nPreserve this content.`n"
   [IO.File]::WriteAllText($CandidatePath, $CustomCandidate, $Utf8)
-  $CandidateHashBefore = (Get-FileHash -LiteralPath $CandidatePath -Algorithm SHA256).Hash
+  $CandidateHashBefore = Get-WorkForgeFileSha256 -Path $CandidatePath
   & $InstallerPath `
     -WorkspaceRoot $WorkspaceRoot `
     -RegistryPath $RegistryPath `
@@ -88,14 +89,14 @@ try {
     -NoDesktopShortcut `
     -Plain `
     -NoLog
-  if ((Get-FileHash -LiteralPath $CandidatePath -Algorithm SHA256).Hash -ne $CandidateHashBefore) {
+  if ((Get-WorkForgeFileSha256 -Path $CandidatePath) -ne $CandidateHashBefore) {
     throw "Upgrade overwrote an existing user-modified template candidate."
   }
 
   $FinalRegistry = Get-Content -Raw -LiteralPath $RegistryPath | ConvertFrom-Json
   $CurrentEntry = @($FinalRegistry.profiles | Where-Object { $_.id -eq "workstation" })
   if ($CurrentEntry.Count -ne 1) { throw "Current profile was not registered exactly once." }
-  $ExpectedHash = (Get-FileHash -LiteralPath $ProfilePath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $ExpectedHash = (Get-WorkForgeFileSha256 -Path $ProfilePath).ToLowerInvariant()
   if ([string]$CurrentEntry[0].profileSha256 -cne $ExpectedHash) { throw "Current profile hash was not refreshed." }
 
   Write-Output "INSTALL_MODES_TEST_OK"

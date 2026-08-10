@@ -2,6 +2,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 3.0
 
 $ToolRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..") -ErrorAction Stop).Path
+. (Join-Path $PSScriptRoot "WorkForge.Portable.ps1")
 $SetupPath = Join-Path $PSScriptRoot "Setup-Entry.ps1"
 $TestRoot = Join-Path ([IO.Path]::GetTempPath()) ("workforge-setup-" + [guid]::NewGuid().ToString("N"))
 $WorkspaceRoot = Join-Path $TestRoot "workspace"
@@ -14,6 +15,18 @@ if ($UnqualifiedTunnelAssignments.Count -gt 0) {
 }
 if ([regex]::Matches($SetupText, '(?m)^\s*\$script:TunnelConfigured\s*=').Count -lt 3) {
   throw "Setup must initialize and update tunnel state in script scope."
+}
+foreach ($RequiredHandoffText in @(
+  "Plugin search",
+  "Authentication to None",
+  "confirm WorkForge appears under Installed",
+  "new Chat conversation (not Work)",
+  "full local project path",
+  "Keep the WorkForge tunnel running"
+)) {
+  if (-not $SetupText.Contains($RequiredHandoffText)) {
+    throw "Setup ChatGPT handoff is missing required guidance: $RequiredHandoffText"
+  }
 }
 
 function Invoke-TestSetup {
@@ -60,12 +73,12 @@ try {
 
   $CustomPolicy = "# Setup repair fixture`n`nPreserve this user-owned policy.`n"
   [IO.File]::WriteAllText($AgentsPath, $CustomPolicy, $Utf8)
-  $PolicyHash = (Get-FileHash -LiteralPath $AgentsPath -Algorithm SHA256).Hash
+  $PolicyHash = Get-WorkForgeFileSha256 -Path $AgentsPath
 
   $Second = Invoke-TestSetup
   if ($Second.ExitCode -ne 0) { throw "Repeated Setup test failed with exit $($Second.ExitCode). Output: $($Second.Output)" }
   if ($Second.Output -notmatch 'WorkForge Repair completed') { throw "Auto mode did not choose Repair for an existing profile. Output: $($Second.Output)" }
-  if ((Get-FileHash -LiteralPath $AgentsPath -Algorithm SHA256).Hash -ne $PolicyHash) {
+  if ((Get-WorkForgeFileSha256 -Path $AgentsPath) -ne $PolicyHash) {
     throw "Repeated Setup overwrote the user-owned policy."
   }
 

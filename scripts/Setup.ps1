@@ -245,8 +245,16 @@ try {
       Set-SetupStageDetail -Detail "skipped"
       return
     }
-    Write-WorkForgeDetail -Text "Enable Settings > Security and login > Developer mode in ChatGPT." -Tone "info"
-    Write-WorkForgeDetail -Text "On the Plugins page, choose Tunnel and select the same tunnel." -Tone "info"
+    Write-WorkForgeDetail -Text "Finish the WorkForge plugin connection in ChatGPT:" -Tone "info"
+    Write-WorkForgeDetail -Text "1. Enable Settings > Security and login > Developer mode."
+    Write-WorkForgeDetail -Text "2. On the Plugins page, select + beside Plugin search."
+    Write-WorkForgeDetail -Text "3. Optionally choose an icon, then enter WorkForge as the name."
+    Write-WorkForgeDetail -Text "4. Under Connection, select Tunnel and choose the tunnel created for WorkForge."
+    Write-WorkForgeDetail -Text "5. Set Authentication to None."
+    Write-WorkForgeDetail -Text "6. Select the acknowledgement checkbox, choose Create, and confirm WorkForge appears under Installed."
+    Write-WorkForgeDetail -Text "7. Start a new Chat conversation (not Work), type @WorkForge, and select the plugin."
+    Write-WorkForgeDetail -Text "8. Enter a full local project path and ask WorkForge to review and summarize the project."
+    Write-WorkForgeDetail -Text "Keep the WorkForge tunnel running while connecting and using the plugin." -Tone "info"
     Open-SetupPage -Url $ChatGptPluginsUrl
     Set-SetupStageDetail -Detail $(if ($NoBrowser) { "instructions printed" } else { "Plugins opened" })
   }

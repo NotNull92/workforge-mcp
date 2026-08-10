@@ -275,6 +275,35 @@ WorkForge의 `project_resume`가 현재 브랜치, 변경 파일, 최근 커밋 
 
 Node.js와 ripgrep을 미리 하나씩 찾아 설치할 필요도 없습니다. Git을 쓰고 싶다면 Setup에서 선택적으로 추가할 수 있습니다.
 
+### Codex에게 설치 준비 요청하기
+
+Codex에 이 저장소 URL을 주고 WorkForge 설치를 요청할 수 있습니다.
+다음 문장을 그대로 사용해도 됩니다.
+
+```text
+https://github.com/NotNull92/workforge-mcp 에서 이 Windows PC에 WorkForge 설치해줘.
+가장 최근에 공개된 GitHub Release의 WorkForge-v*-win-x64.zip과 짝이 맞는 .sha256 파일을 사용해.
+main을 clone하거나 빌드하지 마. 체크섬을 검증하고 새 로컬 폴더에 압축을 풀어서 정확한 Setup.cmd 경로를 알려줘.
+대화형 Windows 설치 프로세스를 실행할 수 있으면 Setup.cmd를 시작하고 Tunnel ID와 Runtime API Key는 내가 Setup에 직접 입력하게 해줘.
+이 값들을 채팅이나 명령행 인수로 요청·읽기·저장·출력·전달하지 마.
+Windows 시작 프로그램을 활성화하지 마. 필요한 Release 파일이 없으면 소스로 설치하지 말고 중단한 뒤 알려줘.
+```
+
+안전한 에이전트 설치 규칙은 다음과 같습니다.
+
+- 소스 checkout, branch ZIP, `npm install`, 로컬 빌드 대신 최신 [GitHub Release](https://github.com/NotNull92/workforge-mcp/releases/latest)를 사용합니다.
+- `WorkForge-v*-win-x64.zip`과 짝이 맞는 `.sha256` 파일이 모두 있어야 하며, 압축을 풀기 전에 체크섬을 검증합니다.
+- 새 로컬 폴더에 압축을 풉니다. Codex가 대화형 Windows 프로세스를 실행할 수 없으면 정확한 `Setup.cmd` 경로를 알리고 중단합니다.
+- Tunnel ID와 Runtime API Key는 Setup에만 입력합니다. 두 값 모두 Codex 대화에 붙여넣지 않습니다.
+- Install, Repair, Upgrade 판단은 `Setup.cmd`에 맡깁니다. 다시 설치하기 위해 기존 WorkForge를 삭제하지 않습니다.
+- Windows 자동 시작을 끄고 유지합니다. ChatGPT 플러그인 생성과 workspace 승인은 사용자가 수동으로 완료합니다.
+- 완전한 공개 Release가 없으면 중단합니다. 소스 checkout은 개발자 작업이며 일반 사용자 설치 fallback이 아닙니다.
+
+Codex는 GitHub 다운로드나 현재 workspace 밖에 파일을 쓰기 위해 승인을
+요청할 수 있습니다. 예상한 Release 파일과 대상 폴더가 정확할 때만 승인하세요.
+OpenAI의 현재 네트워크·파일 승인 경계는
+[Agent approvals & security](https://learn.chatgpt.com/docs/agent-approvals-security)에서 확인할 수 있습니다.
+
 ### 1. 다운로드하고 압축 풀기
 
 최신 Release의 다음 파일을 다운로드합니다.
@@ -327,19 +356,33 @@ Release ZIP에는 컴파일된 MCP 서버, 운영용 npm 의존성, 고정된 Wi
 
 Setup 과정에서 본인이 사용할 수 있는 OpenAI Platform Tunnel ID와 Runtime API Key가 필요합니다.
 
-그다음 ChatGPT에서:
+터널 구성이 완료되면 Setup이 ChatGPT 플러그인 페이지를 엽니다.
+WorkForge 터널을 실행한 상태에서 다음 수동 승인 절차를 완료합니다.
+
+이 순서는 OpenAI의 현재
+[플러그인 연결 안내](https://developers.openai.com/plugins/deploy/connect-chatgpt)를 따릅니다.
+
+1. **설정 > 보안 및 로그인**에서 **개발자 모드**를 활성화합니다.
+2. 플러그인 화면에서 **플러그인 검색** 오른쪽의 **+**를 누릅니다.
+3. 아이콘은 선택 사항입니다. 이름에 **WorkForge**를 입력합니다.
+4. **연결 > 터널**을 선택하고 WorkForge용으로 생성한 터널을 선택합니다.
+5. **인증**은 **인증 없음**을 선택합니다.
+6. 화면 하단의 확인 체크박스를 선택하고 **만들기**를 누릅니다.
+7. 플러그인 페이지의 **설치됨** 항목에 **WorkForge**가 표시되는지 확인합니다.
+
+연결을 확인하려면:
+
+1. **Work**가 아닌 **Chat** 모드에서 새 대화를 시작합니다.
+2. `@WorkForge`를 입력해 플러그인을 선택하거나 도구 메뉴에서 WorkForge를 선택합니다.
+3. 같은 대화창에 로컬 프로젝트의 전체 경로와 요청을 입력합니다.
 
 ```text
-Settings
-  → Security and login
-  → Developer mode 활성화
-  → Plugins
-  → +
-  → Connection: Tunnel
-  → Setup에서 사용한 Tunnel 선택
+C:\Projects\MyGame 프로젝트 파악해
 ```
 
-새 채팅에서 WorkForge를 연결하면 사용할 수 있습니다.
+플러그인을 찾고 WorkForge를 호출하는 동안에는 터널이 계속 실행 중이어야
+합니다. Windows를 다시 시작한 후에는 **WorkForge Control**에서 수동으로
+시작합니다. Setup은 WorkForge를 Windows 시작 프로그램으로 등록하지 않습니다.
 
 ---
 

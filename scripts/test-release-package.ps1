@@ -6,6 +6,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 3.0
+. (Join-Path $PSScriptRoot "WorkForge.Portable.ps1")
 $ArchivePath = (Resolve-Path -LiteralPath $ArchivePath -ErrorAction Stop).Path
 $HashPath = (Resolve-Path -LiteralPath $HashPath -ErrorAction Stop).Path
 
@@ -14,7 +15,7 @@ if ($ExpectedHashLine -notmatch '^([a-f0-9]{64})\s+(.+)$') { throw "Release chec
 $ExpectedHash = $Matches[1]
 $ExpectedName = $Matches[2]
 if ($ExpectedName -cne [IO.Path]::GetFileName($ArchivePath)) { throw "Release checksum file names a different archive." }
-$ObservedHash = (Get-FileHash -LiteralPath $ArchivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+$ObservedHash = (Get-WorkForgeFileSha256 -Path $ArchivePath).ToLowerInvariant()
 if ($ObservedHash -cne $ExpectedHash) { throw "Release archive checksum mismatch." }
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem

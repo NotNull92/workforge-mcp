@@ -66,7 +66,7 @@ try {
     $ProfileJson = Get-Content -Raw -LiteralPath ([string]$Entry.profilePath) | ConvertFrom-Json -ErrorAction Stop
     $ProfileJson | Add-Member -NotePropertyName httpPort -NotePropertyValue 2198 -Force
     [IO.File]::WriteAllText([string]$Entry.profilePath, (($ProfileJson | ConvertTo-Json -Depth 8) + [Environment]::NewLine), $Utf8)
-    $Entry.profileSha256 = (Get-FileHash -LiteralPath ([string]$Entry.profilePath) -Algorithm SHA256).Hash.ToLowerInvariant()
+    $Entry.profileSha256 = (Get-WorkForgeProfileFileSha256 -Path ([string]$Entry.profilePath)).ToLowerInvariant()
   }
   [IO.File]::WriteAllText($RegistryPath, (($RegistryJson | ConvertTo-Json -Depth 8) + [Environment]::NewLine), $Utf8)
 

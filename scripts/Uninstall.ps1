@@ -174,7 +174,7 @@ function Get-ReleaseEngineState {
     Kind = "release"
     DistributionKind = [string]$Manifest.distributionKind
     ManifestPath = $ManifestPath
-    ManifestHash = (Get-FileHash -LiteralPath $ManifestPath -Algorithm SHA256).Hash
+    ManifestHash = Get-WorkForgeProfileFileSha256 -Path $ManifestPath
     Reason = "Verified release distribution."
   }
 }

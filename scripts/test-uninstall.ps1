@@ -2,6 +2,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 3.0
 
 $ToolRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..") -ErrorAction Stop).Path
+. (Join-Path $PSScriptRoot "WorkForge.Portable.ps1")
 $TestRoot = Join-Path ([IO.Path]::GetTempPath()) ("workforge-uninstall-test-" + [guid]::NewGuid().ToString("N"))
 $Utf8 = [Text.UTF8Encoding]::new($false)
 
@@ -45,7 +46,7 @@ function New-TestProfile {
   return [pscustomobject]@{
     WorkspaceRoot = $WorkspaceRoot
     ProfilePath = $ProfilePath
-    ProfileHash = (Get-FileHash -LiteralPath $ProfilePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    ProfileHash = (Get-WorkForgeFileSha256 -Path $ProfilePath).ToLowerInvariant()
     ArtifactRoot = $ArtifactRoot
   }
 }
@@ -154,6 +155,7 @@ function Invoke-UninstallProcess {
   $StartInfo.UseShellExecute = $false
   $StartInfo.RedirectStandardOutput = $true
   $StartInfo.RedirectStandardError = $true
+  $StartInfo.EnvironmentVariables["PSModulePath"] = ""
   $Process = [Diagnostics.Process]::Start($StartInfo)
   $Output = $Process.StandardOutput.ReadToEnd() + $Process.StandardError.ReadToEnd()
   $Process.WaitForExit()

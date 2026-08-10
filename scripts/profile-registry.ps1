@@ -137,7 +137,7 @@ function Assert-WorkForgeRestrictedCredentialAcl {
     [string]$Path
   )
 
-  $Acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+  $Acl = (Get-Item -LiteralPath $Path -Force -ErrorAction Stop).GetAccessControl()
   if (-not $Acl.AreAccessRulesProtected) {
     throw "Local tunnel credential ACL inheritance must be disabled."
   }
@@ -184,7 +184,7 @@ function New-WorkForgeRestrictedCredentialFile {
       $Rule = [Security.AccessControl.FileSystemAccessRule]::new($Sid, [Security.AccessControl.FileSystemRights]::FullControl, [Security.AccessControl.AccessControlType]::Allow)
       $null = $Acl.AddAccessRule($Rule)
     }
-    Set-Acl -LiteralPath $FullPath -AclObject $Acl
+    Set-WorkForgeFileSecurity -Path $FullPath -Acl $Acl
     Assert-WorkForgeRestrictedCredentialAcl -Path $FullPath
   } catch {
     if (Test-Path -LiteralPath $FullPath) {
@@ -192,6 +192,15 @@ function New-WorkForgeRestrictedCredentialFile {
     }
     throw
   }
+}
+
+function Set-WorkForgeFileSecurity {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][Security.AccessControl.FileSecurity]$Acl
+  )
+
+  (Get-Item -LiteralPath $Path -Force -ErrorAction Stop).SetAccessControl($Acl)
 }
 
 function Assert-WorkForgeControlPlaneKeyValue {

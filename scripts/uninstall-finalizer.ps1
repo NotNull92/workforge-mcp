@@ -50,6 +50,22 @@ function Assert-FinalizerSafePath {
   return $FullPath
 }
 
+function Get-FinalizerFileSha256 {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  $Stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+  try {
+    $Hasher = [Security.Cryptography.SHA256]::Create()
+    try {
+      return [BitConverter]::ToString($Hasher.ComputeHash($Stream)).Replace("-", "")
+    } finally {
+      $Hasher.Dispose()
+    }
+  } finally {
+    $Stream.Dispose()
+  }
+}
+
 try {
   $EngineRoot = Assert-FinalizerSafePath -Path $EngineRoot
   $Deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
@@ -64,7 +80,7 @@ try {
   if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
     throw "Release manifest is missing."
   }
-  $ObservedManifestHash = (Get-FileHash -LiteralPath $ManifestPath -Algorithm SHA256).Hash
+  $ObservedManifestHash = Get-FinalizerFileSha256 -Path $ManifestPath
   if (-not $ObservedManifestHash.Equals($ExpectedManifestSha256, [StringComparison]::OrdinalIgnoreCase)) {
     throw "Release manifest hash changed after uninstall preflight."
   }

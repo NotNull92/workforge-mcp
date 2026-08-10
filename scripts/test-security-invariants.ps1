@@ -360,7 +360,7 @@ try {
   }
   Assert-WorkForgeRestrictedCredentialAcl -Path $PreparedCredential
 
-  function Set-Acl { throw "simulated ACL application failure" }
+  function Set-WorkForgeFileSecurity { throw "simulated ACL application failure" }
   $RejectedCredential = Join-Path $CredentialAclTestRoot ".env.rejected"
   try {
     New-WorkForgeRestrictedCredentialFile -Path $RejectedCredential
@@ -368,7 +368,7 @@ try {
   } catch {
     if ($_.Exception.Message -notmatch "simulated ACL application failure") { throw }
   } finally {
-    Remove-Item -LiteralPath Function:\Set-Acl -Force
+    Remove-Item -LiteralPath Function:\Set-WorkForgeFileSecurity -Force
   }
   if (Test-Path -LiteralPath $RejectedCredential) {
     throw "Credential ACL preparation left an unprotected residual file after failure."

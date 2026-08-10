@@ -271,6 +271,35 @@ A normal installation takes **three steps**.
 
 You do not need to manually hunt down Node.js and ripgrep first. Git can be added optionally during Setup if you want project-history features.
 
+### Ask Codex to prepare the installer
+
+You can give Codex this repository URL and ask it to install WorkForge. Use this
+copy-ready request:
+
+```text
+Install WorkForge from https://github.com/NotNull92/workforge-mcp on this Windows PC.
+Use the latest published GitHub Release asset named WorkForge-v*-win-x64.zip and its matching .sha256 file.
+Do not clone or build main. Verify the checksum, extract the ZIP to a new local folder, and give me the exact Setup.cmd path.
+If you can launch an interactive Windows installer, start Setup.cmd and let me enter the Tunnel ID and Runtime API Key directly in Setup.
+Do not request, read, store, print, or pass those values through chat or command-line arguments.
+Do not enable Windows startup. If the required Release assets do not exist, stop and tell me instead of installing from source.
+```
+
+The safe agent installation contract is:
+
+- Prefer the latest published [GitHub Release](https://github.com/NotNull92/workforge-mcp/releases/latest), never a source checkout, branch archive, `npm install`, or local build.
+- Require both `WorkForge-v*-win-x64.zip` and its matching `.sha256` file, and verify the archive before extraction.
+- Extract into a new local folder. If Codex cannot launch an interactive Windows process, it must stop at the exact `Setup.cmd` path for the user.
+- Enter the Tunnel ID and Runtime API Key only in Setup. Do not paste either value into the Codex conversation.
+- Let `Setup.cmd` select Install, Repair, or Upgrade. Do not delete an existing WorkForge installation just to reinstall it.
+- Keep Windows startup disabled. ChatGPT plugin creation and workspace authorization remain manual user actions.
+- If no complete published Release exists, stop. A source checkout is a developer workflow, not a supported end-user installation fallback.
+
+Codex may request approval for the GitHub download or for writing outside its
+current workspace. Approve only the exact Release assets and destination you
+expect. OpenAI documents these network and filesystem approval boundaries in
+[Agent approvals & security](https://learn.chatgpt.com/docs/agent-approvals-security).
+
 ### 1. Download and extract
 
 Download the latest release archive:
@@ -324,19 +353,33 @@ Vitest, or the repository test suite.
 
 During Setup, you need an OpenAI Platform Tunnel ID and Runtime API Key that you are authorized to use.
 
-Then in ChatGPT:
+Setup opens the ChatGPT Plugins page after the tunnel is configured. Complete
+the following manual authorization steps while the WorkForge tunnel is running:
+
+These steps follow OpenAI's current
+[plugin connection guide](https://developers.openai.com/plugins/deploy/connect-chatgpt).
+
+1. Open **Settings > Security and login** and enable **Developer mode**.
+2. On the Plugins page, select **+** beside **Plugin search**.
+3. Optionally choose an icon, then enter **WorkForge** as the name.
+4. Under **Connection**, select **Tunnel** and choose the tunnel created for WorkForge.
+5. Set **Authentication** to **None**.
+6. Select the acknowledgement checkbox at the bottom and choose **Create**.
+7. Confirm that **WorkForge** appears under **Installed**.
+
+To verify the connection:
+
+1. Start a new conversation in **Chat**, not **Work**.
+2. Type `@WorkForge` and select the plugin, or select WorkForge from the tools menu.
+3. Enter a full local project path and ask WorkForge to review the project, for example:
 
 ```text
-Settings
-  → Security and login
-  → Enable Developer mode
-  → Plugins
-  → +
-  → Connection: Tunnel
-  → Select the same Tunnel used by Setup
+C:\Projects\MyGame Review this project and summarize its current state.
 ```
 
-Start a new chat, attach WorkForge, and use it normally.
+Keep the tunnel running for plugin discovery and every WorkForge call. After a
+Windows restart, start it manually from **WorkForge Control**; Setup does not
+register WorkForge to start with Windows.
 
 ---
 

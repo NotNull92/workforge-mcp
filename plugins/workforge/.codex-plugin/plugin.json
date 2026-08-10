@@ -1,6 +1,6 @@
 {
   "name": "workforge",
-  "version": "1.3.5",
+  "version": "0.1.0",
   "description": "Secure, profile-scoped access to a local Windows workstation through WorkForge.",
   "author": {
     "name": "NotNull92",

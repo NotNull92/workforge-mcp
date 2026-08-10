@@ -41,7 +41,7 @@ of third-party redistribution.
 
 ## Implementation outcome
 
-WorkForge 1.3.5 now implements the recommended split architecture. The patch
+WorkForge 0.1.0 now implements the recommended split architecture. The patch
 release also normalizes verified Windows stdio paths before tunnel-client parses
 the portable MCP command:
 

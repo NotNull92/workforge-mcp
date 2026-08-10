@@ -156,13 +156,13 @@ function Install-UserTemplate {
   }
 
   if ($Mode -eq "Upgrade") {
-    $SourceHash = (Get-FileHash -LiteralPath $Source -Algorithm SHA256).Hash
-    $DestinationHash = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash
+    $SourceHash = Get-WorkForgeFileSha256 -Path $Source
+    $DestinationHash = Get-WorkForgeFileSha256 -Path $Destination
     if (-not $SourceHash.Equals($DestinationHash, [StringComparison]::OrdinalIgnoreCase)) {
       $Candidate = "$Destination.new"
       if (-not (Test-Path -LiteralPath $Candidate -PathType Leaf)) {
         Copy-Item -LiteralPath $Source -Destination $Candidate
-      } elseif (-not $SourceHash.Equals((Get-FileHash -LiteralPath $Candidate -Algorithm SHA256).Hash, [StringComparison]::OrdinalIgnoreCase)) {
+      } elseif (-not $SourceHash.Equals((Get-WorkForgeFileSha256 -Path $Candidate), [StringComparison]::OrdinalIgnoreCase)) {
         Write-WorkForgeNotice -Level "warning" -Message "Existing upgrade candidate is user-modified and was preserved: $Candidate"
       }
     }
@@ -178,8 +178,8 @@ function Ensure-IdentityMarker {
     return
   }
 
-  $ExpectedHash = (Get-FileHash -LiteralPath $Source -Algorithm SHA256).Hash
-  $ObservedHash = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash
+  $ExpectedHash = Get-WorkForgeFileSha256 -Path $Source
+  $ObservedHash = Get-WorkForgeFileSha256 -Path $Destination
   if (-not $ExpectedHash.Equals($ObservedHash, [StringComparison]::OrdinalIgnoreCase)) {
     throw "Existing workstation identity marker does not match the WorkForge template: $Destination"
   }
@@ -269,7 +269,7 @@ function Ensure-TunnelClient {
   $InstallRoot = Join-Path $ToolRoot "runtime\tunnel-client\$Version"
   $InstalledPath = Join-Path $InstallRoot "tunnel-client.exe"
   if (Test-Path -LiteralPath $InstalledPath -PathType Leaf) {
-    $Observed = (Get-FileHash -LiteralPath $InstalledPath -Algorithm SHA256).Hash
+    $Observed = Get-WorkForgeFileSha256 -Path $InstalledPath
     if ($Observed.Equals($ExpectedExeHash, [StringComparison]::OrdinalIgnoreCase)) {
       Write-WorkForgeDetail -Text "Verified existing tunnel-client $Version." -Tone "success"
       return
@@ -296,7 +296,7 @@ function Ensure-TunnelClient {
     throw "Official archive checksum was not found."
   }
   $ExpectedArchiveHash = $Matches[1]
-  $ObservedArchiveHash = (Get-FileHash -LiteralPath $ArchivePath -Algorithm SHA256).Hash
+  $ObservedArchiveHash = Get-WorkForgeFileSha256 -Path $ArchivePath
   if (-not $ObservedArchiveHash.Equals($ExpectedArchiveHash, [StringComparison]::OrdinalIgnoreCase)) {
     throw "Tunnel-client archive checksum mismatch."
   }
@@ -306,7 +306,7 @@ function Ensure-TunnelClient {
     Expand-Archive -LiteralPath $ArchivePath -DestinationPath $ExtractRoot -Force
     $Candidates = @(Get-ChildItem -LiteralPath $ExtractRoot -Recurse -File -Filter "tunnel-client.exe")
     if ($Candidates.Count -ne 1) { throw "Expected exactly one tunnel-client.exe in the official archive." }
-    $ObservedExeHash = (Get-FileHash -LiteralPath $Candidates[0].FullName -Algorithm SHA256).Hash
+    $ObservedExeHash = Get-WorkForgeFileSha256 -Path $Candidates[0].FullName
     if (-not $ObservedExeHash.Equals($ExpectedExeHash, [StringComparison]::OrdinalIgnoreCase)) {
       throw "Tunnel-client executable checksum mismatch."
     }
@@ -454,7 +454,7 @@ try {
   }
 
   Invoke-InstallStage -Number 4 -Name "Profile registry" -Body {
-    $ProfileHash = (Get-FileHash -LiteralPath $ProfilePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $ProfileHash = (Get-WorkForgeFileSha256 -Path $ProfilePath).ToLowerInvariant()
     Merge-ProfileRegistry -Path $RegistryPath -CurrentProfilePath ([IO.Path]::GetFullPath($ProfilePath)) -CurrentProfileHash $ProfileHash
     Set-InstallStageDetail -Detail "profile $ProfileId registered"
   }

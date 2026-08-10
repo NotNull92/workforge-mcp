@@ -8,6 +8,7 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 3.0
 $ToolRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..") -ErrorAction Stop).Path
+. (Join-Path $PSScriptRoot "WorkForge.Portable.ps1")
 $Package = Get-Content -Raw -LiteralPath (Join-Path $ToolRoot "package.json") | ConvertFrom-Json
 $RuntimeLock = Get-Content -Raw -LiteralPath (Join-Path $ToolRoot "runtime-lock.json") | ConvertFrom-Json -ErrorAction Stop
 $Version = [string]$Package.version
@@ -46,7 +47,7 @@ function Expand-LockedRuntime {
   $ArchivePath = Join-Path $StagingParent ("download-" + [string]$Entry.archiveName)
   $ExtractRoot = Join-Path $StagingParent ("extract-" + $Name)
   Invoke-WebRequest -UseBasicParsing -Uri ([string]$Entry.url) -OutFile $ArchivePath
-  $ObservedHash = (Get-FileHash -LiteralPath $ArchivePath -Algorithm SHA256).Hash
+  $ObservedHash = Get-WorkForgeFileSha256 -Path $ArchivePath
   if (-not $ObservedHash.Equals([string]$Entry.sha256, [StringComparison]::OrdinalIgnoreCase)) {
     throw "Locked runtime archive checksum mismatch: $Name"
   }
@@ -182,7 +183,7 @@ try {
   Remove-Item -LiteralPath $ArchivePath -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $HashPath -Force -ErrorAction SilentlyContinue
   Compress-Archive -LiteralPath $StagingRoot -DestinationPath $ArchivePath -CompressionLevel Optimal
-  $Hash = (Get-FileHash -LiteralPath $ArchivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $Hash = (Get-WorkForgeFileSha256 -Path $ArchivePath).ToLowerInvariant()
   [IO.File]::WriteAllText($HashPath, "$Hash  $ArchiveName`n", [Text.UTF8Encoding]::new($false))
 
   & (Join-Path $PSScriptRoot "test-release-package.ps1") -ArchivePath $ArchivePath -HashPath $HashPath
