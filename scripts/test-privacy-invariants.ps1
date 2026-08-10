@@ -155,11 +155,12 @@ foreach ($Relative in $Tracked) {
   Test-PrivacyText -Text $Text -File $Normalized
 }
 
-# This exact GitHub-generated PR merge was already public before the metadata
-# policy was tightened. Pinning the immutable commit hash avoids weakening the
-# rule for any future commit while keeping published main history stable.
+# These exact GitHub-generated PR merges are already public. Pinning immutable
+# commit hashes avoids weakening the rule for any future commit while keeping
+# published main history stable.
 $GrandfatheredNonNoreplyCommitMetadata = @(
-  "8986d704d6ffa29a85010dbab4f8765bf34ee9be"
+  "8986d704d6ffa29a85010dbab4f8765bf34ee9be",
+  "b8736bba5c674fd53f247ce15ec663614a3b9894"
 )
 $CommitRows = @(& git.exe -C $ToolRoot log --all --format="%H%x09%ae%x09%ce")
 if ($LASTEXITCODE -ne 0) { throw "Could not inspect commit metadata for privacy validation." }
