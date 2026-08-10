@@ -11,7 +11,25 @@ npm ci
 npm run build
 node scripts/macos/setup.mjs --project /absolute/path/to/project --profile workstation
 node scripts/macos/doctor.mjs
+npm run install:tunnel:macos
+npm run configure:tunnel:macos
 ```
+
+Tunnel configuration prompts for the OpenAI `tunnel_id` and stores the Runtime API Key in
+macOS Keychain under service `io.workforge.control-plane`. The key is loaded into the tunnel
+process environment at start and is never written to the repository, profile YAML, or logs.
+
+The tunnel remains stopped until explicitly started:
+
+```sh
+npm run start:tunnel:macos
+npm run status:tunnel:macos
+npm run stop:tunnel:macos
+```
+
+While it is ready, open ChatGPT Settings, enable Developer mode, add a plugin connection of
+type Tunnel, select the WorkForge tunnel, set Authentication to None, and create it. Start a
+new Chat conversation, type `@WorkForge`, select the plugin, and give it a full local path.
 
 Stage a Codex-ready macOS plugin after setup:
 
@@ -29,5 +47,5 @@ To unregister the profile while preserving project-local configuration:
 node scripts/macos/uninstall.mjs --profile workstation
 ```
 
-The source setup is intended for this fork's macOS preview. It does not publish, sign, or
-notarize a public release artifact.
+The source setup is intended for a private macOS preview. It does not publish, sign, or
+notarize a public release artifact and it creates no LaunchAgent or login item.

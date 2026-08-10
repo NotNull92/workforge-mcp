@@ -23,11 +23,12 @@ The canonical Agent Plugins `plugin.json` and `mcp.json` generate the OpenAI
 `.codex-plugin/plugin.json` and `.mcp.json`; no tunnel credential is stored in
 either package. ChatGPT intentionally remains on the Secure MCP Tunnel path.
 
-On macOS, the source preview connects Codex directly through stdio. It uses the
-system Node.js and ripgrep, stores a non-secret engine pointer below
-`~/Library/Application Support/WorkForge`, and runs commands with `/bin/zsh -f`
-inside a dedicated POSIX process group. The Windows Secure MCP Tunnel,
-supervisor, portable runtime, and control dashboard remain Windows-only.
+On macOS, the private source preview supports both direct Codex stdio and ChatGPT
+through the OpenAI Secure MCP Tunnel. It uses the system Node.js and ripgrep,
+stores a non-secret engine pointer below `~/Library/Application Support/WorkForge`,
+stores the Runtime API Key in macOS Keychain, and runs commands with `/bin/zsh -f`
+inside a dedicated POSIX process group. The portable runtime and control dashboard
+remain Windows-only; macOS uses explicit CLI start, status, and stop commands.
 
 ## Setup orchestration
 

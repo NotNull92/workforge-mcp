@@ -1,59 +1,65 @@
 {
-  "name": "workforge-mcp",
-  "version": "0.2.0",
-  "private": true,
-  "license": "MIT",
-  "type": "module",
-  "description": "A secure Windows and macOS workstation MCP gateway for ChatGPT over OpenAI Secure MCP Tunnel.",
-  "scripts": {
-    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
-    "build": "npm run clean && tsc -p tsconfig.json",
-    "test": "vitest run",
-    "generate:plugin": "node scripts/Generate-Plugin.mjs",
-    "stage:plugin:macos": "node scripts/Stage-MacPlugin.mjs",
-    "test:plugin": "node scripts/test-plugin-package.mjs",
-    "test:macos": "node scripts/test-macos.mjs",
-    "test:portable-runtime": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-portable-runtime.ps1",
-    "test:update": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-update.ps1",
-    "test:prerequisites": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-prerequisites.ps1",
-    "test:install-platform": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-install-platform.ps1",
-    "test:install-without-git": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-install-without-git.ps1",
-    "test:multi-profile": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-multi-profile.ps1",
-    "test:install-modes": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-install-modes.ps1",
-    "test:setup-flow": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-setup-flow.ps1",
-    "test:control-ux": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-control-ux.ps1",
-    "test:control-dashboard": "node scripts/test-control-dashboard.mjs",
-    "test:ui-rendering": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-ui-rendering.ps1",
-    "test:uninstall": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-uninstall.ps1",
-    "test:privacy-history": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-privacy-history.ps1",
-    "test:privacy-invariants": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-privacy-invariants.ps1",
-    "test:security-invariants": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-security-invariants.ps1",
-    "test:recovery-policy": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-recovery-policy.ps1",
-    "audit:prod": "npm audit --omit=dev --audit-level=high",
-    "check": "npm run check:windows",
-    "smoke:stdio": "node scripts/stdio-smoke.mjs",
-    "smoke:plugin-stdio": "node scripts/plugin-stdio-smoke.mjs",
-    "setup:macos": "node scripts/macos/setup.mjs",
-    "doctor:macos": "node scripts/macos/doctor.mjs",
-    "uninstall:macos": "node scripts/macos/uninstall.mjs",
-    "release": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-Release.ps1",
-    "check:core": "npm run build && npm test && npm run test:plugin",
-    "check:windows": "npm run check:core && npm run test:portable-runtime && npm run test:update && npm run test:prerequisites && npm run test:install-platform && npm run test:install-without-git && npm run test:multi-profile && npm run test:install-modes && npm run test:setup-flow && npm run test:control-ux && npm run test:control-dashboard && npm run test:ui-rendering && npm run test:uninstall && npm run test:privacy-history && npm run test:privacy-invariants && npm run test:security-invariants && npm run test:recovery-policy && npm run audit:prod",
-    "check:macos": "npm run check:core && npm run test:macos && npm run audit:prod"
-  },
-  "engines": {
-    "node": ">=20.19"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "1.29.0",
-    "zod": "4.4.3"
-  },
-  "devDependencies": {
-    "@types/node": "24.13.3",
-    "typescript": "7.0.2",
-    "vitest": "4.1.10"
-  },
-  "overrides": {
-    "@hono/node-server": "2.0.11"
-  }
+    "name":  "workforge-mcp",
+    "version":  "0.2.0",
+    "private":  true,
+    "license":  "MIT",
+    "type":  "module",
+    "description":  "A secure Windows and macOS workstation MCP gateway for ChatGPT over OpenAI Secure MCP Tunnel.",
+    "scripts":  {
+                    "clean":  "node -e \"require(\u0027node:fs\u0027).rmSync(\u0027dist\u0027,{recursive:true,force:true})\"",
+                    "build":  "npm run clean \u0026\u0026 tsc -p tsconfig.json",
+                    "test":  "vitest run",
+                    "generate:plugin":  "node scripts/Generate-Plugin.mjs",
+                    "stage:plugin:macos":  "node scripts/Stage-MacPlugin.mjs",
+                    "test:plugin":  "node scripts/test-plugin-package.mjs",
+                    "test:macos":  "node scripts/test-macos.mjs",
+                    "test:portable-runtime":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-portable-runtime.ps1",
+                    "test:update":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-update.ps1",
+                    "test:prerequisites":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-prerequisites.ps1",
+                    "test:install-platform":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-install-platform.ps1",
+                    "test:install-without-git":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-install-without-git.ps1",
+                    "test:multi-profile":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-multi-profile.ps1",
+                    "test:install-modes":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-install-modes.ps1",
+                    "test:setup-flow":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-setup-flow.ps1",
+                    "test:control-ux":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-control-ux.ps1",
+                    "test:control-dashboard":  "node scripts/test-control-dashboard.mjs",
+                    "test:ui-rendering":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-ui-rendering.ps1",
+                    "test:uninstall":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-uninstall.ps1",
+                    "test:privacy-history":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-privacy-history.ps1",
+                    "test:privacy-invariants":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-privacy-invariants.ps1",
+                    "test:security-invariants":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-security-invariants.ps1",
+                    "test:recovery-policy":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-recovery-policy.ps1",
+                    "audit:prod":  "npm audit --omit=dev --audit-level=high",
+                    "check":  "npm run check:windows",
+                    "smoke:stdio":  "node scripts/stdio-smoke.mjs",
+                    "smoke:plugin-stdio":  "node scripts/plugin-stdio-smoke.mjs",
+                    "setup:macos":  "node scripts/macos/setup.mjs",
+                    "doctor:macos":  "node scripts/macos/doctor.mjs",
+                    "uninstall:macos":  "node scripts/macos/uninstall.mjs",
+                    "release":  "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-Release.ps1",
+                    "check:core":  "npm run build \u0026\u0026 npm test \u0026\u0026 npm run test:plugin",
+                    "check:windows":  "npm run check:core \u0026\u0026 npm run test:portable-runtime \u0026\u0026 npm run test:update \u0026\u0026 npm run test:prerequisites \u0026\u0026 npm run test:install-platform \u0026\u0026 npm run test:install-without-git \u0026\u0026 npm run test:multi-profile \u0026\u0026 npm run test:install-modes \u0026\u0026 npm run test:setup-flow \u0026\u0026 npm run test:control-ux \u0026\u0026 npm run test:control-dashboard \u0026\u0026 npm run test:ui-rendering \u0026\u0026 npm run test:uninstall \u0026\u0026 npm run test:privacy-history \u0026\u0026 npm run test:privacy-invariants \u0026\u0026 npm run test:security-invariants \u0026\u0026 npm run test:recovery-policy \u0026\u0026 npm run audit:prod",
+                    "check:macos":  "npm run check:core \u0026\u0026 npm run test:macos \u0026\u0026 npm run test:macos-tunnel \u0026\u0026 npm run audit:prod",
+                    "test:macos-tunnel":  "node scripts/test-macos-tunnel.mjs",
+                    "install:tunnel:macos":  "node scripts/macos/install-tunnel-runtime.mjs --profile workstation",
+                    "configure:tunnel:macos":  "node scripts/macos/configure-tunnel.mjs --profile workstation",
+                    "start:tunnel:macos":  "node scripts/macos/start-tunnel.mjs --profile workstation",
+                    "status:tunnel:macos":  "node scripts/macos/tunnel-status.mjs --profile workstation",
+                    "stop:tunnel:macos":  "node scripts/macos/stop-tunnel.mjs --profile workstation"
+                },
+    "engines":  {
+                    "node":  "\u003e=20.19"
+                },
+    "dependencies":  {
+                         "@modelcontextprotocol/sdk":  "1.29.0",
+                         "zod":  "4.4.3"
+                     },
+    "devDependencies":  {
+                            "@types/node":  "24.13.3",
+                            "typescript":  "7.0.2",
+                            "vitest":  "4.1.10"
+                        },
+    "overrides":  {
+                      "@hono/node-server":  "2.0.11"
+                  }
 }
