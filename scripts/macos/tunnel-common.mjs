@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { closeSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -82,12 +82,32 @@ export function atomicWrite(path, value, mode = 0o600) {
 
 export function readControlPlaneKey(profileId) {
   const environmentKey = process.env.CONTROL_PLANE_API_KEY;
-  if (environmentKey) return environmentKey;
+  if (environmentKey) return validateControlPlaneKey(environmentKey);
   const key = execFileSync("/usr/bin/security", [
     "find-generic-password", "-a", profileId, "-s", KEYCHAIN_SERVICE, "-w",
   ], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-  if (!key || key.length > 4096 || !/^[\x21-\x7e]+$/u.test(key)) throw new Error("Keychain Runtime API Key is invalid.");
+  return validateControlPlaneKey(key);
+}
+
+export function validateControlPlaneKey(key) {
+  if (!key || key.length > 4096 || !/^[\x21-\x7e]+$/u.test(key)) {
+    throw new Error("Runtime API Key is invalid.");
+  }
   return key;
+}
+
+export function keychainPasswordHex(key) {
+  return Buffer.from(validateControlPlaneKey(key), "utf8").toString("hex");
+}
+
+export function tunnelDoctor(installation, key, stdio = "ignore") {
+  const result = spawnSync(tunnelClientPath(installation), [
+    "doctor", "--profile-file", installation.tunnelConfigPath,
+  ], {
+    env: { ...process.env, CONTROL_PLANE_API_KEY: validateControlPlaneKey(key) },
+    stdio,
+  });
+  return result.status === 0;
 }
 
 export function readPidRecord(path) {

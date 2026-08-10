@@ -10,6 +10,7 @@ import {
   readControlPlaneKey,
   readPidRecord,
   runtimePaths,
+  tunnelDoctor,
   tunnelClientPath,
 } from "./tunnel-common.mjs";
 
@@ -20,7 +21,10 @@ const paths = runtimePaths(installation);
 const executable = tunnelClientPath(installation);
 if (!existsSync(executable)) throw new Error("Tunnel runtime is not installed.");
 if (!existsSync(installation.tunnelConfigPath)) throw new Error("Tunnel is not configured.");
-readControlPlaneKey(profileId);
+const controlPlaneKey = readControlPlaneKey(profileId);
+if (!tunnelDoctor(installation, controlPlaneKey, "inherit")) {
+  throw new Error("Tunnel control-plane authentication failed.");
+}
 mkdirSync(installation.runtimeRoot, { recursive: true, mode: 0o700 });
 const supervisorScript = resolve(installation.engineRoot, "scripts", "macos", "tunnel-supervisor.mjs");
 const existing = readPidRecord(paths.supervisorPath);

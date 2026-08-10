@@ -3,8 +3,10 @@ import { resolve } from "node:path";
 import {
   loadInstallation,
   processMatches,
+  readControlPlaneKey,
   readPidRecord,
   runtimePaths,
+  tunnelDoctor,
 } from "./tunnel-common.mjs";
 
 const profileIndex = process.argv.indexOf("--profile");
@@ -16,7 +18,7 @@ const supervisorScript = resolve(installation.engineRoot, "scripts", "macos", "t
 const running = processMatches(record, [supervisorScript, "--profile", profileId, "--instance", record?.instance ?? "<missing>"]);
 let healthUrl = null;
 let healthy = false;
-let ready = false;
+let localReady = false;
 if (running && existsSync(paths.healthUrlPath)) {
   try {
     healthUrl = readFileSync(paths.healthUrlPath, "utf8").trim();
@@ -25,9 +27,14 @@ if (running && existsSync(paths.healthUrlPath)) {
       fetch(`${healthUrl}/readyz`, { signal: AbortSignal.timeout(2_000) }),
     ]);
     healthy = health.ok;
-    ready = readiness.ok;
+    localReady = readiness.ok;
   } catch { /* running but not ready */ }
 }
+let controlPlaneHealthy = false;
+if (running && localReady) {
+  try { controlPlaneHealthy = tunnelDoctor(installation, readControlPlaneKey(profileId)); } catch { /* key unavailable */ }
+}
+const ready = localReady && controlPlaneHealthy;
 let state = null;
 try { state = JSON.parse(readFileSync(paths.statusPath, "utf8")); } catch { /* no state yet */ }
-console.log(JSON.stringify({ profileId, running, healthy, ready, healthUrl, state }, null, 2));
+console.log(JSON.stringify({ profileId, running, healthy, localReady, controlPlaneHealthy, ready, healthUrl, state }, null, 2));

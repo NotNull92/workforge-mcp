@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import {
   KEYCHAIN_SERVICE,
+  keychainPasswordHex,
   loadInstallation,
   readControlPlaneKey,
   tunnelClientPath,
@@ -26,18 +27,25 @@ const installation = loadInstallation(profileId);
 const executable = tunnelClientPath(installation);
 execFileSync(executable, ["--version"], { stdio: "ignore" });
 
-if (!process.env.CONTROL_PLANE_API_KEY) {
-  const existing = spawnSync("/usr/bin/security", [
-    "find-generic-password", "-a", profileId, "-s", KEYCHAIN_SERVICE,
-  ], { stdio: "ignore" });
-  if (existing.status !== 0 || process.argv.includes("--replace-key")) {
-    console.log("Enter the OpenAI Runtime API Key at the macOS Keychain prompt.");
-    const stored = spawnSync("/usr/bin/security", [
-      "add-generic-password", "-a", profileId, "-s", KEYCHAIN_SERVICE,
-      "-l", `WorkForge ${profileId} Runtime API Key`, "-U", "-w",
-    ], { stdio: "inherit" });
-    if (stored.status !== 0) throw new Error("Runtime API Key was not stored in Keychain.");
+const existing = spawnSync("/usr/bin/security", [
+  "find-generic-password", "-a", profileId, "-s", KEYCHAIN_SERVICE,
+], { stdio: "ignore" });
+if (existing.status !== 0 || process.argv.includes("--replace-key")) {
+  let replacementKey = process.env.CONTROL_PLANE_API_KEY;
+  if (!replacementKey) {
+    console.log("Enter the OpenAI Runtime API Key in the hidden macOS dialog.");
+    const prompted = spawnSync("/usr/bin/osascript", [
+      "-e",
+      'text returned of (display dialog "OpenAI Runtime API Key" default answer "" with hidden answer buttons {"Cancel", "Save"} default button "Save")',
+    ], { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
+    if (prompted.status !== 0) throw new Error("Runtime API Key entry was cancelled.");
+    replacementKey = prompted.stdout.trim();
   }
+  const stored = spawnSync("/usr/bin/security", [
+    "add-generic-password", "-a", profileId, "-s", KEYCHAIN_SERVICE,
+    "-l", `WorkForge ${profileId} Runtime API Key`, "-U", "-X", keychainPasswordHex(replacementKey),
+  ], { stdio: "ignore" });
+  if (stored.status !== 0) throw new Error("Runtime API Key was not stored in Keychain.");
 }
 
 const key = readControlPlaneKey(profileId);

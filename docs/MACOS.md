@@ -15,9 +15,11 @@ npm run install:tunnel:macos
 npm run configure:tunnel:macos
 ```
 
-Tunnel configuration prompts for the OpenAI `tunnel_id` and stores the Runtime API Key in
-macOS Keychain under service `io.workforge.control-plane`. The key is loaded into the tunnel
-process environment at start and is never written to the repository, profile YAML, or logs.
+Tunnel configuration prompts for the OpenAI `tunnel_id` and collects the Runtime API Key in
+a hidden macOS dialog. It stores the complete key as password data in macOS Keychain under
+service `io.workforge.control-plane`; this avoids the 128-character limit of Keychain's
+interactive `security -w` prompt. The key is loaded into the tunnel process environment at
+start and is never written to the repository, profile YAML, or logs.
 
 The tunnel remains stopped until explicitly started:
 
@@ -26,6 +28,10 @@ npm run start:tunnel:macos
 npm run status:tunnel:macos
 npm run stop:tunnel:macos
 ```
+
+`start` and `status` require both local tunnel readiness and a successful control-plane
+doctor check. A locally healthy process with a rejected or revoked Runtime API Key is not
+reported as ready.
 
 While it is ready, open ChatGPT Settings, enable Developer mode, add a plugin connection of
 type Tunnel, select the WorkForge tunnel, set Authentication to None, and create it. Start a
