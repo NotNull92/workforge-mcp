@@ -38,6 +38,7 @@ Set-StrictMode -Version 3.0
 $ToolRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..") -ErrorAction Stop).Path
 $PackageManifest = Get-Content -Raw -LiteralPath (Join-Path $ToolRoot "package.json") | ConvertFrom-Json -ErrorAction Stop
 $Version = [string]$PackageManifest.version
+. (Join-Path $PSScriptRoot "WorkForge.Contract.ps1")
 . (Join-Path $PSScriptRoot "WorkForge.Portable.ps1")
 $PortableRuntime = $null
 if (Test-Path -LiteralPath (Join-Path $ToolRoot ".workforge-release.json") -PathType Leaf) {

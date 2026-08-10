@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "profileRegistry": {
+    "schemaVersion": 1,
+    "maxProfiles": 128
+  },
+  "profile": {
+    "idPattern": "^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$",
+    "maxIdLength": 32,
+    "maxDisplayNameLength": 80
+  }
+}

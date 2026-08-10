@@ -56,13 +56,15 @@ try {
     "/scripts/Portable-Control.cmd",
     "/scripts/Portable-Dispatch.cmd",
     "/scripts/Portable-Dispatch.ps1",
+    "/scripts/WorkForge.Contract.ps1",
     "/scripts/profile-registry.ps1",
     "/scripts/Uninstall.ps1",
     "/scripts/uninstall-finalizer.ps1",
     "/scripts/WorkForge.UI.ps1",
     "/scripts/WorkForge.Prerequisites.ps1",
     "/docs/logo/logo.png",
-    "/docs/UNINSTALL.md"
+    "/docs/UNINSTALL.md",
+    "/workforge-contract.json"
   )
   foreach ($Suffix in $RequiredSuffixes) {
     if (@($Names | Where-Object { $_.EndsWith($Suffix, [StringComparison]::Ordinal) }).Count -ne 1) {

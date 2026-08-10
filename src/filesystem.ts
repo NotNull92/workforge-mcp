@@ -438,6 +438,38 @@ function countOccurrences(text: string, needle: string, cap = 2): number {
   return count;
 }
 
+function replacementForCurrentText(
+  currentText: string,
+  oldText: string,
+  newText: string,
+): { needle: string; replacement: string } {
+  const exactCount = countOccurrences(currentText, oldText);
+  if (exactCount === 1) return { needle: oldText, replacement: newText };
+  if (exactCount > 1) throw new Error("oldText must occur exactly once in the current file.");
+
+  if (oldText.includes("\n") && !oldText.includes("\r\n") && currentText.includes("\r\n")) {
+    const crlfNeedle = oldText.replaceAll("\n", "\r\n");
+    if (countOccurrences(currentText, crlfNeedle) === 1) {
+      return {
+        needle: crlfNeedle,
+        replacement: newText.replace(/\r\n|\r|\n/gu, "\r\n"),
+      };
+    }
+  }
+
+  if (oldText.includes("\r\n")) {
+    const lfNeedle = oldText.replaceAll("\r\n", "\n");
+    if (countOccurrences(currentText, lfNeedle) === 1) {
+      return {
+        needle: lfNeedle,
+        replacement: newText.replace(/\r\n|\r/gu, "\n"),
+      };
+    }
+  }
+
+  throw new Error("oldText must occur exactly once in the current file.");
+}
+
 export async function replaceText(input: {
   context: ProjectContext;
   path: string;
@@ -452,8 +484,9 @@ export async function replaceText(input: {
   return await withTargetWriteLease(input.context, target.actualPath, async () => {
     const current = await readTextBytes(target.actualPath);
     if (current.sha256 !== input.expectedSha256) throw new Error("The file changed after it was read; no write was applied.");
-    if (countOccurrences(current.text, input.oldText) !== 1) throw new Error("oldText must occur exactly once in the current file.");
-    const updated = current.text.replace(input.oldText, input.newText);
+    const { needle, replacement } = replacementForCurrentText(current.text, input.oldText, input.newText);
+    const foundAt = current.text.indexOf(needle);
+    const updated = `${current.text.slice(0, foundAt)}${replacement}${current.text.slice(foundAt + needle.length)}`;
     const updatedBytes = encodeUtf8(updated, current.hasBom);
     if (updatedBytes.byteLength > MAX_WRITE_BYTES) throw new Error(`Edited file exceeds the ${MAX_WRITE_BYTES}-byte tool limit.`);
     await atomicReplace(target.actualPath, updatedBytes, input.expectedSha256);

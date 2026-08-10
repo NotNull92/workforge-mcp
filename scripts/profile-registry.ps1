@@ -1,4 +1,5 @@
 Set-StrictMode -Version 3.0
+. (Join-Path $PSScriptRoot "WorkForge.Contract.ps1")
 
 $script:WorkForgePortableRuntime = $null
 $PortableModulePath = Join-Path $PSScriptRoot "WorkForge.Portable.ps1"
@@ -383,12 +384,12 @@ function Get-WorkForgeRegistry {
   $RegistryJson = Read-WorkForgeUtf8Json -Path (Get-WorkForgeRegistryPath) -MaximumBytes 1048576 -Description "WorkForge profile registry"
   $Registry = $RegistryJson.Value
 
-  if ([string]$Registry.version -cne "1") {
+  if ([int]$Registry.version -ne $script:WorkForgeContract.RegistrySchemaVersion) {
     throw "WorkForge profile registry has an unsupported version."
   }
   $Entries = @($Registry.profiles)
-  if ($Entries.Count -lt 1 -or $Entries.Count -gt 128) {
-    throw "WorkForge profile registry must contain between 1 and 128 profiles."
+  if ($Entries.Count -lt 1 -or $Entries.Count -gt $script:WorkForgeContract.MaxProfiles) {
+    throw "WorkForge profile registry exceeds the configured profile limit."
   }
 
   $SeenIds = @{}
@@ -403,8 +404,8 @@ function Get-WorkForgeRegistry {
       $ExpectedHash = [string]$Entry.profileSha256
       if (
         [string]::IsNullOrWhiteSpace($ProfileId) -or
-        $ProfileId -cnotmatch "^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$" -or
-        $ProfileId.Length -gt 32
+        $ProfileId -cnotmatch $script:WorkForgeContract.ProfileIdPattern -or
+        $ProfileId.Length -gt $script:WorkForgeContract.MaxProfileIdLength
       ) {
         throw "WorkForge profile registry contains an invalid profile id."
       }
@@ -440,7 +441,7 @@ function Get-WorkForgeRegistry {
       if (
         $Profile.displayName -isnot [string] -or
         [string]::IsNullOrWhiteSpace($Profile.displayName) -or
-        $Profile.displayName.Length -gt 80 -or
+        $Profile.displayName.Length -gt $script:WorkForgeContract.MaxDisplayNameLength -or
         $Profile.displayName -ne $Profile.displayName.Trim() -or
         [regex]::IsMatch($Profile.displayName, "[\x00-\x1f\x7f]")
       ) {

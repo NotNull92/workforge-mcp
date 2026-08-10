@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { isPathWithinOrEqual, isSamePath, normalizePathForComparison } from "./path-policy.js";
 
-const PROFILE_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
 const MAX_PROFILE_BYTES = 256 * 1024;
 const MAX_REGISTRY_BYTES = 256 * 1024;
 const MAX_MARKER_BYTES = 1024 * 1024;
@@ -15,12 +15,37 @@ const PROJECT_CONFIG_DIRECTORY = "workforge-mcp";
 const PROJECT_TOOLS_DIRECTORY = "tools";
 const REGISTRY_ENVIRONMENT_KEY = "WORKFORGE_MCP_PROFILE_REGISTRY";
 
+const workForgeContractSchema = z.object({
+  schemaVersion: z.literal(1),
+  profileRegistry: z.object({
+    schemaVersion: z.literal(1),
+    maxProfiles: z.number().int().min(1).max(1024),
+  }).strict(),
+  profile: z.object({
+    idPattern: z.string().min(1).max(512),
+    maxIdLength: z.number().int().min(1).max(128),
+    maxDisplayNameLength: z.number().int().min(1).max(512),
+  }).strict(),
+}).strict();
+
+const WORKFORGE_CONTRACT = workForgeContractSchema.parse(JSON.parse(
+  readFileSync(resolve(DEFAULT_ENGINE_ROOT, "workforge-contract.json"), "utf8"),
+) as unknown);
+const PROFILE_ID_PATTERN = new RegExp(WORKFORGE_CONTRACT.profile.idPattern, "u");
+const MAX_PROFILE_ID_LENGTH = WORKFORGE_CONTRACT.profile.maxIdLength;
+const MAX_PROFILE_DISPLAY_NAME_LENGTH = WORKFORGE_CONTRACT.profile.maxDisplayNameLength;
+const MAX_PROFILES = WORKFORGE_CONTRACT.profileRegistry.maxProfiles;
+
+function isValidProfileId(value: string): boolean {
+  return value.length <= MAX_PROFILE_ID_LENGTH && PROFILE_ID_PATTERN.test(value);
+}
+
 const profileRelativePathSchema = z.string().trim().min(1).max(1024);
 
 const profileSchema = z.object({
-  id: z.string().regex(PROFILE_ID_PATTERN),
-  displayName: z.string().trim().min(1).max(80),
-  appName: z.string().trim().min(1).max(80),
+  id: z.string().max(MAX_PROFILE_ID_LENGTH).regex(PROFILE_ID_PATTERN),
+  displayName: z.string().trim().min(1).max(MAX_PROFILE_DISPLAY_NAME_LENGTH),
+  appName: z.string().trim().min(1).max(MAX_PROFILE_DISPLAY_NAME_LENGTH),
   serverName: z.string().regex(/^[a-z0-9][a-z0-9-]{0,127}$/),
   defaultWorkingDirectoryRelative: profileRelativePathSchema,
   httpPort: z.number().int().min(1024).max(65_535).optional(),
@@ -32,14 +57,14 @@ const profileSchema = z.object({
 }).strict();
 
 const registryEntrySchema = z.object({
-  id: z.string().regex(PROFILE_ID_PATTERN),
+  id: z.string().max(MAX_PROFILE_ID_LENGTH).regex(PROFILE_ID_PATTERN),
   profilePath: z.string().min(1).max(2048),
   profileSha256: z.string().regex(/^[a-f0-9]{64}$/i),
 }).strict();
 
 const registrySchema = z.object({
-  version: z.literal(1),
-  profiles: z.array(registryEntrySchema).min(1).max(128),
+  version: z.literal(WORKFORGE_CONTRACT.profileRegistry.schemaVersion),
+  profiles: z.array(registryEntrySchema).min(1).max(MAX_PROFILES),
 }).strict();
 
 type DeepReadonly<T> = T extends (...args: never[]) => unknown
@@ -185,7 +210,7 @@ async function readRegisteredProfile(
   profileId: string,
   registry: TrustedRegistry,
 ): Promise<{ parsed: z.infer<typeof profileSchema>; primaryRoot: string }> {
-  if (!PROFILE_ID_PATTERN.test(profileId)) throw new Error(`Invalid project profile id: ${profileId}`);
+  if (!isValidProfileId(profileId)) throw new Error(`Invalid project profile id: ${profileId}`);
   const entry = registry.entries.find((candidate) => candidate.id === profileId);
   if (!entry) throw new Error(`Unknown project profile: ${profileId}`);
 
@@ -226,7 +251,7 @@ export function parseProfileId(argv: readonly string[]): string {
       throw new Error(`Unknown MCP bridge argument: ${argument}`);
     }
     if (selected !== undefined) throw new Error("Specify exactly one --profile option.");
-    if (!PROFILE_ID_PATTERN.test(value)) throw new Error(`Invalid project profile id: ${value || "<empty>"}`);
+    if (!isValidProfileId(value)) throw new Error(`Invalid project profile id: ${value || "<empty>"}`);
     selected = value;
   }
   if (selected === undefined) throw new Error("Specify exactly one --profile option.");

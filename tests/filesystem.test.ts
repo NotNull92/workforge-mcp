@@ -125,6 +125,43 @@ describe("workstation filesystem", () => {
     expect(await readFile(path, "utf8")).toBe("changed elsewhere\n");
   });
 
+  it("treats JavaScript replacement tokens as literal text", async () => {
+    const { context, outside } = await fixture();
+    const path = join(outside, "replacement-tokens.txt");
+    await writeFile(path, "before TOKEN after\n", "utf8");
+    const read = await readTextFile({ context, path, startLine: 1, maxLines: 10 });
+    const dollar = "$";
+    const replacement = [dollar + "&", dollar + "1", dollar + "'", dollar + "`"].join("|");
+
+    await replaceText({
+      context,
+      path,
+      expectedSha256: read.sha256,
+      oldText: "TOKEN",
+      newText: replacement,
+    });
+
+    expect(await readFile(path, "utf8")).toBe(`before ${replacement} after\n`);
+  });
+
+  it("accepts LF text copied from read_text_file when the file uses CRLF", async () => {
+    const { context, outside } = await fixture();
+    const path = join(outside, "crlf.txt");
+    await writeFile(path, "alpha\r\nbeta\r\n", "utf8");
+    const read = await readTextFile({ context, path, startLine: 1, maxLines: 10 });
+    expect(read.text).toBe("alpha\nbeta\n");
+
+    await replaceText({
+      context,
+      path,
+      expectedSha256: read.sha256,
+      oldText: read.text,
+      newText: "alpha\nchanged\n",
+    });
+
+    expect(await readFile(path, "utf8")).toBe("alpha\r\nchanged\r\n");
+  });
+
   it("allows hardlink reads but rejects ambiguous hardlink mutation", async () => {
     const { context, outside } = await fixture();
     const source = join(outside, "source.txt");
