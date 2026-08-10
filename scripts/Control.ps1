@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [ValidateSet("menu", "start", "stop", "status", "doctor", "uninstall")]
+  [ValidateSet("menu", "start", "stop", "status", "doctor", "update-check", "update", "uninstall")]
   [string]$Action = "menu",
 
   [string]$ProfileId = "workstation",
@@ -30,6 +30,8 @@ function Invoke-ControlAction {
     "stop" { & (Join-Path $PSScriptRoot "stop-tunnel.ps1") -ProfileId $ProfileId }
     "status" { & (Join-Path $PSScriptRoot "tunnel-status.ps1") -ProfileId $ProfileId -Snapshot }
     "doctor" { & (Join-Path $PSScriptRoot "Doctor.ps1") -ProfileId $ProfileId -Online }
+    "update-check" { & (Join-Path $PSScriptRoot "Update.ps1") -Action Check }
+    "update" { & (Join-Path $PSScriptRoot "Update.ps1") -Action Apply }
     "uninstall" { & (Join-Path $PSScriptRoot "Uninstall.ps1") -Mode Prompt -ProfileId $ProfileId -Embedded -Plain:$Plain -NoLog:$NoLog }
     default { throw "Unsupported control action: $Selected" }
   }
@@ -53,6 +55,8 @@ function Write-ControlFailure {
   $LogDirectory = Get-ControlLogDirectory
   $Fix = if ($Selected -eq "uninstall") {
     "Review the uninstall target and retry from Uninstall.cmd."
+  } elseif ($Selected -eq "update" -or $Selected -eq "update-check") {
+    "Check your network connection and run the update check again. The active WorkForge engine is preserved when an update fails."
   } else {
     "Run Doctor after correcting the reported problem."
   }
@@ -84,7 +88,8 @@ while ($true) {
     "2. Status      Inspect health and readiness",
     "3. Stop        Close tunnel and supervisor",
     "4. Doctor      Validate local and online state",
-    "5. Uninstall   Remove WorkForge safely",
+    "5. Update      Check and install a newer stable WorkForge release",
+    "6. Uninstall   Remove WorkForge safely",
     "0. Exit"
   ) -Tone "primary"
   $Choice = Read-Host "Select"
@@ -93,7 +98,8 @@ while ($true) {
     "2" { "status" }
     "3" { "stop" }
     "4" { "doctor" }
-    "5" { "uninstall" }
+    "5" { "update" }
+    "6" { "uninstall" }
     "0" { "exit" }
     default { $null }
   }
@@ -107,7 +113,7 @@ while ($true) {
 
   try {
     Invoke-ControlAction -Selected $Selected
-    if ($Selected -eq "uninstall") { break }
+    if ($Selected -eq "uninstall" -or $Selected -eq "update") { break }
   } catch {
     Write-ControlFailure -Selected $Selected -ErrorRecord $_
   }

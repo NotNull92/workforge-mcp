@@ -339,10 +339,18 @@ Release ZIP에는 다음 런타임이 고정 버전으로 포함되고 검증됩
 
 ```text
 Git이 없음             → Git 없이 계속하거나 선택적으로 설치
-기존 WorkForge 버전    → 나란히 설치한 뒤 current.json을 원자적으로 전환
+기존 WorkForge 버전    → 나란히 설치·검증하고 Tunnel을 새 Runtime에 다시 연결한 뒤 current.json 전환
 ```
 
 즉, **이미 잘 설치된 프로그램을 다시 설치하지 않고 Git이 없다고 설치를 막지도 않습니다.**
+
+### v0.1.0에서 업데이트하기
+
+이미 공개된 v0.1.0에는 업데이트 UI 자체가 들어 있지 않기 때문에 **v0.1.0 → v0.2.0만 한 번 수동 브리지**가 필요합니다. v0.2.0 Release ZIP을 다운로드해 새 폴더에 압축을 풀고 그 안의 `Setup.cmd`를 실행하면 됩니다. 기존 v0.1.0을 먼저 삭제하면 안 됩니다.
+
+이 Setup은 단순 덮어쓰기가 아니라 트랜잭션 방식으로 업데이트합니다. 새 엔진 전체의 무결성을 먼저 검증하고 v0.1.0은 rollback 대상으로 그대로 보관합니다. 실행 중이던 Tunnel만 중지한 뒤 새 엔진을 활성화하고, 기존 `tunnel.local.yaml`을 새 Node/stdio 절대경로에 맞게 다시 생성하되 보호된 Runtime API Key는 다시 쓰지 않습니다. 로컬 Doctor 검증까지 통과하면 이전에 실행 중이던 Tunnel만 다시 시작합니다. 중간에 실패하면 `current.json`과 원래 Tunnel 설정을 복원하고 이전 엔진을 다시 활성화합니다.
+
+**v0.2.0부터는 이후 업데이트를 `WorkForge Control → Update WorkForge`에서 버튼 한 번으로 진행할 수 있습니다.**
 
 Portable Release는 Node.js나 ripgrep 설치에 WinGet을 사용하지 않습니다.
 소스 체크아웃의 개발자 경로만 기존의 동의 기반 prerequisite bootstrap을
@@ -440,6 +448,7 @@ Dashboard에서 바로 할 수 있는 일:
 - **Stop Tunnel**: Tunnel과 Supervisor를 안전하게 중지합니다.
 - **Refresh**: 현재 상태를 즉시 다시 확인합니다.
 - **Run Doctor**: 프로필, Runtime, Tunnel Client, 자격 증명, 온라인 연결을 검사합니다.
+- **Update WorkForge**: 공식 stable GitHub Release를 확인하고 ZIP/checksum 및 새 엔진 무결성을 검증한 뒤 트랜잭션 방식으로 업데이트합니다.
 - **Recent Activity**: 방금 어떤 일이 일어났는지 쉬운 문장으로 확인합니다.
 - **Uninstall**: 실제 삭제 전에 `WhatIf` 미리보기를 보여주고 다시 확인을 받습니다.
 

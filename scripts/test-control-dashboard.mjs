@@ -31,7 +31,11 @@ assert(!serverSource.includes("spawn('powershell.exe'"), 'Control dashboard must
 assert(!serverSource.includes("spawn('cmd.exe'"), 'Control dashboard must not resolve cmd through the working directory or PATH.');
 assert(htmlSource.includes('Start Tunnel'), 'Control dashboard is missing Start.');
 assert(htmlSource.includes('Run Doctor'), 'Control dashboard is missing Doctor.');
+assert(htmlSource.includes('Update WorkForge'), 'Control dashboard is missing update flow.');
 assert(htmlSource.includes('Remove WorkForge'), 'Control dashboard is missing uninstall flow.');
+assert(serverSource.includes("url.pathname === '/api/update'"), 'Control server is missing update endpoints.');
+assert(serverSource.includes("runPowerShell('Update.ps1'"), 'Control server does not use the transactional updater.');
+assert(appSource.includes("'/api/update'"), 'Control dashboard does not invoke the update API.');
 assert(appSource.includes("'/api/uninstall/preview'"), 'Control dashboard does not preview uninstall.');
 assert(appSource.includes("phrase: elements.destructivePhrase.value"), 'Destructive uninstall phrase is not forwarded.');
 

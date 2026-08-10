@@ -71,7 +71,7 @@ Compatible existing commands are reported and left untouched.
 - Mutating POST requests additionally require the exact same-origin `Origin` header.
 - Browser JavaScript never receives the Secure MCP Tunnel Runtime API Key.
 - Responses use a restrictive Content Security Policy, deny framing, disable caching, and load no remote scripts, styles, fonts, or analytics.
-- The dashboard calls the same PowerShell Start, Stop, Status, Doctor, and Uninstall implementations used by the CLI. The browser layer does not bypass their existing validation.
+- The dashboard calls the same PowerShell Start, Stop, Status, Doctor, Update, and Uninstall implementations used by the CLI. The browser layer does not bypass their existing validation.
 - RemoveEverything still requires the exact `REMOVE WORKFORGE` phrase. The dashboard also requires an uninstall preview and explicit confirmation before invoking removal.
 - The control server changes its working directory to the system temporary directory before serving requests so verified release self-removal is not blocked by its current directory.
 - Dashboard PowerShell, `cmd.exe`, and timeout process-tree termination use explicit `%SystemRoot%\System32` executable paths rather than resolving executables from the temporary working directory or PATH.
@@ -79,6 +79,21 @@ Compatible existing commands are reported and left untouched.
 - No service, scheduled task, startup item, or persistent dashboard process is created. When polling stops, the local server exits after a bounded idle period.
 
 The terminal path remains available through `WorkForge Control.cmd --cli` or direct `scripts\Control.ps1` actions for diagnostics and recovery.
+
+## Update supply-chain and rollback boundary
+
+WorkForge v0.2.0 checks for Windows updates only from the fixed stable Release endpoint for `NotNull92/workforge-mcp`. It does not accept an arbitrary repository or download URL from the Dashboard, CLI, profile, or request body.
+
+- Drafts, prereleases, and non-canonical semantic-version tags are rejected.
+- The exact `WorkForge-v<version>-win-x64.zip` asset and its exact `.sha256` companion are required.
+- Asset URLs must be HTTPS URLs under the canonical GitHub Release download path for this repository.
+- The downloaded archive is size-bounded, SHA-256 verified before extraction, and its `.workforge-release.json` version must match the GitHub Release metadata.
+- Staging generates the full installed-engine immutable manifest before `current.json` changes.
+- Dashboard update installation requires an explicit same-origin POST confirmation. A background update check never installs anything.
+- Existing `tunnel.local.yaml` files are snapshotted as exact bytes. Runtime rebinding uses the existing tunnel ID and protected credential without rewriting the credential file.
+- If rebinding, local Doctor validation, activation, or tunnel restart fails, WorkForge restores the previous engine pointer, stable launcher files, prior tunnel configurations, and the pre-update running-tunnel set as far as the rollback procedure can complete.
+
+The `.sha256` companion protects against corruption and mismatched Release assets, but it is not an independent publisher signature. The GitHub repository/account and its published Release assets remain part of the update trust boundary. Code signing or an independent signing key would be a separate future hardening layer.
 
 ## Runtime and process safety
 

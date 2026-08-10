@@ -9,6 +9,16 @@ $script:WorkForgePortableCriticalFiles = @(
   $script:WorkForgePortableLegacyCriticalFiles
   "scripts\Portable-Dispatch.ps1"
   "scripts\Portable-Dispatch.cmd"
+  "scripts\Configure-Tunnel.ps1"
+  "scripts\Doctor.ps1"
+  "scripts\start-tunnel.ps1"
+  "scripts\stop-tunnel.ps1"
+  "scripts\profile-registry.ps1"
+  "scripts\WorkForge.Contract.ps1"
+  "scripts\WorkForge.ProfileRuntime.ps1"
+  "scripts\WorkForge.TunnelRuntime.ps1"
+  "scripts\WorkForge.Update.ps1"
+  "scripts\Update.ps1"
 )
 $script:WorkForgePortableIntegrityRootFiles = @(
   ".workforge-release.json", "package.json", "runtime-lock.json",
@@ -159,7 +169,9 @@ function Get-WorkForgePortableRelease {
       throw "Portable release critical file is invalid: $RelativePath"
     }
   }
-  return [pscustomobject]@{ Root = $ResolvedRoot; Version = [string]$Value.version }
+  $ValidationBuildProperty = $Value.PSObject.Properties["validationBuild"]
+  $ValidationBuild = $null -ne $ValidationBuildProperty -and [bool]$ValidationBuildProperty.Value
+  return [pscustomobject]@{ Root = $ResolvedRoot; Version = [string]$Value.version; ValidationBuild = $ValidationBuild }
 }
 
 function Read-WorkForgePortableInstalledVersion {
@@ -236,7 +248,7 @@ function Set-WorkForgePortableCurrent {
   return $Installed
 }
 
-function Install-WorkForgePortableVersion {
+function Stage-WorkForgePortableVersion {
   param([Parameter(Mandatory = $true)][string]$SourceRoot)
   $Release = Get-WorkForgePortableRelease -SourceRoot $SourceRoot
   $Roots = Get-WorkForgePortableRoots
@@ -245,47 +257,63 @@ function Install-WorkForgePortableVersion {
   New-Item -ItemType Directory -Path $VersionsRoot -Force | Out-Null
   New-Item -ItemType Directory -Path $Roots.StateRoot -Force | Out-Null
   if (Test-Path -LiteralPath $Destination) {
-    $null = Read-WorkForgePortableInstalledVersion -EngineRoot $Destination -Version $Release.Version
-  } else {
-    $Staging = Join-Path $VersionsRoot ("." + $Release.Version + ".staging-" + [guid]::NewGuid().ToString("N"))
-    try {
-      New-Item -ItemType Directory -Path $Staging -Force | Out-Null
-      foreach ($Item in Get-ChildItem -LiteralPath $Release.Root -Force) {
-        Copy-Item -LiteralPath $Item.FullName -Destination (Join-Path $Staging $Item.Name) -Recurse -Force
-      }
-      $IntegrityPaths = @(Get-WorkForgePortableIntegrityRelativePaths -Root $Staging)
-      $Files = @(
-        foreach ($RelativePath in $IntegrityPaths) {
-          [ordered]@{
-            path = $RelativePath
-            sha256 = (Get-WorkForgeFileSha256 -Path (Join-Path $Staging $RelativePath)).ToLowerInvariant()
-          }
-        }
-      )
-      Write-WorkForgePortableAtomicJson -Path (Join-Path $Staging ".workforge-install.json") -Value ([ordered]@{
-        schemaVersion = 2
-        product = "WorkForge"
-        version = $Release.Version
-        files = $Files
-      })
-      [IO.Directory]::Move($Staging, $Destination)
-    } finally {
-      if (Test-Path -LiteralPath $Staging) { Remove-Item -LiteralPath $Staging -Recurse -Force }
-    }
+    return Read-WorkForgePortableInstalledVersion -EngineRoot $Destination -Version $Release.Version
   }
-  $CurrentPath = Join-Path $Roots.ProgramsRoot "current.json"
+  $Staging = Join-Path $VersionsRoot ("." + $Release.Version + ".staging-" + [guid]::NewGuid().ToString("N"))
+  try {
+    New-Item -ItemType Directory -Path $Staging -Force | Out-Null
+    foreach ($Item in Get-ChildItem -LiteralPath $Release.Root -Force) {
+      Copy-Item -LiteralPath $Item.FullName -Destination (Join-Path $Staging $Item.Name) -Recurse -Force
+    }
+    $IntegrityPaths = @(Get-WorkForgePortableIntegrityRelativePaths -Root $Staging)
+    $Files = @(
+      foreach ($RelativePath in $IntegrityPaths) {
+        [ordered]@{ path = $RelativePath; sha256 = (Get-WorkForgeFileSha256 -Path (Join-Path $Staging $RelativePath)).ToLowerInvariant() }
+      }
+    )
+    Write-WorkForgePortableAtomicJson -Path (Join-Path $Staging ".workforge-install.json") -Value ([ordered]@{
+      schemaVersion = 2
+      product = "WorkForge"
+      version = $Release.Version
+      files = $Files
+    })
+    [IO.Directory]::Move($Staging, $Destination)
+  } finally {
+    if (Test-Path -LiteralPath $Staging) { Remove-Item -LiteralPath $Staging -Recurse -Force }
+  }
+  return Read-WorkForgePortableInstalledVersion -EngineRoot $Destination -Version $Release.Version
+}
+
+function Sync-WorkForgePortableLaunchers {
+  param([Parameter(Mandatory = $true)][string]$Version)
+  $Roots = Get-WorkForgePortableRoots
+  $EngineRoot = Join-Path $Roots.ProgramsRoot ("versions\" + $Version)
+  $null = Read-WorkForgePortableInstalledVersion -EngineRoot $EngineRoot -Version $Version
+  Copy-Item -LiteralPath (Join-Path $EngineRoot "scripts\WorkForge.Portable.ps1") -Destination (Join-Path $Roots.ProgramsRoot "WorkForge.Portable.ps1") -Force
+  Copy-Item -LiteralPath (Join-Path $EngineRoot "scripts\Portable-Control.ps1") -Destination (Join-Path $Roots.ProgramsRoot "Portable-Control.ps1") -Force
+  Copy-Item -LiteralPath (Join-Path $EngineRoot "scripts\Portable-Control.cmd") -Destination (Join-Path $Roots.ProgramsRoot "WorkForge Control.cmd") -Force
+}
+
+function Activate-WorkForgePortableVersion {
+  param([Parameter(Mandatory = $true)][string]$Version, [string]$PreviousVersion)
+  $null = Set-WorkForgePortableCurrent -Version $Version -PreviousVersion $PreviousVersion
+  Sync-WorkForgePortableLaunchers -Version $Version
+  return Resolve-WorkForgePortableEngine
+}
+
+function Install-WorkForgePortableVersion {
+  param([Parameter(Mandatory = $true)][string]$SourceRoot)
+  $Release = Get-WorkForgePortableRelease -SourceRoot $SourceRoot
+  $Roots = Get-WorkForgePortableRoots
   $PreviousVersion = $null
+  $CurrentPath = Join-Path $Roots.ProgramsRoot "current.json"
   if (Test-Path -LiteralPath $CurrentPath -PathType Leaf) {
     $PreviousVersion = [string](Read-WorkForgePortableJson -Path $CurrentPath -Description "Portable current pointer").Value.version
     if ($PreviousVersion -ceq $Release.Version) { $PreviousVersion = $null }
   }
-  $null = Set-WorkForgePortableCurrent -Version $Release.Version -PreviousVersion $PreviousVersion
-  Copy-Item -LiteralPath (Join-Path $Destination "scripts\WorkForge.Portable.ps1") -Destination (Join-Path $Roots.ProgramsRoot "WorkForge.Portable.ps1") -Force
-  Copy-Item -LiteralPath (Join-Path $Destination "scripts\Portable-Control.ps1") -Destination (Join-Path $Roots.ProgramsRoot "Portable-Control.ps1") -Force
-  Copy-Item -LiteralPath (Join-Path $Destination "scripts\Portable-Control.cmd") -Destination (Join-Path $Roots.ProgramsRoot "WorkForge Control.cmd") -Force
-  return Resolve-WorkForgePortableEngine
+  $null = Stage-WorkForgePortableVersion -SourceRoot $SourceRoot
+  return Activate-WorkForgePortableVersion -Version $Release.Version -PreviousVersion $PreviousVersion
 }
-
 function Resolve-WorkForgePortableEngine {
   $Roots = Get-WorkForgePortableRoots
   $Pointer = Read-WorkForgePortableJson -Path (Join-Path $Roots.ProgramsRoot "current.json") -Description "Portable current pointer"
@@ -323,6 +351,5 @@ function Invoke-WorkForgePortableRollback {
   if ([string]::IsNullOrWhiteSpace($PreviousVersion) -or $PreviousVersion -ceq $CurrentVersion) {
     throw "Portable rollback has no prior version."
   }
-  $null = Set-WorkForgePortableCurrent -Version $PreviousVersion -PreviousVersion $CurrentVersion
-  return Resolve-WorkForgePortableEngine
+  return Activate-WorkForgePortableVersion -Version $PreviousVersion -PreviousVersion $CurrentVersion
 }

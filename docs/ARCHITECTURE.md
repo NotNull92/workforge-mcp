@@ -171,6 +171,42 @@ The registry supports multiple distinct profile roots. Each profile manifest is 
 
 On Windows, `scripts/profile-registry.ps1` remains the compatibility entry point for existing lifecycle scripts. It now delegates profile, credential, and stdio validation to `WorkForge.ProfileRuntime.ps1` and tunnel/process concerns to `WorkForge.TunnelRuntime.ps1`. Shared profile limits live in `workforge-contract.json` and are consumed by both TypeScript and PowerShell.
 
+## Transactional updates
+
+v0.2.0 introduces a Windows portable update transaction. The already-published v0.1.0 build has no updater UI, so its one-time bridge is the v0.2.0 Release ZIP plus `Setup.cmd`. Once v0.2.0 is active, the same transaction is available from WorkForge Control.
+
+```text
+canonical stable GitHub Release
+    |-- exact Windows ZIP + exact .sha256 asset
+    |-- HTTPS canonical repository asset URLs only
+    |-- SHA-256 verify before extraction
+    `-- verify .workforge-release.json version
+             |
+Stage-WorkForgePortableVersion
+    |-- copy into versions/<new-version>
+    `-- generate and verify full immutable-engine manifest
+             |
+transaction snapshot
+    |-- current engine version
+    |-- exact tunnel.local.yaml bytes per configured profile
+    `-- which registered tunnels are currently running
+             |
+activate new engine
+    |-- atomically switch current.json
+    |-- synchronize stable Control launchers
+    |-- rebuild configured tunnel profiles against new Node/stdio paths
+    |-- local Doctor validation
+    `-- restart only tunnels that were running before the update
+             |
+any failure
+    |-- stop newly started tunnel processes
+    |-- restore exact prior tunnel configuration bytes
+    |-- reactivate the previous engine and stable launchers
+    `-- restart the tunnels that were running before the update
+```
+
+The updater intentionally does not rewrite the protected runtime credential, profile registry, user policy files, or workspace content. Future Windows releases that are reachable through the v0.2.0 updater must retain the `Configure-Tunnel.ps1 -RebindRuntime` compatibility surface or the transaction fails and rolls back. Update discovery uses the fixed `NotNull92/workforge-mcp` GitHub release endpoint and accepts stable semantic versions only.
+
 ## Mutation gates
 
 - `workstation_context` returns all bootstrap instructions and a `contextRevision` hash.

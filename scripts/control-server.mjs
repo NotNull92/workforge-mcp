@@ -51,7 +51,10 @@ let activeAction = null;
 let cachedStatus = null;
 let cachedStatusAt = 0;
 let statusPromise = null;
+let cachedUpdate = null;
+let cachedUpdateAt = 0;
 const statusCacheMs = testMode ? 0 : 3000;
+const updateCacheMs = testMode ? 0 : 5 * 60_000;
 
 function recordActivity(kind, message) {
   activity.unshift({
@@ -319,6 +322,44 @@ async function getStatus({ force = false } = {}) {
   }
 }
 
+async function getUpdateStatus({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && cachedUpdate && now - cachedUpdateAt < updateCacheMs) return cachedUpdate;
+  const result = await runPowerShell('Update.ps1', ['-Action', 'Check', '-Json'], 30_000);
+  let parsed;
+  try {
+    parsed = JSON.parse(result.stdout);
+  } catch {
+    throw new Error(`Could not parse update status: ${result.stdout.slice(0, 2000)}`);
+  }
+  cachedUpdate = parsed;
+  cachedUpdateAt = Date.now();
+  return parsed;
+}
+
+async function performUpdate() {
+  if (activeAction) throw new Error(`Another control action is already running: ${activeAction}.`);
+  activeAction = 'update';
+  try {
+    recordActivity('info', 'Downloading and validating the WorkForge update...');
+    const result = await runPowerShell('Update.ps1', ['-Action', 'Apply', '-Json'], 10 * 60_000);
+    let parsed;
+    try {
+      parsed = JSON.parse(result.stdout);
+    } catch {
+      throw new Error(`Could not parse update result: ${result.stdout.slice(0, 2000)}`);
+    }
+    if (parsed.updated) recordActivity('success', `Updated WorkForge to ${parsed.version}.`);
+    else recordActivity('info', parsed.message || 'WorkForge is already up to date.');
+    return parsed;
+  } catch (error) {
+    recordActivity('error', `update failed: ${error.message}`);
+    throw error;
+  } finally {
+    activeAction = null;
+  }
+}
+
 async function performAction(action) {
   if (activeAction) throw new Error(`Another control action is already running: ${activeAction}.`);
   activeAction = action;
@@ -435,6 +476,12 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === 'GET' && url.pathname === '/api/update') {
+      const update = await getUpdateStatus({ force: url.searchParams.get('refresh') === '1' });
+      sendJson(response, 200, { ok: true, update, activity, activeAction });
+      return;
+    }
+
     if (request.method !== 'POST') {
       sendJson(response, 405, { ok: false, error: 'Method not allowed.' }, { Allow: 'GET, POST' });
       return;
@@ -446,6 +493,18 @@ const server = http.createServer(async (request, response) => {
       const result = await performAction(action);
       const status = await getStatus({ force: true }).catch(error => ({ error: sanitizeText(error.message) }));
       sendJson(response, 200, { ok: true, action, ...result, status, activity });
+      return;
+    }
+
+    if (url.pathname === '/api/update') {
+      const body = await readJsonBody(request);
+      if (body.confirm !== true) throw new Error('Explicit update confirmation is required.');
+      const update = await performUpdate();
+      sendJson(response, 200, { ok: true, update, message: update.message || 'WorkForge update completed.' });
+      if (update.updated) {
+        shuttingDown = true;
+        setTimeout(() => server.close(() => process.exit(0)), 900).unref();
+      }
       return;
     }
 
@@ -507,7 +566,7 @@ server.listen({ host: '127.0.0.1', port: requestedPort, exclusive: true }, () =>
 });
 
 const idleTimer = setInterval(() => {
-  if (!shuttingDown && Date.now() - lastRequestAt > idleTimeoutMs) {
+  if (!shuttingDown && !activeAction && Date.now() - lastRequestAt > idleTimeoutMs) {
     shuttingDown = true;
     server.close(() => process.exit(0));
   }

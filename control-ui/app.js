@@ -22,6 +22,13 @@ const elements = {
   busyBadge: document.querySelector('#busyBadge'),
   versionText: document.querySelector('#versionText'),
   closeControlButton: document.querySelector('#closeControlButton'),
+  updateTitle: document.querySelector('#updateTitle'),
+  updateBadge: document.querySelector('#updateBadge'),
+  updateSummary: document.querySelector('#updateSummary'),
+  currentVersionMetric: document.querySelector('#currentVersionMetric'),
+  latestVersionMetric: document.querySelector('#latestVersionMetric'),
+  checkUpdateButton: document.querySelector('#checkUpdateButton'),
+  updateButton: document.querySelector('#updateButton'),
   toast: document.querySelector('#toast'),
   uninstallDialog: document.querySelector('#uninstallDialog'),
   openUninstallButton: document.querySelector('#openUninstallButton'),
@@ -34,6 +41,7 @@ const elements = {
 };
 
 let currentStatus = null;
+let currentUpdate = null;
 let pollTimer = null;
 let toastTimer = null;
 let actionInFlight = false;
@@ -79,6 +87,8 @@ function updateButtons() {
   elements.stopButton.disabled = actionInFlight || !running;
   elements.refreshButton.disabled = actionInFlight;
   elements.doctorButton.disabled = actionInFlight;
+  elements.checkUpdateButton.disabled = actionInFlight;
+  elements.updateButton.disabled = actionInFlight || !currentUpdate?.updateAvailable;
   elements.openUninstallButton.disabled = actionInFlight;
 }
 
@@ -237,6 +247,68 @@ async function runAction(action) {
   }
 }
 
+function renderUpdate(update) {
+  currentUpdate = update;
+  elements.currentVersionMetric.textContent = update.currentVersion || 'Unknown';
+  elements.latestVersionMetric.textContent = update.latestVersion || 'Unknown';
+  if (update.updateAvailable) {
+    elements.updateTitle.textContent = `WorkForge ${update.latestVersion} is available`;
+    elements.updateSummary.textContent = 'The update is downloaded from the canonical GitHub release, SHA-256 verified, staged side-by-side, then activated only after integrity checks. Running tunnels are rebound and restarted automatically.';
+    elements.updateBadge.textContent = 'Update available';
+    elements.updateBadge.className = 'badge badge-warning';
+  } else {
+    elements.updateTitle.textContent = 'WorkForge is up to date';
+    elements.updateSummary.textContent = 'No newer stable WorkForge release is currently available.';
+    elements.updateBadge.textContent = 'Up to date';
+    elements.updateBadge.className = 'badge badge-success';
+  }
+  updateButtons();
+}
+
+function renderUpdateFailure(message) {
+  currentUpdate = null;
+  elements.updateTitle.textContent = 'Could not check for updates';
+  elements.updateSummary.textContent = message;
+  elements.currentVersionMetric.textContent = 'Unknown';
+  elements.latestVersionMetric.textContent = 'Unknown';
+  elements.updateBadge.textContent = 'Unavailable';
+  elements.updateBadge.className = 'badge badge-error';
+  updateButtons();
+}
+
+async function refreshUpdate({ force = false, quiet = false } = {}) {
+  try {
+    const payload = await api(force ? '/api/update?refresh=1' : '/api/update');
+    renderUpdate(payload.update);
+    if (payload.activity) renderActivity(payload.activity);
+  } catch (error) {
+    renderUpdateFailure(error.message);
+    if (!quiet) toast(error.message, 'error');
+  }
+}
+
+async function applyUpdate() {
+  if (actionInFlight || !currentUpdate?.updateAvailable) return;
+  const targetVersion = currentUpdate.latestVersion || 'the latest version';
+  if (!window.confirm(`Update WorkForge to ${targetVersion}? Running WorkForge tunnels will be restarted automatically. If validation fails, WorkForge will roll back to the current engine.`)) return;
+
+  setBusy(true, 'Updating…');
+  try {
+    const payload = await api('/api/update', {
+      method: 'POST',
+      body: JSON.stringify({ confirm: true }),
+    });
+    clearInterval(pollTimer);
+    toast(payload.message || 'WorkForge update completed.', 'success');
+    document.body.innerHTML = '<main class="shell"><section class="panel"><p class="eyebrow">WORKFORGE UPDATED</p><h1>Update completed</h1><p class="panel-copy">Open WorkForge Control again to use the new engine and dashboard.</p></section></main>';
+  } catch (error) {
+    toast(error.message, 'error');
+    setBusy(false);
+    await refreshUpdate({ force: true, quiet: true });
+    await refreshStatus({ quiet: true });
+  }
+}
+
 function selectedUninstallMode() {
   return document.querySelector('input[name="uninstallMode"]:checked')?.value || 'KeepWorkspace';
 }
@@ -335,6 +407,7 @@ async function initialize() {
     toast(error.message, 'error');
   }
   await refreshStatus({ quiet: true });
+  await refreshUpdate({ quiet: true });
   pollTimer = setInterval(() => {
     if (!actionInFlight && !document.hidden) refreshStatus({ quiet: true });
   }, 5000);
@@ -344,6 +417,8 @@ elements.startButton.addEventListener('click', () => runAction('start'));
 elements.stopButton.addEventListener('click', () => runAction('stop'));
 elements.refreshButton.addEventListener('click', () => refreshStatus());
 elements.doctorButton.addEventListener('click', () => runAction('doctor'));
+elements.checkUpdateButton.addEventListener('click', () => refreshUpdate({ force: true }));
+elements.updateButton.addEventListener('click', applyUpdate);
 elements.closeControlButton.addEventListener('click', closeControl);
 
 elements.openUninstallButton.addEventListener('click', () => {

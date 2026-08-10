@@ -151,6 +151,25 @@ $RequiredChecks = [ordered]@{
   "scripts\WorkForge.TunnelRuntime.ps1" = @(
     "WorkForgeMcp-Tunnel"
   )
+  "scripts\WorkForge.Update.ps1" = @(
+    "api.github.com/repos/NotNull92/workforge-mcp/releases/latest",
+    "github.com/NotNull92/workforge-mcp/releases/download/",
+    "ArchiveUrl",
+    "ChecksumUrl",
+    "ValidationBuild",
+    "TimeoutSec 120",
+    "Get-WorkForgeFileSha256",
+    "Stage-WorkForgePortableVersion",
+    "Activate-WorkForgePortableVersion",
+    "Invoke-WorkForgeTransactionalUpgrade",
+    "RebindRuntime",
+    "Rollback completed"
+  )
+  "scripts\Update.ps1" = @(
+    'ValidateSet("Check", "Apply")',
+    "Receive-WorkForgeUpdateRelease",
+    "Invoke-WorkForgeTransactionalUpgrade"
+  )
   "src\path-policy.ts" = @(
     "normalizePathForComparison",
     "isPathWithinOrEqual",
@@ -195,7 +214,8 @@ $RequiredChecks = [ordered]@{
     "Get-WorkForgeTunnelExecutablePath",
     "Get-WorkForgeStdioRuntime",
     "`$McpCommand",
-    "--mcp-command `$McpCommand"
+    "--mcp-command `$McpCommand",
+    "RebindRuntime"
   )
   "scripts\Uninstall.ps1" = @(
     "SupportsShouldProcess",
@@ -235,11 +255,17 @@ $RequiredChecks = [ordered]@{
     "taskkillPath",
     "terminateProcessTree(child)",
     "statusCacheMs",
+    "!activeAction && Date.now() - lastRequestAt",
+    "/api/update",
+    "Update.ps1",
+    "Explicit update confirmation is required",
     "/api/uninstall/preview",
     "REMOVE WORKFORGE"
   )
   "control-ui\app.js" = @(
     "/api/status",
+    "/api/update",
+    "Update WorkForge",
     "runAction('doctor')",
     "/api/uninstall/preview",
     "REMOVE WORKFORGE"
@@ -256,13 +282,17 @@ $RequiredChecks = [ordered]@{
     "ThirdPartyLicenseReviewApproved",
     "ValidationBuild",
     "control-ui",
-    "Uninstall.cmd"
+    "Uninstall.cmd",
+    "WorkForge.Update.ps1",
+    "Update.ps1"
   )
   "scripts\WorkForge.Portable.ps1" = @(
     "current.json",
     ".workforge-install.json",
     "installManifestSha256",
     "Invoke-WorkForgePortableRollback",
+    "Stage-WorkForgePortableVersion",
+    "Activate-WorkForgePortableVersion",
     "WORKFORGE_PORTABLE_STATE_ROOT"
   )
   "plugins\workforge\plugin.json" = @(
@@ -273,7 +303,8 @@ $RequiredChecks = [ordered]@{
     "test:multi-profile",
     "test:privacy-history",
     "test:plugin",
-    "test:portable-runtime"
+    "test:portable-runtime",
+    "test:update",
     "check:macos"
   )
 }

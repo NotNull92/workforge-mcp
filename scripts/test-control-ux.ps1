@@ -47,7 +47,9 @@ if ($ServerText -notmatch 'request\.headers\.host !== expectedHost') { throw "Co
 
 $ControlText = Get-Content -Raw -LiteralPath $ControlPath
 if ($ControlText -notmatch 'Uninstall') { throw "CLI Control menu does not expose the uninstall flow." }
+if ($ControlText -notmatch 'Update\.ps1' -or $ControlText -notmatch 'update-check') { throw "CLI Control menu does not expose the update flow." }
 if ($ControlText -notmatch 'WorkForge\.UI\.ps1') { throw "CLI Control does not use the shared ForgeUI renderer." }
+if ($ServerText -notmatch '/api/update' -or $ServerText -notmatch 'Update\.ps1') { throw "Control dashboard does not expose the transactional update flow." }
 
 $StartInfo = [Diagnostics.ProcessStartInfo]::new()
 $StartInfo.FileName = "powershell.exe"

@@ -113,6 +113,31 @@
       </article>
     </section>
 
+    <section class="panel update-panel">
+      <div class="panel-heading compact">
+        <div>
+          <p class="eyebrow">WORKFORGE UPDATE</p>
+          <h2 id="updateTitle">Checking for updates…</h2>
+        </div>
+        <span id="updateBadge" class="badge badge-neutral">Checking</span>
+      </div>
+      <p id="updateSummary" class="panel-copy">WorkForge checks the canonical GitHub release and verifies the release checksum before installing anything.</p>
+      <div class="metric-row update-metrics">
+        <div class="metric">
+          <span class="metric-label">Current</span>
+          <strong id="currentVersionMetric">—</strong>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Latest</span>
+          <strong id="latestVersionMetric">—</strong>
+        </div>
+      </div>
+      <div class="button-row">
+        <button id="checkUpdateButton" class="button button-secondary" type="button">Check again</button>
+        <button id="updateButton" class="button button-primary" type="button" disabled>Update WorkForge</button>
+      </div>
+    </section>
+
     <section class="panel danger-panel">
       <div class="danger-copy">
         <p class="eyebrow">DANGER ZONE</p>

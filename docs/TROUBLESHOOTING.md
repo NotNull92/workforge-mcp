@@ -37,6 +37,23 @@ report branches, recent commits, changed files, staged/unstaged state, and ahead
 Interactive Setup offers Git separately and defaults to continuing without it. To install Git later,
 install Git for Windows normally or rerun Setup and choose the optional Git install.
 
+## Updating WorkForge
+
+The published v0.1.0 build predates the updater UI. To move from v0.1.0 to v0.2.0, download the v0.2.0 Windows Release ZIP and matching `.sha256`, verify/extract it to a new folder, and run that ZIP's `Setup.cmd`. Do not uninstall v0.1.0 first. A valid existing portable installation is used as the rollback target.
+
+From v0.2.0 onward, open **WorkForge Control** and use **Check again** / **Update WorkForge**. Update discovery contacts the canonical stable GitHub Release for `NotNull92/workforge-mcp`; if GitHub is unavailable, the update card may show Unavailable but local tunnel controls continue to work.
+
+A normal update stages and verifies the new engine before stopping any tunnel. Existing configured tunnel profiles are rebound to the new engine's absolute Node/stdio paths, validated with local Doctor, and only the tunnels that were running before the update are restarted. The protected Runtime API Key and user policy files are not rewritten.
+
+If an update fails, read the Dashboard error carefully. WorkForge attempts to restore the previous `current.json` target, stable launchers, exact prior `tunnel.local.yaml` bytes, and pre-update running state. If the message says rollback had issues, keep WorkForge stopped and use the preserved previous version under `%LOCALAPPDATA%\Programs\WorkForge\versions` for recovery rather than deleting either engine.
+
+Advanced CLI checks are also available from an installed engine:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\Update.ps1 -Action Check
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\Update.ps1 -Action Apply
+```
+
 ## Setup rejects an existing Node.js installation
 
 WorkForge does not automatically replace an existing Node.js command. It stops when Node.js

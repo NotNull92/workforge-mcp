@@ -9,6 +9,18 @@ $WorkspaceRoot = Join-Path $TestRoot "workspace"
 $RegistryPath = Join-Path $TestRoot "runtime\profile_registry.json"
 $Utf8 = [Text.UTF8Encoding]::new($false)
 $SetupText = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "Setup.ps1")
+$SetupEntryText = Get-Content -Raw -LiteralPath $SetupPath
+foreach ($RequiredUpgradeToken in @(
+  "Invoke-WorkForgeTransactionalUpgrade",
+  "profile_registry.json",
+  "Setup refuses to downgrade WorkForge",
+  "SetupArguments",
+  "-SkipStart"
+)) {
+  if ($SetupEntryText.IndexOf($RequiredUpgradeToken, [StringComparison]::Ordinal) -lt 0) {
+    throw "Portable Setup entry lost the transactional upgrade bridge: $RequiredUpgradeToken"
+  }
+}
 $UnqualifiedTunnelAssignments = [regex]::Matches($SetupText, '(?m)^\s*\$TunnelConfigured\s*=')
 if ($UnqualifiedTunnelAssignments.Count -gt 0) {
   throw "Setup loses successful tunnel state when a stage body assigns TunnelConfigured in its child scope."

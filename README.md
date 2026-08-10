@@ -337,10 +337,18 @@ The rule is simple:
 
 ```text
 Git missing                           → continue without Git or install it optionally
-Existing WorkForge version            → stage side-by-side and atomically switch current.json
+Existing WorkForge version            → stage side-by-side, validate, rebind tunnels, then switch current.json
 ```
 
 So **compatible software is not reinstalled, and missing Git does not block Setup**.
+
+### Updating from v0.1.0
+
+The already-published v0.1.0 build does not contain the updater UI, so moving from v0.1.0 to v0.2.0 requires one manual bridge: download the v0.2.0 Release ZIP, extract it to a new folder, and run its `Setup.cmd`. Do **not** uninstall v0.1.0 first.
+
+That Setup path performs a transactional side-by-side upgrade. It fully hashes the new engine before activation, preserves the old engine as the rollback target, stops only tunnels that were running, rebuilds existing tunnel profiles against the new Node/stdio paths without rewriting the protected credential, validates them, and restarts the tunnels that were running before the update. If validation fails, `current.json` and the original tunnel configuration are restored and the previous engine is reactivated.
+
+Starting with v0.2.0, normal future updates can be performed from **WorkForge Control → Update WorkForge** instead of downloading the ZIP manually.
 
 Portable releases do not use WinGet for Node.js or ripgrep. The source-checkout
 developer path retains the existing consent-gated prerequisite bootstrap. Git
@@ -439,6 +447,7 @@ From the Dashboard you can:
 - **Stop Tunnel** and its supervisor safely.
 - **Refresh** the current state immediately.
 - **Run Doctor** to check the profile, runtime, tunnel client, credential and online path.
+- **Update WorkForge** to check the canonical stable GitHub Release and install it transactionally after ZIP/checksum and engine-integrity verification.
 - Review **Recent Activity** in short human-readable messages.
 - Open **Uninstall**, preview the removal with `WhatIf`, and confirm before anything is deleted.
 

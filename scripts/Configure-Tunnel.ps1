@@ -2,46 +2,62 @@
 param(
   [string]$TunnelId,
   [string]$ProfileId = "workstation",
-  [switch]$SkipDoctor
+  [switch]$SkipDoctor,
+  [switch]$RebindRuntime
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 3.0
 . (Join-Path $PSScriptRoot "profile-registry.ps1")
 
-if ([string]::IsNullOrWhiteSpace($TunnelId)) { $TunnelId = Read-Host "OpenAI tunnel_id" }
-if ($TunnelId -cnotmatch '^tunnel_[a-f0-9]{32}$') { throw "tunnel_id is invalid." }
-
-# Validate the selected profile and exact runtime before touching the local credential.
+# Validate the selected profile and exact runtime before touching local state.
 $Profile = Get-WorkForgeProfile -ProfileId $ProfileId
 $TunnelExecutable = Get-WorkForgeTunnelExecutablePath
 $StdioRuntime = Get-WorkForgeStdioRuntime
+
+if ($RebindRuntime) {
+  $ExistingConfig = Assert-WorkForgeRegularFile -Path $Profile.TunnelConfigPath -MaximumBytes 1048576 -Description "Tunnel config for workforge profile $ProfileId"
+  $ConfigText = [IO.File]::ReadAllText($ExistingConfig.FullName, [Text.UTF8Encoding]::new($false, $true))
+  $TunnelIds = @([regex]::Matches($ConfigText, '\btunnel_[a-f0-9]{32}\b', [Text.RegularExpressions.RegexOptions]::IgnoreCase) | ForEach-Object { $_.Value.ToLowerInvariant() } | Sort-Object -Unique)
+  if ($TunnelIds.Count -ne 1) {
+    throw "Existing tunnel configuration must contain exactly one tunnel_id before runtime rebinding."
+  }
+  $TunnelId = $TunnelIds[0]
+  $null = Initialize-WorkForgeControlPlaneCredential
+} else {
+  if ([string]::IsNullOrWhiteSpace($TunnelId)) { $TunnelId = Read-Host "OpenAI tunnel_id" }
+}
+if ($TunnelId -cnotmatch '^tunnel_[a-f0-9]{32}$') { throw "tunnel_id is invalid." }
+
 $McpNodePath = $StdioRuntime.NodePath.Replace("\", "/")
 $McpStdioPath = $StdioRuntime.StdioPath.Replace("\", "/")
 $McpCommand = ('"{0}" "{1}" --profile {2}' -f $McpNodePath, $McpStdioPath, $ProfileId)
 $RunsRoot = Get-WorkForgeRunsRoot
 New-Item -ItemType Directory -Path $RunsRoot -Force | Out-Null
 $CredentialPath = Join-Path $RunsRoot ".env.local"
-$CredentialExists = Test-Path -LiteralPath $CredentialPath
-if ($CredentialExists) {
-  $null = Assert-WorkForgePathHasNoReparsePoint -Path $CredentialPath -Description "Local tunnel credential"
-  $null = Assert-WorkForgeRegularFile -Path $CredentialPath -MaximumBytes 8192 -Description "Local tunnel credential"
-  Assert-WorkForgeRestrictedCredentialAcl -Path $CredentialPath
-}
-$ExistingKey = [Environment]::GetEnvironmentVariable("CONTROL_PLANE_API_KEY", "Process")
-$SecureKey = if ([string]::IsNullOrWhiteSpace($ExistingKey)) { Read-Host "Runtime CONTROL_PLANE_API_KEY" -AsSecureString } else { $null }
-$Bstr = if ($SecureKey) { [Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureKey) } else { [IntPtr]::Zero }
-try {
-  $PlainKey = if ($SecureKey) { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($Bstr) } else { $ExistingKey }
-  Assert-WorkForgeControlPlaneKeyValue -Value $PlainKey
-  if (-not $CredentialExists) {
-    New-WorkForgeRestrictedCredentialFile -Path $CredentialPath
+
+if (-not $RebindRuntime) {
+  $CredentialExists = Test-Path -LiteralPath $CredentialPath
+  if ($CredentialExists) {
+    $null = Assert-WorkForgePathHasNoReparsePoint -Path $CredentialPath -Description "Local tunnel credential"
+    $null = Assert-WorkForgeRegularFile -Path $CredentialPath -MaximumBytes 8192 -Description "Local tunnel credential"
+    Assert-WorkForgeRestrictedCredentialAcl -Path $CredentialPath
   }
-  [IO.File]::WriteAllText($CredentialPath, "CONTROL_PLANE_API_KEY=$PlainKey", [Text.UTF8Encoding]::new($false))
-  Assert-WorkForgeRestrictedCredentialAcl -Path $CredentialPath
-} finally {
-  if ($Bstr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($Bstr) }
-  Remove-Variable PlainKey -ErrorAction SilentlyContinue
+  $ExistingKey = [Environment]::GetEnvironmentVariable("CONTROL_PLANE_API_KEY", "Process")
+  $SecureKey = if ([string]::IsNullOrWhiteSpace($ExistingKey)) { Read-Host "Runtime CONTROL_PLANE_API_KEY" -AsSecureString } else { $null }
+  $Bstr = if ($SecureKey) { [Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureKey) } else { [IntPtr]::Zero }
+  try {
+    $PlainKey = if ($SecureKey) { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($Bstr) } else { $ExistingKey }
+    Assert-WorkForgeControlPlaneKeyValue -Value $PlainKey
+    if (-not $CredentialExists) {
+      New-WorkForgeRestrictedCredentialFile -Path $CredentialPath
+    }
+    [IO.File]::WriteAllText($CredentialPath, "CONTROL_PLANE_API_KEY=$PlainKey", [Text.UTF8Encoding]::new($false))
+    Assert-WorkForgeRestrictedCredentialAcl -Path $CredentialPath
+  } finally {
+    if ($Bstr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($Bstr) }
+    Remove-Variable PlainKey -ErrorAction SilentlyContinue
+  }
 }
 
 $BuildDirectory = Join-Path (Get-WorkForgeRunsRoot) ("tunnel-profile-build-" + [guid]::NewGuid().ToString("N"))
@@ -61,4 +77,5 @@ if (-not $SkipDoctor) {
   & $TunnelExecutable doctor --profile-file $Profile.TunnelConfigPath --explain
   if ($LASTEXITCODE -ne 0) { throw "tunnel-client doctor failed." }
 }
-Write-Output "Tunnel configured for profile $ProfileId. It remains stopped until you start it manually."
+$Verb = if ($RebindRuntime) { "rebound" } else { "configured" }
+Write-Output "Tunnel $Verb for profile $ProfileId. It remains stopped until you start it manually."
