@@ -1,0 +1,35 @@
+{
+  "name": "workforge",
+  "version": "1.3.5",
+  "description": "Secure, profile-scoped access to a local Windows workstation through WorkForge.",
+  "author": {
+    "name": "NotNull92",
+    "url": "https://github.com/NotNull92"
+  },
+  "homepage": "https://github.com/NotNull92/workforge-mcp",
+  "repository": "https://github.com/NotNull92/workforge-mcp",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "windows",
+    "workstation",
+    "portable-runtime"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "WorkForge",
+    "shortDescription": "Secure local Windows workstation tools",
+    "longDescription": "Secure, profile-scoped access to a local Windows workstation through WorkForge.",
+    "developerName": "NotNull92",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/NotNull92/workforge-mcp",
+    "defaultPrompt": [
+      "Use WorkForge to inspect the selected workstation profile safely."
+    ]
+  }
+}

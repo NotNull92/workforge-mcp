@@ -1,14 +1,26 @@
 [CmdletBinding()]
 param(
-  [string]$OutputDirectory
+  [string]$OutputDirectory,
+  [switch]$ThirdPartyLicenseReviewApproved,
+  [switch]$ValidationBuild
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 3.0
 $ToolRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..") -ErrorAction Stop).Path
 $Package = Get-Content -Raw -LiteralPath (Join-Path $ToolRoot "package.json") | ConvertFrom-Json
+$RuntimeLock = Get-Content -Raw -LiteralPath (Join-Path $ToolRoot "runtime-lock.json") | ConvertFrom-Json -ErrorAction Stop
 $Version = [string]$Package.version
 if ($Version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') { throw "package.json version is invalid." }
+if ([string]$RuntimeLock.schemaVersion -cne "1" -or [string]$RuntimeLock.product -cne "WorkForge") {
+  throw "runtime-lock.json is invalid."
+}
+if (-not $ThirdPartyLicenseReviewApproved -and -not $ValidationBuild) {
+  throw "Portable release creation requires -ThirdPartyLicenseReviewApproved. Use -ValidationBuild only for isolated non-public QA."
+}
+if ($ValidationBuild -and [string]::IsNullOrWhiteSpace($OutputDirectory)) {
+  throw "Validation builds require an explicit temporary -OutputDirectory."
+}
 
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
   $ReleaseRoot = Join-Path $ToolRoot "release"
@@ -23,8 +35,42 @@ $StagingRoot = Join-Path $StagingParent "WorkForge"
 $Include = @(
   ".gitattributes", ".gitignore", "AGENTS.md", "Setup.cmd", "Configure Tunnel.cmd", "WorkForge Control.cmd", "Install.cmd", "Uninstall.cmd",
   "README.md", "README.ko.md", "SECURITY.md", "THIRD_PARTY_NOTICES.md", "LICENSE", "package.json", "package-lock.json",
-  "tsconfig.json", "control-ui", "docs", "scripts", "src", "templates", "tests", "dist"
+  "runtime-lock.json", "tsconfig.json", "control-ui", "docs", "plugins", "scripts", "src", "templates", "tests", "dist"
 )
+
+function Expand-LockedRuntime {
+  param(
+    [Parameter(Mandatory = $true)][object]$Entry,
+    [Parameter(Mandatory = $true)][string]$Name
+  )
+  $ArchivePath = Join-Path $StagingParent ("download-" + [string]$Entry.archiveName)
+  $ExtractRoot = Join-Path $StagingParent ("extract-" + $Name)
+  Invoke-WebRequest -UseBasicParsing -Uri ([string]$Entry.url) -OutFile $ArchivePath
+  $ObservedHash = (Get-FileHash -LiteralPath $ArchivePath -Algorithm SHA256).Hash
+  if (-not $ObservedHash.Equals([string]$Entry.sha256, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Locked runtime archive checksum mismatch: $Name"
+  }
+  Expand-Archive -LiteralPath $ArchivePath -DestinationPath $ExtractRoot -Force
+  return $ExtractRoot
+}
+
+function Save-RuntimeLicenses {
+  param(
+    [Parameter(Mandatory = $true)][object]$Entry,
+    [Parameter(Mandatory = $true)][string]$Name
+  )
+  $LicenseRoot = Join-Path $StagingRoot ("licenses\" + $Name)
+  New-Item -ItemType Directory -Path $LicenseRoot -Force | Out-Null
+  Invoke-WebRequest -UseBasicParsing -Uri ([string]$Entry.licenseUrl) -OutFile (Join-Path $LicenseRoot "LICENSE.txt")
+  $AdditionalProperty = $Entry.PSObject.Properties["additionalLicenseUrls"]
+  if ($null -ne $AdditionalProperty) {
+    $Index = 0
+    foreach ($Url in @($AdditionalProperty.Value)) {
+      $Index += 1
+      Invoke-WebRequest -UseBasicParsing -Uri ([string]$Url) -OutFile (Join-Path $LicenseRoot ("LICENSE-$Index.txt"))
+    }
+  }
+}
 
 function Get-StagedRelativePath {
   param([Parameter(Mandatory = $true)][string]$Path)
@@ -46,7 +92,8 @@ try {
     schemaVersion = 1
     product = "WorkForge"
     version = $Version
-    distributionKind = "release"
+    distributionKind = "portable-release"
+    validationBuild = [bool]$ValidationBuild
   }
   [IO.File]::WriteAllText(
     (Join-Path $StagingRoot ".workforge-release.json"),
@@ -74,6 +121,34 @@ try {
       throw "Release staging contains development dependency: $DevPackagePath"
     }
   }
+
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  $NodeEntry = $RuntimeLock.runtimes.node
+  $NodeExtract = Expand-LockedRuntime -Entry $NodeEntry -Name "node"
+  $NodeSource = Join-Path $NodeExtract ("node-v" + [string]$NodeEntry.version + "-win-x64")
+  if (-not (Test-Path -LiteralPath (Join-Path $NodeSource "node.exe") -PathType Leaf)) {
+    throw "Locked Node.js archive does not contain node.exe at the expected path."
+  }
+  New-Item -ItemType Directory -Path (Join-Path $StagingRoot "runtimes\node") -Force | Out-Null
+  Copy-Item -LiteralPath (Join-Path $NodeSource "node.exe") -Destination (Join-Path $StagingRoot "runtimes\node\node.exe")
+
+  $RipgrepEntry = $RuntimeLock.runtimes.ripgrep
+  $RipgrepExtract = Expand-LockedRuntime -Entry $RipgrepEntry -Name "ripgrep"
+  $RipgrepCandidates = @(Get-ChildItem -LiteralPath $RipgrepExtract -Recurse -File -Filter "rg.exe")
+  if ($RipgrepCandidates.Count -ne 1) { throw "Locked ripgrep archive must contain exactly one rg.exe." }
+  New-Item -ItemType Directory -Path (Join-Path $StagingRoot "runtimes\ripgrep") -Force | Out-Null
+  Copy-Item -LiteralPath $RipgrepCandidates[0].FullName -Destination (Join-Path $StagingRoot "runtimes\ripgrep\rg.exe")
+
+  $TunnelEntry = $RuntimeLock.runtimes.tunnelClient
+  $TunnelExtract = Expand-LockedRuntime -Entry $TunnelEntry -Name "tunnel-client"
+  $TunnelCandidates = @(Get-ChildItem -LiteralPath $TunnelExtract -Recurse -File -Filter "tunnel-client.exe")
+  if ($TunnelCandidates.Count -ne 1) { throw "Locked tunnel-client archive must contain exactly one tunnel-client.exe." }
+  New-Item -ItemType Directory -Path (Join-Path $StagingRoot "runtimes\tunnel-client") -Force | Out-Null
+  Copy-Item -LiteralPath $TunnelCandidates[0].FullName -Destination (Join-Path $StagingRoot "runtimes\tunnel-client\tunnel-client.exe")
+
+  Save-RuntimeLicenses -Entry $NodeEntry -Name "node"
+  Save-RuntimeLicenses -Entry $RipgrepEntry -Name "ripgrep"
+  Save-RuntimeLicenses -Entry $TunnelEntry -Name "tunnel-client"
 
   $ForbiddenFiles = @(
     Get-ChildItem -LiteralPath $StagingRoot -Recurse -Force | Where-Object {

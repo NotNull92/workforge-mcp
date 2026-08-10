@@ -283,7 +283,8 @@ Node.js와 ripgrep을 미리 하나씩 찾아 설치할 필요도 없습니다. 
 WorkForge-v*-win-x64.zip
 ```
 
-압축을 안정적인 로컬 폴더에 풉니다.
+아무 로컬 폴더에 압축을 풉니다. `Setup.cmd`가 패키지를 검증한 뒤 활성
+버전을 `%LOCALAPPDATA%\Programs\WorkForge` 아래에 배치합니다.
 
 ### 2. Setup 실행
 
@@ -293,12 +294,13 @@ WorkForge-v*-win-x64.zip
 Setup.cmd
 ```
 
-WorkForge가 먼저 필요한 프로그램을 검사합니다.
+Release ZIP에는 다음 런타임이 고정 버전으로 포함되고 검증됩니다.
 
 ```text
-필수
-✓ Node.js 20+ x64   WorkForge 실행
+포함
+✓ Node.js 24 x64    WorkForge 실행
 ✓ ripgrep           빠른 파일·텍스트 검색
+✓ tunnel-client     명시적으로 시작하는 ChatGPT Secure MCP Tunnel 경로
 
 선택
 ○ Git for Windows   브랜치·커밋·변경내역까지 이해하는 Git Enhanced Mode
@@ -307,21 +309,19 @@ WorkForge가 먼저 필요한 프로그램을 검사합니다.
 동작 방식은 단순합니다.
 
 ```text
-필수 항목이 이미 있음  → 그대로 사용
-필수 항목이 없음       → WinGet 설치 여부를 물어봄
 Git이 없음             → Git 없이 계속하거나 선택적으로 설치
-Node.js 충돌           → 새 버전을 겹쳐 깔지 않고 중단
+기존 WorkForge 버전    → 나란히 설치한 뒤 current.json을 원자적으로 전환
 ```
 
 즉, **이미 잘 설치된 프로그램을 다시 설치하지 않고 Git이 없다고 설치를 막지도 않습니다.**
 
-필수 항목을 설치할 때는 정확한 WinGet 패키지를 사용하고 `--no-upgrade` 정책으로 기존 정상 설치를 불필요하게 업그레이드하지 않습니다. Git 설치는 별도 선택입니다.
+Portable Release는 Node.js나 ripgrep 설치에 WinGet을 사용하지 않습니다.
+소스 체크아웃의 개발자 경로만 기존의 동의 기반 prerequisite bootstrap을
+유지합니다. Git은 항상 별도 선택이며 기본값은 **Git 없이 계속**입니다.
 
-대화형 Setup의 Git 선택 화면은 기본값이 **Git 없이 계속**입니다. 자동화에서는 `-InstallMissingPrerequisites`가 필수인 Node.js/ripgrep만 대상으로 하고, Git까지 설치하려면 `-InstallGit`을 따로 명시합니다.
-
-WinGet 자체가 없다면 WorkForge가 임의로 설치하지 않고 Microsoft App Installer를 설치하거나 업데이트하라고 안내합니다.
-
-Release ZIP에는 WorkForge 실행에 필요한 컴파일된 MCP 서버와 운영용 npm 의존성이 이미 들어 있습니다. 일반 사용자는 npm, TypeScript, Vitest 같은 개발 도구를 실행할 필요가 없습니다.
+Release ZIP에는 컴파일된 MCP 서버, 운영용 npm 의존성, 고정된 Windows
+런타임이 들어 있습니다. 일반 사용자는 npm, TypeScript, Vitest 같은 개발
+도구를 실행할 필요가 없습니다.
 
 ### 3. ChatGPT 연결 마무리
 

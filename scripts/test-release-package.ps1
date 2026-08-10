@@ -35,6 +35,18 @@ try {
     "/control-ui/app.js",
     "/control-ui/style.css",
     "/dist/stdio.js",
+    "/runtime-lock.json",
+    "/runtimes/node/node.exe",
+    "/runtimes/ripgrep/rg.exe",
+    "/runtimes/tunnel-client/tunnel-client.exe",
+    "/licenses/node/LICENSE.txt",
+    "/licenses/ripgrep/LICENSE.txt",
+    "/licenses/tunnel-client/LICENSE.txt",
+    "/plugins/workforge/plugin.json",
+    "/plugins/workforge/mcp.json",
+    "/plugins/workforge/.codex-plugin/plugin.json",
+    "/plugins/workforge/.mcp.json",
+    "/plugins/workforge/bin/workforge-stdio.cmd",
     "/node_modules/@modelcontextprotocol/sdk/package.json",
     "/node_modules/zod/package.json",
     "/scripts/Setup.ps1",
@@ -68,7 +80,7 @@ try {
   if (
     [string]$Manifest.schemaVersion -cne "1" -or
     [string]$Manifest.product -cne "WorkForge" -or
-    [string]$Manifest.distributionKind -cne "release"
+    [string]$Manifest.distributionKind -cne "portable-release"
   ) {
     throw "Release archive contains an invalid WorkForge release manifest."
   }

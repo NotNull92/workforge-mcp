@@ -1,4 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { lstatSync, type Stats } from "node:fs";
+import { delimiter, dirname, isAbsolute } from "node:path";
 
 const SAFE_ENV_KEYS = new Set([
   "ALLUSERSPROFILE",
@@ -50,6 +52,27 @@ export function makeWorkstationEnvironment(extra: NodeJS.ProcessEnv = {}): NodeJ
     if (value !== undefined && !PRIVATE_CHILD_ENVIRONMENT_KEYS.has(key.toLowerCase())) {
       environment[key] = value;
     }
+  }
+  const ripgrepPath = process.env["WORKFORGE_RIPGREP_PATH"];
+  if (ripgrepPath) {
+    if (!isAbsolute(ripgrepPath)) {
+      throw new Error("WORKFORGE_RIPGREP_PATH must be an absolute path.");
+    }
+    let info: Stats;
+    try {
+      info = lstatSync(ripgrepPath);
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new Error("WORKFORGE_RIPGREP_PATH must name an existing regular file.", { cause: error });
+      }
+      throw error;
+    }
+    if (!info.isFile() || info.isSymbolicLink()) {
+      throw new Error("WORKFORGE_RIPGREP_PATH must name a regular non-symlink file.");
+    }
+    const pathKey = Object.keys(environment).find((key) => key.toLowerCase() === "path") ?? "PATH";
+    const existingPath = environment[pathKey];
+    environment[pathKey] = existingPath ? `${dirname(ripgrepPath)}${delimiter}${existingPath}` : dirname(ripgrepPath);
   }
   return environment;
 }

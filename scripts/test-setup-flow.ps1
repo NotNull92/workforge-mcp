@@ -2,11 +2,19 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 3.0
 
 $ToolRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..") -ErrorAction Stop).Path
-$SetupPath = Join-Path $PSScriptRoot "Setup.ps1"
+$SetupPath = Join-Path $PSScriptRoot "Setup-Entry.ps1"
 $TestRoot = Join-Path ([IO.Path]::GetTempPath()) ("workforge-setup-" + [guid]::NewGuid().ToString("N"))
 $WorkspaceRoot = Join-Path $TestRoot "workspace"
 $RegistryPath = Join-Path $TestRoot "runtime\profile_registry.json"
 $Utf8 = [Text.UTF8Encoding]::new($false)
+$SetupText = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "Setup.ps1")
+$UnqualifiedTunnelAssignments = [regex]::Matches($SetupText, '(?m)^\s*\$TunnelConfigured\s*=')
+if ($UnqualifiedTunnelAssignments.Count -gt 0) {
+  throw "Setup loses successful tunnel state when a stage body assigns TunnelConfigured in its child scope."
+}
+if ([regex]::Matches($SetupText, '(?m)^\s*\$script:TunnelConfigured\s*=').Count -lt 3) {
+  throw "Setup must initialize and update tunnel state in script scope."
+}
 
 function Invoke-TestSetup {
   $StartInfo = [Diagnostics.ProcessStartInfo]::new()

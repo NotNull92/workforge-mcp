@@ -279,7 +279,8 @@ Download the latest release archive:
 WorkForge-v*-win-x64.zip
 ```
 
-Extract it to a stable local folder.
+Extract it to any local folder. `Setup.cmd` verifies the package and stages the
+active version under `%LOCALAPPDATA%\Programs\WorkForge`.
 
 ### 2. Run Setup
 
@@ -289,12 +290,13 @@ Double-click:
 Setup.cmd
 ```
 
-WorkForge checks the local components first:
+The release ZIP already includes and verifies:
 
 ```text
-Required
-✓ Node.js 20+ x64   WorkForge runtime
+Bundled
+✓ Node.js 24 x64    WorkForge runtime
 ✓ ripgrep           fast file and text search
+✓ tunnel-client     explicit ChatGPT Secure MCP Tunnel path
 
 Optional
 ○ Git for Windows   Git Enhanced Mode for branches, commits, and change history
@@ -303,21 +305,20 @@ Optional
 The rule is simple:
 
 ```text
-Required component already installed → keep it
-Required component missing           → ask before installing with WinGet
 Git missing                           → continue without Git or install it optionally
-Node.js conflict                      → stop instead of layering another Node.js on top
+Existing WorkForge version            → stage side-by-side and atomically switch current.json
 ```
 
 So **compatible software is not reinstalled, and missing Git does not block Setup**.
 
-Required packages use exact WinGet package IDs and `--no-upgrade`, so a healthy existing installation is not needlessly upgraded. Git installation is a separate choice.
+Portable releases do not use WinGet for Node.js or ripgrep. The source-checkout
+developer path retains the existing consent-gated prerequisite bootstrap. Git
+installation is always separate and optional; the default remains **Continue
+without Git**.
 
-The interactive Git choice defaults to **Continue without Git**. For automation, `-InstallMissingPrerequisites` covers only required Node.js/ripgrep components. Add `-InstallGit` explicitly if Git should also be installed.
-
-If WinGet itself is unavailable, WorkForge does not try to bootstrap it behind your back. Setup stops and tells you to install or update Microsoft App Installer first.
-
-The release ZIP already contains the compiled MCP server and production npm dependencies. Regular release users do not need to run npm, TypeScript, Vitest, or the repository test suite.
+The release ZIP contains the compiled MCP server, production npm dependencies,
+and pinned Windows runtimes. Regular release users do not run npm, TypeScript,
+Vitest, or the repository test suite.
 
 ### 3. Finish the ChatGPT connection
 

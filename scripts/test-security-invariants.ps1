@@ -7,6 +7,7 @@ $ExecutableFiles = @(
   Get-ChildItem -LiteralPath (Join-Path $ToolRoot "scripts") -File -Filter "*.mjs"
   Get-ChildItem -LiteralPath (Join-Path $ToolRoot "src") -File -Filter "*.ts"
   Get-ChildItem -LiteralPath (Join-Path $ToolRoot "control-ui") -File -Filter "*.js"
+  Get-ChildItem -LiteralPath (Join-Path $ToolRoot "plugins") -Recurse -File | Where-Object { $_.Extension -in @(".ps1", ".cmd", ".mjs") }
   Get-ChildItem -LiteralPath $ToolRoot -File -Filter "*.cmd"
 )
 $ForbiddenPersistencePatterns = @(
@@ -52,6 +53,63 @@ if ($ServerText -notmatch 'SERVER_VERSION') { throw "MCP server does not expose 
 foreach ($Wrapper in @("Install.cmd", "Configure Tunnel.cmd", "WorkForge Control.cmd", "Setup.cmd", "Uninstall.cmd")) {
   $Text = Get-Content -Raw -LiteralPath (Join-Path $ToolRoot $Wrapper)
   if ($Text -notmatch 'exit /b %EXIT_CODE%') { throw "$Wrapper does not propagate its PowerShell exit code." }
+  if ($Text -notmatch '%SystemRoot%\\System32\\WindowsPowerShell\\v1\.0\\powershell\.exe') {
+    throw "$Wrapper does not use the explicit System32 Windows PowerShell launcher."
+  }
+  if ($Text -notmatch '(?m)^set "PSModulePath="\r?$') {
+    throw "$Wrapper lets a caller-supplied PowerShell 7 module path break Windows PowerShell autoloading."
+  }
+}
+
+$UninstallWrapperFixtureRoot = Join-Path ([IO.Path]::GetTempPath()) ("workforge-uninstall-wrapper-" + [guid]::NewGuid().ToString("N"))
+try {
+  $FixtureScripts = Join-Path $UninstallWrapperFixtureRoot "scripts"
+  New-Item -ItemType Directory -Path $FixtureScripts -Force | Out-Null
+  $FixtureWrapper = Join-Path $UninstallWrapperFixtureRoot "Uninstall.cmd"
+  Copy-Item -LiteralPath (Join-Path $ToolRoot "Uninstall.cmd") -Destination $FixtureWrapper
+  Set-Content -LiteralPath (Join-Path $FixtureScripts "Uninstall.ps1") -Encoding UTF8 -Value @'
+[CmdletBinding()]
+param([switch]$NonInteractive)
+exit 0
+'@
+
+  function Invoke-UninstallWrapperFixture {
+    param([string[]]$Arguments)
+
+    $StartInfo = [Diagnostics.ProcessStartInfo]::new()
+    $StartInfo.FileName = $env:ComSpec
+    $StartInfo.Arguments = "/d /c `"`"$FixtureWrapper`" $($Arguments -join ' ')`""
+    $StartInfo.UseShellExecute = $false
+    $StartInfo.RedirectStandardInput = $true
+    $StartInfo.RedirectStandardOutput = $true
+    $StartInfo.RedirectStandardError = $true
+    $Process = [Diagnostics.Process]::Start($StartInfo)
+    $Process.StandardInput.Close()
+    $Output = $Process.StandardOutput.ReadToEnd() + $Process.StandardError.ReadToEnd()
+    $Process.WaitForExit()
+    return [pscustomobject]@{ ExitCode = $Process.ExitCode; Output = $Output }
+  }
+
+  $NonInteractiveWrapper = Invoke-UninstallWrapperFixture -Arguments @("-NonInteractive")
+  if ($NonInteractiveWrapper.ExitCode -ne 0) { throw "Non-interactive Uninstall.cmd fixture failed." }
+  if (-not [string]::IsNullOrWhiteSpace($NonInteractiveWrapper.Output)) {
+    throw "Uninstall.cmd pauses after a non-interactive uninstall completes."
+  }
+  $InteractiveWrapper = Invoke-UninstallWrapperFixture -Arguments @()
+  if ($InteractiveWrapper.ExitCode -ne 0) { throw "Interactive Uninstall.cmd fixture failed." }
+  if ([string]::IsNullOrWhiteSpace($InteractiveWrapper.Output)) {
+    throw "Uninstall.cmd no longer preserves the interactive completion pause."
+  }
+} finally {
+  if (Test-Path -LiteralPath $UninstallWrapperFixtureRoot) {
+    Remove-Item -LiteralPath $UninstallWrapperFixtureRoot -Recurse -Force
+  }
+}
+foreach ($Wrapper in @("scripts\Portable-Control.cmd", "plugins\workforge\bin\workforge-stdio.cmd")) {
+  $Text = Get-Content -Raw -LiteralPath (Join-Path $ToolRoot $Wrapper)
+  if ($Text -notmatch '(?m)^set "PSModulePath="\r?$') {
+    throw "$Wrapper lets a caller-supplied PowerShell 7 module path break Windows PowerShell autoloading."
+  }
 }
 
 $BrandSurfaceFiles = @(
@@ -189,13 +247,28 @@ $RequiredChecks = [ordered]@{
   )
   "scripts\Build-Release.ps1" = @(
     ".workforge-release.json",
-    'distributionKind = "release"',
+    'distributionKind = "portable-release"',
+    "ThirdPartyLicenseReviewApproved",
+    "ValidationBuild",
     "control-ui",
     "Uninstall.cmd"
   )
+  "scripts\WorkForge.Portable.ps1" = @(
+    "current.json",
+    ".workforge-install.json",
+    "installManifestSha256",
+    "Invoke-WorkForgePortableRollback",
+    "WORKFORGE_PORTABLE_STATE_ROOT"
+  )
+  "plugins\workforge\plugin.json" = @(
+    "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+    "io.github.notnull92.workforge"
+  )
   "package.json" = @(
     "test:multi-profile",
-    "test:privacy-history"
+    "test:privacy-history",
+    "test:plugin",
+    "test:portable-runtime"
   )
 }
 $PrerequisiteText = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "WorkForge.Prerequisites.ps1")
@@ -254,6 +327,56 @@ if ($ProfilePreflightIndex -lt 0 -or $CredentialIndex -lt 0 -or $ProfilePrefligh
 }
 if ($ConfigureTunnelText -match 'node\.exe dist/stdio\.js') {
   throw "Configure Tunnel must not persist an unverified relative MCP runtime command."
+}
+foreach ($NormalizedPathToken in @(
+  '$McpNodePath = $StdioRuntime.NodePath.Replace("\", "/")',
+  '$McpStdioPath = $StdioRuntime.StdioPath.Replace("\", "/")'
+)) {
+  if ($ConfigureTunnelText.IndexOf($NormalizedPathToken, [StringComparison]::Ordinal) -lt 0) {
+    throw "Configure Tunnel must normalize Windows MCP command paths before tunnel-client parses them: $NormalizedPathToken"
+  }
+}
+$CredentialExistsIndex = $ConfigureTunnelText.IndexOf('$CredentialExists = Test-Path -LiteralPath $CredentialPath', [StringComparison]::Ordinal)
+$CredentialWriteIndex = $ConfigureTunnelText.IndexOf('[IO.File]::WriteAllText($CredentialPath', [StringComparison]::Ordinal)
+$CredentialPromptIndex = $ConfigureTunnelText.IndexOf('Read-Host "Runtime CONTROL_PLANE_API_KEY"', [StringComparison]::Ordinal)
+if ($CredentialExistsIndex -lt 0 -or $CredentialExistsIndex -gt $CredentialWriteIndex) {
+  throw "Configure Tunnel must detect and validate an existing credential before overwriting it."
+}
+if ($CredentialPromptIndex -lt 0 -or $CredentialExistsIndex -gt $CredentialPromptIndex) {
+  throw "Configure Tunnel must validate an existing credential before asking the user for another key."
+}
+if ($ConfigureTunnelText.IndexOf('if (-not $CredentialExists) {', [StringComparison]::Ordinal) -lt 0) {
+  throw "Configure Tunnel must apply a new credential ACL only when creating the file."
+}
+
+. (Join-Path $PSScriptRoot "profile-registry.ps1")
+$CredentialAclTestRoot = Join-Path ([IO.Path]::GetTempPath()) ("workforge-credential-acl-" + [guid]::NewGuid().ToString("N"))
+try {
+  New-Item -ItemType Directory -Path $CredentialAclTestRoot -Force | Out-Null
+  $PreparedCredential = Join-Path $CredentialAclTestRoot ".env.local"
+  New-WorkForgeRestrictedCredentialFile -Path $PreparedCredential
+  if ((Get-Item -LiteralPath $PreparedCredential -Force).Length -ne 0) {
+    throw "Credential ACL preparation must not write secret-shaped content."
+  }
+  Assert-WorkForgeRestrictedCredentialAcl -Path $PreparedCredential
+
+  function Set-Acl { throw "simulated ACL application failure" }
+  $RejectedCredential = Join-Path $CredentialAclTestRoot ".env.rejected"
+  try {
+    New-WorkForgeRestrictedCredentialFile -Path $RejectedCredential
+    throw "Credential ACL preparation unexpectedly ignored an ACL failure."
+  } catch {
+    if ($_.Exception.Message -notmatch "simulated ACL application failure") { throw }
+  } finally {
+    Remove-Item -LiteralPath Function:\Set-Acl -Force
+  }
+  if (Test-Path -LiteralPath $RejectedCredential) {
+    throw "Credential ACL preparation left an unprotected residual file after failure."
+  }
+} finally {
+  if (Test-Path -LiteralPath $CredentialAclTestRoot) {
+    Remove-Item -LiteralPath $CredentialAclTestRoot -Recurse -Force
+  }
 }
 
 $WindowsQualityWorkflow = Get-Content -Raw -LiteralPath (Join-Path $ToolRoot ".github\workflows\windows-quality-gate.yml")

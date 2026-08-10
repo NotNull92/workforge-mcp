@@ -4,6 +4,8 @@ param(
   [Parameter(Mandatory = $true)][string]$EngineRoot,
   [Parameter(Mandatory = $true)][string]$ExpectedManifestSha256,
   [Parameter(Mandatory = $true)][string]$ResultPath,
+  [string]$PortableProgramsRoot,
+  [string]$PortableStateRoot,
   [ValidateRange(5, 120)][int]$TimeoutSeconds = 45
 )
 
@@ -71,14 +73,31 @@ try {
   if (
     [string]$Manifest.schemaVersion -cne "1" -or
     [string]$Manifest.product -cne "WorkForge" -or
-    [string]$Manifest.distributionKind -cne "release"
+    [string]$Manifest.distributionKind -notin @("release", "portable-release")
   ) {
     throw "Release manifest identity is invalid."
   }
 
-  Remove-Item -LiteralPath $EngineRoot -Recurse -Force -ErrorAction Stop
-  if (Test-Path -LiteralPath $EngineRoot) {
-    throw "Engine directory still exists after removal."
+  if ([string]$Manifest.distributionKind -ceq "portable-release") {
+    if ([string]::IsNullOrWhiteSpace($PortableProgramsRoot) -or [string]::IsNullOrWhiteSpace($PortableStateRoot)) {
+      throw "Portable release removal requires exact program and state roots."
+    }
+    $PortableProgramsRoot = Assert-FinalizerSafePath -Path $PortableProgramsRoot
+    $PortableStateRoot = Assert-FinalizerSafePath -Path $PortableStateRoot
+    $ExpectedEngineRoot = [IO.Path]::GetFullPath((Join-Path $PortableProgramsRoot ("versions\" + [string]$Manifest.version)))
+    if (-not $EngineRoot.Equals($ExpectedEngineRoot, [StringComparison]::OrdinalIgnoreCase)) {
+      throw "Portable engine root does not match the verified version directory."
+    }
+    $Current = Get-Content -Raw -LiteralPath (Join-Path $PortableProgramsRoot "current.json") | ConvertFrom-Json -ErrorAction Stop
+    if ([string]$Current.version -cne [string]$Manifest.version -or [string]$Current.relativePath -cne "versions/$([string]$Manifest.version)") {
+      throw "Portable current pointer no longer selects the verified engine."
+    }
+    Remove-Item -LiteralPath $PortableProgramsRoot -Recurse -Force -ErrorAction Stop
+    if (Test-Path -LiteralPath $PortableStateRoot) {
+      Remove-Item -LiteralPath $PortableStateRoot -Recurse -Force -ErrorAction Stop
+    }
+  } else {
+    Remove-Item -LiteralPath $EngineRoot -Recurse -Force -ErrorAction Stop
   }
   Write-FinalizerResult -Removed $true -State "completed"
 } catch {

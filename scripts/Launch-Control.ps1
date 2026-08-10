@@ -8,6 +8,7 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 3.0
 
 $ToolRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..") -ErrorAction Stop).Path
+. (Join-Path $PSScriptRoot "profile-registry.ps1")
 $ServerPath = Join-Path $PSScriptRoot "control-server.mjs"
 if (-not (Test-Path -LiteralPath $ServerPath -PathType Leaf)) {
   throw "WorkForge Control server is missing: $ServerPath"
@@ -16,9 +17,10 @@ if ($ProfileId -cnotmatch '^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$') {
   throw "ProfileId is invalid."
 }
 
-$Node = Get-Command node.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-if (-not $Node) {
-  throw "Node.js is not available. Run Setup.cmd first, or use scripts\Control.ps1 as the CLI fallback."
+$Runtime = Get-WorkForgeStdioRuntime -ToolRoot $ToolRoot
+if ($null -ne $script:WorkForgePortableRuntime) {
+  [Environment]::SetEnvironmentVariable("WORKFORGE_MCP_PROFILE_REGISTRY", (Join-Path $script:WorkForgePortableRuntime.StateRoot "profile_registry.json"), "Process")
+  [Environment]::SetEnvironmentVariable("WORKFORGE_RIPGREP_PATH", $script:WorkForgePortableRuntime.RipgrepPath, "Process")
 }
 
 $ArgumentList = @(
@@ -29,7 +31,7 @@ $ArgumentList = @(
 if ($NoBrowser) { $ArgumentList += '--no-browser' }
 
 $Process = Start-Process `
-  -FilePath $Node.Source `
+  -FilePath $Runtime.NodePath `
   -ArgumentList ($ArgumentList -join ' ') `
   -WorkingDirectory ([IO.Path]::GetTempPath()) `
   -WindowStyle Hidden `

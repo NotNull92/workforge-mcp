@@ -38,14 +38,28 @@ Set-StrictMode -Version 3.0
 $ToolRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..") -ErrorAction Stop).Path
 $PackageManifest = Get-Content -Raw -LiteralPath (Join-Path $ToolRoot "package.json") | ConvertFrom-Json -ErrorAction Stop
 $Version = [string]$PackageManifest.version
+. (Join-Path $PSScriptRoot "WorkForge.Portable.ps1")
+$PortableRuntime = $null
+if (Test-Path -LiteralPath (Join-Path $ToolRoot ".workforge-release.json") -PathType Leaf) {
+  $null = Get-WorkForgePortableRelease -SourceRoot $ToolRoot
+  $PortableRuntime = Resolve-WorkForgePortableEngine
+  if (-not $PortableRuntime.EngineRoot.Equals($ToolRoot, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "The active portable WorkForge version does not match this installer."
+  }
+}
 . (Join-Path $PSScriptRoot "WorkForge.UI.ps1")
 . (Join-Path $PSScriptRoot "WorkForge.Prerequisites.ps1")
-$Ui = Initialize-WorkForgeUi -Operation "install" -Version $Version -ToolRoot $ToolRoot -Plain:$Plain -NoLog:$NoLog -LogPath $LogPath
+$InstallLogDirectory = if ($null -ne $PortableRuntime) { Join-Path $PortableRuntime.StateRoot "logs" } else { $null }
+$Ui = Initialize-WorkForgeUi -Operation "install" -Version $Version -ToolRoot $ToolRoot -Plain:$Plain -NoLog:$NoLog -LogPath $LogPath -LogDirectory $InstallLogDirectory
 $WorkspaceRoot = [IO.Path]::GetFullPath($WorkspaceRoot)
 $ProfileDirectory = Join-Path $WorkspaceRoot "tools\workforge-mcp"
 $ProfilePath = Join-Path $ProfileDirectory "profile.json"
 if ([string]::IsNullOrWhiteSpace($RegistryPath)) {
-  $RegistryPath = Join-Path $ToolRoot "runtime\profile_registry.json"
+  $RegistryPath = if ($null -ne $PortableRuntime) {
+    Join-Path $PortableRuntime.StateRoot "profile_registry.json"
+  } else {
+    Join-Path $ToolRoot "runtime\profile_registry.json"
+  }
 } else {
   $RegistryPath = [IO.Path]::GetFullPath($RegistryPath)
 }
@@ -246,6 +260,10 @@ function Merge-ProfileRegistry {
 }
 
 function Ensure-TunnelClient {
+  if ($null -ne $PortableRuntime) {
+    Write-WorkForgeDetail -Text "Using the verified bundled tunnel-client." -Tone "success"
+    return
+  }
   $Version = "v0.0.10"
   $ExpectedExeHash = "D893D8127EEE35070D265C1BE29BFE008F8D9FCB476E7FEBF56C8FDC6C0615C8"
   $InstallRoot = Join-Path $ToolRoot "runtime\tunnel-client\$Version"
@@ -361,14 +379,22 @@ try {
       throw "$Mode requires an existing profile: $ProfilePath"
     }
 
-    $script:PrerequisiteSnapshot = Ensure-WorkForgePrerequisites `
-      -InstallMissing:$InstallMissingPrerequisites `
-      -InstallGit:$InstallGit `
-      -NonInteractive:$NonInteractive
-    $script:NodePath = [string](Get-WorkForgePrerequisiteItem -Snapshot $script:PrerequisiteSnapshot -Id "node").CommandPath
-    $script:GitPath = [string](Get-WorkForgePrerequisiteItem -Snapshot $script:PrerequisiteSnapshot -Id "git").CommandPath
-    $script:RipgrepPath = [string](Get-WorkForgePrerequisiteItem -Snapshot $script:PrerequisiteSnapshot -Id "ripgrep").CommandPath
-    Set-InstallStageDetail -Detail (Get-WorkForgePrerequisiteSummary -Snapshot $script:PrerequisiteSnapshot)
+    if ($null -ne $PortableRuntime) {
+      $script:NodePath = $PortableRuntime.NodePath
+      $script:RipgrepPath = $PortableRuntime.RipgrepPath
+      $GitCommand = Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+      $script:GitPath = if ($GitCommand) { [string]$GitCommand.Source } else { "" }
+      Set-InstallStageDetail -Detail "bundled Node.js and ripgrep verified; Git remains optional"
+    } else {
+      $script:PrerequisiteSnapshot = Ensure-WorkForgePrerequisites `
+        -InstallMissing:$InstallMissingPrerequisites `
+        -InstallGit:$InstallGit `
+        -NonInteractive:$NonInteractive
+      $script:NodePath = [string](Get-WorkForgePrerequisiteItem -Snapshot $script:PrerequisiteSnapshot -Id "node").CommandPath
+      $script:GitPath = [string](Get-WorkForgePrerequisiteItem -Snapshot $script:PrerequisiteSnapshot -Id "git").CommandPath
+      $script:RipgrepPath = [string](Get-WorkForgePrerequisiteItem -Snapshot $script:PrerequisiteSnapshot -Id "ripgrep").CommandPath
+      Set-InstallStageDetail -Detail (Get-WorkForgePrerequisiteSummary -Snapshot $script:PrerequisiteSnapshot)
+    }
   }
 
   Invoke-InstallStage -Number 2 -Name "MCP runtime" -Body {
@@ -435,7 +461,7 @@ try {
 
   Invoke-InstallStage -Number 5 -Name "Tunnel client" -Body {
     Ensure-TunnelClient
-    Set-InstallStageDetail -Detail $(if ($SkipTunnelDownload) { "download skipped" } else { "verified" })
+    Set-InstallStageDetail -Detail $(if ($null -ne $PortableRuntime) { "bundled" } elseif ($SkipTunnelDownload) { "download skipped" } else { "verified" })
   }
 
   Invoke-InstallStage -Number 6 -Name "Control shortcut" -Body {
@@ -446,7 +472,11 @@ try {
     $Desktop = [Environment]::GetFolderPath("Desktop")
     if ($Desktop -and (Test-Path -LiteralPath $Desktop -PathType Container)) {
       $Shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $Desktop "WorkForge Control.lnk"))
-      $Shortcut.TargetPath = (Join-Path $ToolRoot "WorkForge Control.cmd")
+      $Shortcut.TargetPath = if ($null -ne $PortableRuntime) {
+        Join-Path (Get-WorkForgePortableRoots).ProgramsRoot "WorkForge Control.cmd"
+      } else {
+        Join-Path $ToolRoot "WorkForge Control.cmd"
+      }
       $Shortcut.Arguments = ""
       $Shortcut.WorkingDirectory = $ToolRoot
       $Shortcut.Save()

@@ -1,5 +1,42 @@
 Set-StrictMode -Version 3.0
 
+$script:WorkForgePortableRuntime = $null
+$PortableModulePath = Join-Path $PSScriptRoot "WorkForge.Portable.ps1"
+if (Test-Path -LiteralPath $PortableModulePath -PathType Leaf) {
+  . $PortableModulePath
+  $CandidateRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..") -ErrorAction Stop).Path
+  if (Test-Path -LiteralPath (Join-Path $CandidateRoot ".workforge-release.json") -PathType Leaf) {
+    $null = Get-WorkForgePortableRelease -SourceRoot $CandidateRoot
+    $ResolvedPortableRuntime = Resolve-WorkForgePortableEngine
+    if (-not $ResolvedPortableRuntime.EngineRoot.Equals($CandidateRoot, [StringComparison]::OrdinalIgnoreCase)) {
+      throw "The active portable WorkForge version does not match this engine root."
+    }
+    $script:WorkForgePortableRuntime = $ResolvedPortableRuntime
+    [Environment]::SetEnvironmentVariable("WORKFORGE_MCP_PROFILE_REGISTRY", (Join-Path $ResolvedPortableRuntime.StateRoot "profile_registry.json"), "Process")
+    [Environment]::SetEnvironmentVariable("WORKFORGE_RIPGREP_PATH", $ResolvedPortableRuntime.RipgrepPath, "Process")
+  }
+}
+
+function Get-WorkForgeProfileFileSha256 {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  $Item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+  if ($Item.PSIsContainer -or ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw "SHA-256 input must be a regular file."
+  }
+  $Stream = [IO.File]::Open($Item.FullName, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+  try {
+    $Hasher = [Security.Cryptography.SHA256]::Create()
+    try {
+      return [BitConverter]::ToString($Hasher.ComputeHash($Stream)).Replace("-", "")
+    } finally {
+      $Hasher.Dispose()
+    }
+  } finally {
+    $Stream.Dispose()
+  }
+}
+
 function Get-WorkForgeToolRoot {
   return (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..") -ErrorAction Stop).Path
 }
@@ -9,6 +46,9 @@ function Get-WorkForgeEngineRoot {
 }
 
 function Get-WorkForgeRunsRoot {
+  if ($null -ne $script:WorkForgePortableRuntime) {
+    return $script:WorkForgePortableRuntime.StateRoot
+  }
   return (Join-Path (Get-WorkForgeToolRoot) "runtime")
 }
 
@@ -126,6 +166,34 @@ function Assert-WorkForgeRestrictedCredentialAcl {
   }
 }
 
+function New-WorkForgeRestrictedCredentialFile {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path
+  )
+
+  $FullPath = [IO.Path]::GetFullPath($Path)
+  try {
+    $Stream = [IO.File]::Open($FullPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    $Stream.Dispose()
+    $Acl = [Security.AccessControl.FileSecurity]::new()
+    $CurrentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+    $Acl.SetOwner($CurrentSid)
+    $Acl.SetAccessRuleProtection($true, $false)
+    foreach ($Sid in @($CurrentSid, [Security.Principal.SecurityIdentifier]::new("S-1-5-18"), [Security.Principal.SecurityIdentifier]::new("S-1-5-32-544"))) {
+      $Rule = [Security.AccessControl.FileSystemAccessRule]::new($Sid, [Security.AccessControl.FileSystemRights]::FullControl, [Security.AccessControl.AccessControlType]::Allow)
+      $null = $Acl.AddAccessRule($Rule)
+    }
+    Set-Acl -LiteralPath $FullPath -AclObject $Acl
+    Assert-WorkForgeRestrictedCredentialAcl -Path $FullPath
+  } catch {
+    if (Test-Path -LiteralPath $FullPath) {
+      Remove-Item -LiteralPath $FullPath -Force
+    }
+    throw
+  }
+}
+
 function Assert-WorkForgeControlPlaneKeyValue {
   param(
     [Parameter(Mandatory = $true)]
@@ -234,8 +302,12 @@ function Get-WorkForgeStdioRuntime {
     }
   )
 
-  $NodeCommand = Get-Command node.exe -CommandType Application -ErrorAction Stop
-  $NodePath = (Resolve-Path -LiteralPath $NodeCommand.Source -ErrorAction Stop).Path
+  $NodePath = if ($null -ne $script:WorkForgePortableRuntime) {
+    $script:WorkForgePortableRuntime.NodePath
+  } else {
+    $NodeCommand = Get-Command node.exe -CommandType Application -ErrorAction Stop
+    (Resolve-Path -LiteralPath $NodeCommand.Source -ErrorAction Stop).Path
+  }
   $NodeFile = Assert-WorkForgeRegularFile -Path $NodePath -MaximumBytes 268435456 -Description "Node.js runtime"
   return [pscustomobject]@{
     NodePath = $NodeFile.FullName
@@ -346,7 +418,7 @@ function Get-WorkForgeRegistry {
       $SeenPaths[$ProfileFile.FullName] = $true
 
       $RepoRoot = Assert-WorkForgeProfileLocation -ProfileFile $ProfileFile
-      $ObservedHash = (Get-FileHash -LiteralPath $ProfileFile.FullName -Algorithm SHA256).Hash
+      $ObservedHash = Get-WorkForgeProfileFileSha256 -Path $ProfileFile.FullName
       if (-not $ObservedHash.Equals($ExpectedHash, [StringComparison]::OrdinalIgnoreCase)) {
         throw "WorkForge profile $ProfileId failed its registry SHA-256 check."
       }
@@ -427,10 +499,13 @@ function Get-WorkForgeProfile {
 }
 
 function Get-WorkForgeTunnelExecutablePath {
+  if ($null -ne $script:WorkForgePortableRuntime) {
+    return $script:WorkForgePortableRuntime.TunnelClientPath
+  }
   $Path = Join-Path (Get-WorkForgeRunsRoot) "tunnel-client\v0.0.10\tunnel-client.exe"
   $Item = Assert-WorkForgeRegularFile -Path $Path -MaximumBytes 268435456 -Description "Verified tunnel-client v0.0.10"
   $ExpectedHash = "D893D8127EEE35070D265C1BE29BFE008F8D9FCB476E7FEBF56C8FDC6C0615C8"
-  $ObservedHash = (Get-FileHash -LiteralPath $Item.FullName -Algorithm SHA256).Hash
+  $ObservedHash = Get-WorkForgeProfileFileSha256 -Path $Item.FullName
   if (-not $ObservedHash.Equals($ExpectedHash, [StringComparison]::OrdinalIgnoreCase)) {
     throw "Shared tunnel-client v0.0.10 failed its pinned SHA-256 check."
   }

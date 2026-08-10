@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "workforge": {
+      "command": "./bin/workforge-stdio.cmd",
+      "args": [
+        "-ProfileId",
+        "workstation"
+      ]
+    }
+  }
+}

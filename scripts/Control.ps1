@@ -19,7 +19,8 @@ $Package = Get-Content -Raw -LiteralPath (Join-Path $ToolRoot "package.json") | 
 $Version = [string]$Package.version
 . (Join-Path $PSScriptRoot "WorkForge.UI.ps1")
 . (Join-Path $PSScriptRoot "profile-registry.ps1")
-$Ui = Initialize-WorkForgeUi -Operation "control" -Version $Version -ToolRoot $ToolRoot -Plain:$Plain -NoLog:$NoLog
+$ControlLogDirectory = if ($null -ne $script:WorkForgePortableRuntime) { Join-Path $script:WorkForgePortableRuntime.StateRoot "logs" } else { $null }
+$Ui = Initialize-WorkForgeUi -Operation "control" -Version $Version -ToolRoot $ToolRoot -Plain:$Plain -NoLog:$NoLog -LogDirectory $ControlLogDirectory
 
 function Invoke-ControlAction {
   param([Parameter(Mandatory = $true)][string]$Selected)

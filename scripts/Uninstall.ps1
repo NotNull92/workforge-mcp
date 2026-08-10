@@ -31,7 +31,8 @@ $ToolRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..") -ErrorActi
 $Package = Get-Content -Raw -LiteralPath (Join-Path $ToolRoot "package.json") | ConvertFrom-Json -ErrorAction Stop
 $Version = [string]$Package.version
 $WorkspaceRoot = [IO.Path]::GetFullPath($WorkspaceRoot).TrimEnd([char[]]@('\', '/'))
-if ([string]::IsNullOrWhiteSpace($RegistryPath)) {
+$RegistryPathWasSpecified = -not [string]::IsNullOrWhiteSpace($RegistryPath)
+if (-not $RegistryPathWasSpecified) {
   $RegistryPath = Join-Path $ToolRoot "runtime\profile_registry.json"
 } else {
   $RegistryPath = [IO.Path]::GetFullPath($RegistryPath)
@@ -45,6 +46,10 @@ $OriginalRegistryEnvironment = [Environment]::GetEnvironmentVariable("WORKFORGE_
 
 . (Join-Path $PSScriptRoot "WorkForge.UI.ps1")
 . (Join-Path $PSScriptRoot "profile-registry.ps1")
+if (-not $RegistryPathWasSpecified -and $null -ne $script:WorkForgePortableRuntime) {
+  $RegistryPath = Join-Path $script:WorkForgePortableRuntime.StateRoot "profile_registry.json"
+  [Environment]::SetEnvironmentVariable("WORKFORGE_MCP_PROFILE_REGISTRY", $RegistryPath, "Process")
+}
 
 $UninstallLogDirectory = Join-Path ([IO.Path]::GetTempPath()) "WorkForge\logs"
 $Ui = Initialize-WorkForgeUi -Operation "uninstall" -Version $Version -ToolRoot $ToolRoot -Plain:$Plain -NoLog:$NoLog -LogDirectory $UninstallLogDirectory
@@ -160,13 +165,14 @@ function Get-ReleaseEngineState {
   if (
     [string]$Manifest.schemaVersion -cne "1" -or
     [string]$Manifest.product -cne "WorkForge" -or
-    [string]$Manifest.distributionKind -cne "release"
+    [string]$Manifest.distributionKind -notin @("release", "portable-release")
   ) {
     throw "WorkForge release manifest is invalid."
   }
   $null = Assert-WorkForgePathHasNoReparsePoint -Path $ToolRoot -Description "WorkForge release engine"
   return [pscustomobject]@{
     Kind = "release"
+    DistributionKind = [string]$Manifest.distributionKind
     ManifestPath = $ManifestPath
     ManifestHash = (Get-FileHash -LiteralPath $ManifestPath -Algorithm SHA256).Hash
     Reason = "Verified release distribution."
@@ -194,7 +200,11 @@ function Remove-VerifiedShortcut {
 
   $Shell = New-Object -ComObject WScript.Shell
   $Shortcut = $Shell.CreateShortcut($ShortcutPath)
-  $ExpectedDashboardTarget = [IO.Path]::GetFullPath((Join-Path $ToolRoot "WorkForge Control.cmd"))
+  $ExpectedDashboardTarget = if ($null -ne $script:WorkForgePortableRuntime) {
+    [IO.Path]::GetFullPath((Join-Path (Get-WorkForgePortableRoots).ProgramsRoot "WorkForge Control.cmd"))
+  } else {
+    [IO.Path]::GetFullPath((Join-Path $ToolRoot "WorkForge Control.cmd"))
+  }
   $ExpectedLegacyTarget = (Get-WorkForgePowerShellExecutablePath)
   $ExpectedLegacyControl = [IO.Path]::GetFullPath((Join-Path $ToolRoot "scripts\Control.ps1"))
   $ObservedTarget = [IO.Path]::GetFullPath([string]$Shortcut.TargetPath)
@@ -265,7 +275,15 @@ function Schedule-ReleaseEngineRemoval {
     "-EngineRoot", "`"$ToolRoot`"",
     "-ExpectedManifestSha256", $EngineState.ManifestHash,
     "-ResultPath", "`"$ResultPath`""
-  ) -join " "
+  )
+  if ($EngineState.DistributionKind -ceq "portable-release") {
+    $PortableRoots = Get-WorkForgePortableRoots
+    $Arguments += @(
+      "-PortableProgramsRoot", "`"$($PortableRoots.ProgramsRoot)`"",
+      "-PortableStateRoot", "`"$($PortableRoots.StateRoot)`""
+    )
+  }
+  $Arguments = $Arguments -join " "
   Start-Process -FilePath $PowerShellPath -ArgumentList $Arguments -WindowStyle Hidden | Out-Null
   return $ResultPath
 }
@@ -371,7 +389,8 @@ try {
   }
 
   $CurrentStage = Start-WorkForgeStage -Number 6 -Total 7 -Name "Local data"
-  $LocalCredentialPath = Join-Path $ToolRoot "runtime\.env.local"
+  $SharedRuntimeRoot = Get-WorkForgeRunsRoot
+  $LocalCredentialPath = Join-Path $SharedRuntimeRoot ".env.local"
   if ($IsLastProfile) {
     $null = Remove-UninstallPath -Path $LocalCredentialPath -Description "the protected local runtime credential"
   }
@@ -386,8 +405,7 @@ try {
   }
 
   if ($IsLastProfile -and ($KeepEngine -or $EngineState.Kind -ne "release")) {
-    $RuntimeDirectory = Join-Path $ToolRoot "runtime"
-    $null = Remove-UninstallPath -Path $RuntimeDirectory -Description "shared WorkForge runtime data" -Recurse
+    $null = Remove-UninstallPath -Path $SharedRuntimeRoot -Description "shared WorkForge runtime data" -Recurse
   }
 
   $CurrentStage = Start-WorkForgeStage -Number 7 -Total 7 -Name "Engine"

@@ -1,10 +1,13 @@
 node_modules/
 dist/
 runtime/
+runtimes/
 release/*
 !release/README.md
 *.log
 *.jsonl
 uninstall-*.json
 .workforge-release.json
+.workforge-install.json
+current.json
 *.user

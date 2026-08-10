@@ -56,7 +56,8 @@ if (-not [string]::IsNullOrWhiteSpace($RegistryPath)) {
 
 . (Join-Path $PSScriptRoot "WorkForge.UI.ps1")
 . (Join-Path $PSScriptRoot "profile-registry.ps1")
-$Ui = Initialize-WorkForgeUi -Operation "setup" -Version $Version -ToolRoot $ToolRoot -Plain:$Plain -NoLog:$NoLog
+$SetupLogDirectory = if ($null -ne $script:WorkForgePortableRuntime) { Join-Path $script:WorkForgePortableRuntime.StateRoot "logs" } else { $null }
+$Ui = Initialize-WorkForgeUi -Operation "setup" -Version $Version -ToolRoot $ToolRoot -Plain:$Plain -NoLog:$NoLog -LogDirectory $SetupLogDirectory
 $CurrentStage = $null
 $script:SetupStageDetail = $null
 
@@ -103,7 +104,7 @@ function Test-ConfiguredTunnel {
   }
 }
 
-$TunnelConfigured = $false
+$script:TunnelConfigured = $false
 $ResolvedMode = $Mode
 try {
   Write-WorkForgeBanner -Action "SETUP"
@@ -153,7 +154,7 @@ try {
   }
 
   Invoke-SetupStage -Number 3 -Name "Secure tunnel" -Body {
-    $TunnelConfigured = Test-ConfiguredTunnel
+    $script:TunnelConfigured = Test-ConfiguredTunnel
     if ($SkipTunnelConfiguration) {
       if ($TunnelConfigured) {
         Write-WorkForgeDetail -Text "Existing tunnel configuration and protected credential are valid." -Tone "success"
@@ -188,7 +189,7 @@ try {
       $ConfigureParameters = @{ ProfileId = $ProfileId; SkipDoctor = $true }
       if (-not [string]::IsNullOrWhiteSpace($TunnelId)) { $ConfigureParameters.TunnelId = $TunnelId }
       & (Join-Path $PSScriptRoot "Configure-Tunnel.ps1") @ConfigureParameters
-      $TunnelConfigured = Test-ConfiguredTunnel
+      $script:TunnelConfigured = Test-ConfiguredTunnel
       if (-not $TunnelConfigured) { throw "Tunnel configuration did not pass local validation." }
       Set-SetupStageDetail -Detail "configured"
     } else {

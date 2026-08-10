@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "product": "WorkForge",
+  "platform": "win32-x64",
+  "redistributionGate": "third-party-license-review-required-before-public-release",
+  "runtimes": {
+    "node": {
+      "version": "24.18.1",
+      "archiveName": "node-v24.18.1-win-x64.zip",
+      "url": "https://nodejs.org/download/release/v24.18.1/node-v24.18.1-win-x64.zip",
+      "sha256": "ec56b84a7551893ab2324ebdfdc4ab974a63b4781162600b68a1293cc3e53765",
+      "license": "Node.js license",
+      "licenseUrl": "https://raw.githubusercontent.com/nodejs/node/v24.18.1/LICENSE"
+    },
+    "ripgrep": {
+      "version": "15.2.0",
+      "archiveName": "ripgrep-15.2.0-x86_64-pc-windows-msvc.zip",
+      "url": "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-pc-windows-msvc.zip",
+      "sha256": "71b2fef860abe467217a538ff31de02f5258807c0129f771846f87bd029aafc5",
+      "license": "MIT OR Unlicense",
+      "licenseUrl": "https://raw.githubusercontent.com/BurntSushi/ripgrep/15.2.0/LICENSE-MIT",
+      "additionalLicenseUrls": ["https://raw.githubusercontent.com/BurntSushi/ripgrep/15.2.0/UNLICENSE"]
+    },
+    "tunnelClient": {
+      "version": "0.0.10",
+      "archiveName": "tunnel-client-v0.0.10-windows-amd64.zip",
+      "url": "https://github.com/openai/tunnel-client/releases/download/v0.0.10/tunnel-client-v0.0.10-windows-amd64.zip",
+      "sha256": "5e64a056f1d96786da0a6f8db1da5f5f4a03fd19a90d951a25cf2ca8d9093d00",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://raw.githubusercontent.com/openai/tunnel-client/v0.0.10/LICENSE"
+    }
+  }
+}

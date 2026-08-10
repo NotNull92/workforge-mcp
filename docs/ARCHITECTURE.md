@@ -18,10 +18,20 @@ filesystem / optional Git resume / PowerShell tools
 
 The local machine does not expose an inbound MCP listener to the public internet. The `tunnel-client` creates the outbound tunnel connection and owns the stdio child server.
 
+Codex uses the same engine through the local `plugins/workforge` stdio adapter.
+The canonical Agent Plugins `plugin.json` and `mcp.json` generate the OpenAI
+`.codex-plugin/plugin.json` and `.mcp.json`; no tunnel credential is stored in
+either package. ChatGPT intentionally remains on the Secure MCP Tunnel path.
+
 ## Setup orchestration
 
 ```text
 Setup.cmd
+    |
+scripts/Setup-Entry.ps1
+    |-- verify portable release identity
+    |-- stage versions/<version>
+    |-- atomically select current.json
     |
 scripts/Setup.ps1
     |-- ForgeUI environment stage
@@ -41,7 +51,7 @@ Setup is orchestration, not a new security boundary. The lower-level scripts rem
 WorkForge Control.cmd
     |
 scripts/Launch-Control.ps1
-    |-- resolve system Node.js
+    |-- resolve bundled Node.js in portable releases, system Node.js in source checkouts
     |-- start hidden control-server.mjs
     `-- return immediately; no startup persistence
             |
@@ -71,7 +81,7 @@ The Node control process changes its working directory to the system temporary d
 ## Prerequisite bootstrap
 
 ```text
-Install or Setup prerequisite stage
+Source-checkout Install or Setup prerequisite stage
     |
 WorkForge.Prerequisites.ps1
     |-- required: resolve Node.js and ripgrep from the current PATH
@@ -94,6 +104,11 @@ capabilities become available.
 Compatible existing installations cause no package-manager call. Unit tests inject command
 and installer fixtures, so the quality gate never installs or upgrades software on its runner.
 
+Portable releases bypass this required-component bootstrap. Their exact Node.js,
+ripgrep, and tunnel-client archives are pinned in `runtime-lock.json`, verified
+before release staging, and re-pinned by the installed engine manifest. Git
+remains optional in both modes.
+
 ## ForgeUI rendering and logs
 
 ```text
@@ -114,11 +129,25 @@ The log formatter replaces the literal user-profile and engine-root prefixes, co
 The engine and generated mutable state are separated from the durable workstation profile:
 
 ```text
-<engine>/
+%LOCALAPPDATA%/Programs/WorkForge/
+  current.json                  atomic relative version pointer + manifest SHA-256
+  versions/<version>/           immutable selected engine
+    runtimes/node/node.exe      bundled runtime
+    runtimes/ripgrep/rg.exe     bundled search executable
+    runtimes/tunnel-client/     bundled ChatGPT tunnel executable
+    plugins/workforge/          Agent Plugins package and generated Codex adapter
+    .workforge-install.json     critical-file SHA-256 manifest
+
+<source checkout>/
   dist/                         built MCP server
-  node_modules/                 exact runtime dependencies in a release ZIP
+  node_modules/                 development/runtime dependencies
   runtime/                      ignored registry, credential, logs, downloads, tunnel-client
   .workforge-release.json       release-only identity; never committed to source
+
+%LOCALAPPDATA%/WorkForge/runtime/
+  profile_registry.json         shared multi-profile registry
+  .env.local                    restricted-ACL tunnel credential
+  logs/                         redacted lifecycle logs
 
 %USERPROFILE%/WorkForge/
   AGENTS.md                     user-owned operating instructions
@@ -179,9 +208,16 @@ source checkout
           |-- copy dist and public files
           |-- generate .workforge-release.json
           |-- npm ci --omit=dev
+          |-- fetch and SHA-verify runtime-lock.json archives
+          |-- stage Node.js, ripgrep, tunnel-client, and upstream licenses
+          |-- include canonical Agent Plugins and generated Codex adapters
           |-- reject credentials, runtime state, logs, receipts, personal paths, and dev packages
           |-- generate ZIP and SHA-256
           `-- reopen and validate archive contents and release identity
 ```
 
-The WorkForge 1.2 runtime ZIP is prebuilt but still relies on system Node.js and ripgrep. Git is optional and only enables enhanced project-history features. Setup can install missing required components with explicit WinGet consent and can install Git separately when requested, but these runtimes are not bundled. The future portable-runtime task moves the engine to a stable per-user application directory and bundles verified required runtimes behind a signed installer.
+The WorkForge 1.3 portable ZIP needs no system Node.js, ripgrep, npm, or Git.
+`Setup.cmd` stages it into the stable per-user application directory and leaves
+Windows startup unchanged. Source checkouts retain the older prerequisite path.
+Normal release creation remains blocked until third-party license review is
+explicitly acknowledged; signing and public publication remain separate gates.

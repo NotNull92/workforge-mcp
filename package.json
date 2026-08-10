@@ -1,6 +1,6 @@
 {
   "name": "workforge-mcp",
-  "version": "1.2.0",
+  "version": "1.3.5",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -9,6 +9,9 @@
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "npm run clean && tsc -p tsconfig.json",
     "test": "vitest run",
+    "generate:plugin": "node scripts/Generate-Plugin.mjs",
+    "test:plugin": "node scripts/test-plugin-package.mjs",
+    "test:portable-runtime": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-portable-runtime.ps1",
     "test:prerequisites": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-prerequisites.ps1",
     "test:install-platform": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-install-platform.ps1",
     "test:install-without-git": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-install-without-git.ps1",
@@ -24,8 +27,9 @@
     "test:security-invariants": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-security-invariants.ps1",
     "test:recovery-policy": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-recovery-policy.ps1",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
-    "check": "npm run build && npm test && npm run test:prerequisites && npm run test:install-platform && npm run test:install-without-git && npm run test:multi-profile && npm run test:install-modes && npm run test:setup-flow && npm run test:control-ux && npm run test:control-dashboard && npm run test:ui-rendering && npm run test:uninstall && npm run test:privacy-history && npm run test:privacy-invariants && npm run test:security-invariants && npm run test:recovery-policy && npm run audit:prod",
+    "check": "npm run build && npm test && npm run test:plugin && npm run test:portable-runtime && npm run test:prerequisites && npm run test:install-platform && npm run test:install-without-git && npm run test:multi-profile && npm run test:install-modes && npm run test:setup-flow && npm run test:control-ux && npm run test:control-dashboard && npm run test:ui-rendering && npm run test:uninstall && npm run test:privacy-history && npm run test:privacy-invariants && npm run test:security-invariants && npm run test:recovery-policy && npm run audit:prod",
     "smoke:stdio": "node scripts/stdio-smoke.mjs",
+    "smoke:plugin-stdio": "node scripts/plugin-stdio-smoke.mjs",
     "release": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-Release.ps1"
   },
   "engines": {

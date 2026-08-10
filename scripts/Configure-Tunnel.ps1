@@ -16,26 +16,29 @@ if ($TunnelId -cnotmatch '^tunnel_[a-f0-9]{32}$') { throw "tunnel_id is invalid.
 $Profile = Get-WorkForgeProfile -ProfileId $ProfileId
 $TunnelExecutable = Get-WorkForgeTunnelExecutablePath
 $StdioRuntime = Get-WorkForgeStdioRuntime
-$McpCommand = ('"{0}" "{1}" --profile {2}' -f $StdioRuntime.NodePath, $StdioRuntime.StdioPath, $ProfileId)
+$McpNodePath = $StdioRuntime.NodePath.Replace("\", "/")
+$McpStdioPath = $StdioRuntime.StdioPath.Replace("\", "/")
+$McpCommand = ('"{0}" "{1}" --profile {2}' -f $McpNodePath, $McpStdioPath, $ProfileId)
+$RunsRoot = Get-WorkForgeRunsRoot
+New-Item -ItemType Directory -Path $RunsRoot -Force | Out-Null
+$CredentialPath = Join-Path $RunsRoot ".env.local"
+$CredentialExists = Test-Path -LiteralPath $CredentialPath
+if ($CredentialExists) {
+  $null = Assert-WorkForgePathHasNoReparsePoint -Path $CredentialPath -Description "Local tunnel credential"
+  $null = Assert-WorkForgeRegularFile -Path $CredentialPath -MaximumBytes 8192 -Description "Local tunnel credential"
+  Assert-WorkForgeRestrictedCredentialAcl -Path $CredentialPath
+}
 $ExistingKey = [Environment]::GetEnvironmentVariable("CONTROL_PLANE_API_KEY", "Process")
 $SecureKey = if ([string]::IsNullOrWhiteSpace($ExistingKey)) { Read-Host "Runtime CONTROL_PLANE_API_KEY" -AsSecureString } else { $null }
 $Bstr = if ($SecureKey) { [Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureKey) } else { [IntPtr]::Zero }
 try {
   $PlainKey = if ($SecureKey) { [Runtime.InteropServices.Marshal]::PtrToStringBSTR($Bstr) } else { $ExistingKey }
   Assert-WorkForgeControlPlaneKeyValue -Value $PlainKey
-  $RunsRoot = Get-WorkForgeRunsRoot
-  New-Item -ItemType Directory -Path $RunsRoot -Force | Out-Null
-  $CredentialPath = Join-Path $RunsRoot ".env.local"
-  [IO.File]::WriteAllText($CredentialPath, "CONTROL_PLANE_API_KEY=$PlainKey", [Text.UTF8Encoding]::new($false))
-  $Acl = [Security.AccessControl.FileSecurity]::new()
-  $CurrentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User
-  $Acl.SetOwner($CurrentSid)
-  $Acl.SetAccessRuleProtection($true, $false)
-  foreach ($Sid in @($CurrentSid, [Security.Principal.SecurityIdentifier]::new("S-1-5-18"), [Security.Principal.SecurityIdentifier]::new("S-1-5-32-544"))) {
-    $Rule = [Security.AccessControl.FileSystemAccessRule]::new($Sid, [Security.AccessControl.FileSystemRights]::FullControl, [Security.AccessControl.AccessControlType]::Allow)
-    $null = $Acl.AddAccessRule($Rule)
+  if (-not $CredentialExists) {
+    New-WorkForgeRestrictedCredentialFile -Path $CredentialPath
   }
-  Set-Acl -LiteralPath $CredentialPath -AclObject $Acl
+  [IO.File]::WriteAllText($CredentialPath, "CONTROL_PLANE_API_KEY=$PlainKey", [Text.UTF8Encoding]::new($false))
+  Assert-WorkForgeRestrictedCredentialAcl -Path $CredentialPath
 } finally {
   if ($Bstr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($Bstr) }
   Remove-Variable PlainKey -ErrorAction SilentlyContinue
