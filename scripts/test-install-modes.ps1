@@ -19,6 +19,10 @@ try {
     -Plain `
     -NoLog
 
+  if (Test-Path -LiteralPath (Join-Path $WorkspaceRoot ".git")) {
+    throw "Install unexpectedly initialized the WorkForge operating workspace as a Git repository."
+  }
+
   $ProfilePath = Join-Path $WorkspaceRoot "tools\workforge-mcp\profile.json"
   $AgentsPath = Join-Path $WorkspaceRoot "AGENTS.md"
   $TunnelPath = Join-Path $WorkspaceRoot "tools\workforge-mcp\tunnel.local.yaml"

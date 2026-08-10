@@ -221,7 +221,7 @@ With Git
   staged·unstaged state / ahead·behind information
 ```
 
-So **WorkForge can install, load its profile, and work with the current folder without Git, while Git lets it understand more of the project's history.**
+So **WorkForge can install, load its profile, and work with the current folder without Git, while Git lets it understand more of the project's history.** WorkForge does not automatically turn its own operating workspace into a Git repository; existing Git metadata from older installs is simply preserved.
 
 ### Returning to an old project
 
@@ -231,7 +231,7 @@ After a few weeks away, you can say:
 "Read this project and its recent Git history, then tell me where I left off."
 ```
 
-`project_resume` helps inspect the current branch, changed files, and recent commits.
+`project_resume(path)` can target that project directly and returns its current branch, changed files, and recent commits without making the WorkForge operating folder the project.
 
 ### Debugging
 

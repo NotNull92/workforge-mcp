@@ -139,11 +139,17 @@ foreach ($File in $BrandSurfaceFiles) {
 
 $RequiredChecks = [ordered]@{
   "scripts\profile-registry.ps1" = @(
+    "WorkForge.ProfileRuntime.ps1",
+    "WorkForge.TunnelRuntime.ps1"
+  )
+  "scripts\WorkForge.ProfileRuntime.ps1" = @(
     "WORKFORGE_MCP_PROFILE_REGISTRY",
-    "WorkForgeMcp-Tunnel",
     "tools\workforge-mcp",
     "artifacts\workforge-mcp",
     "Optional WorkForge profile .git path"
+  )
+  "scripts\WorkForge.TunnelRuntime.ps1" = @(
+    "WorkForgeMcp-Tunnel"
   )
   "src\path-policy.ts" = @(
     "normalizePathForComparison",
@@ -167,7 +173,6 @@ $RequiredChecks = [ordered]@{
     "WorkForge.Prerequisites.ps1",
     "InstallMissingPrerequisites",
     "InstallGit",
-    'IsNullOrWhiteSpace($script:GitPath)',
     "NonInteractive"
   )
   "scripts\WorkForge.Prerequisites.ps1" = @(
@@ -269,6 +274,7 @@ $RequiredChecks = [ordered]@{
     "test:privacy-history",
     "test:plugin",
     "test:portable-runtime"
+    "check:macos"
   )
 }
 $PrerequisiteText = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "WorkForge.Prerequisites.ps1")
@@ -307,11 +313,11 @@ if ($ControlServerText -match "spawn\('(?:powershell|cmd)\.exe'") {
   throw "Control dashboard must use verified System32 executable paths instead of bare executable names."
 }
 
-$ProfileRegistryText = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "profile-registry.ps1")
-if ($ProfileRegistryText -match 'missing its canonical \.git directory') {
+$ProfileRuntimeText = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "WorkForge.ProfileRuntime.ps1")
+if ($ProfileRuntimeText -match 'missing its canonical \.git directory') {
   throw "Profile loading must not require Git for Local Folder Mode."
 }
-if ($ProfileRegistryText -match 'reuses registered httpPort') {
+if ($ProfileRuntimeText -match 'reuses registered httpPort') {
   throw "Deprecated httpPort must not prevent multi-profile loading."
 }
 $InstallText = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "Install.ps1")
@@ -385,6 +391,14 @@ if ($WindowsQualityWorkflow -notmatch 'choco install ripgrep' -or $WindowsQualit
 }
 if ($WindowsQualityWorkflow -notmatch 'node-version:\s*\[20,\s*24\]' -or $WindowsQualityWorkflow -notmatch '\$\{\{\s*matrix\.node-version\s*\}\}') {
   throw "Windows quality gate must validate both the minimum Node 20 runtime and the current Node 24 runtime."
+}
+
+$MacOsQualityWorkflow = Get-Content -Raw -LiteralPath (Join-Path $ToolRoot ".github\workflows\macos-quality-gate.yml")
+if ($MacOsQualityWorkflow -notmatch 'runs-on:\s*macos-latest' -or $MacOsQualityWorkflow -notmatch 'npm run check:macos') {
+  throw "macOS quality gate must run the dedicated WorkForge macOS checks."
+}
+if ($MacOsQualityWorkflow -notmatch 'node-version:\s*\[20,\s*24\]') {
+  throw "macOS quality gate must validate both Node 20 and Node 24."
 }
 
 foreach ($RelativePath in $RequiredChecks.Keys) {

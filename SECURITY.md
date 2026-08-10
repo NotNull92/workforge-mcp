@@ -120,7 +120,7 @@ Use `-NoLog` for controlled validation where no lifecycle log should be created.
 
 ## Public repository privacy gate
 
-Every push and pull request runs a full-history privacy scan. It checks commit metadata, current tracked and untracked text, and reachable historical text blobs. It rejects non-noreply commit addresses, personal home paths, non-example email addresses, private network details, phone numbers, concrete tunnel IDs, credential-shaped values, generated registries, lifecycle logs, uninstall receipts, release manifests, and runtime directories. Historical text blobs above the bounded scan limit fail closed unless their extension is an explicitly recognized binary format.
+Every push and pull request runs a full-history privacy scan. It checks commit metadata, current tracked and untracked text, and reachable historical text blobs. It rejects new non-noreply commit addresses, personal home paths, non-example email addresses, private network details, phone numbers, concrete tunnel IDs, credential-shaped values, generated registries, lifecycle logs, uninstall receipts, release manifests, and runtime directories. An already-published GitHub merge may be grandfathered only by its exact immutable commit hash; this does not create a domain-wide or future-commit exception. Historical text blobs above the bounded scan limit fail closed unless their extension is an explicitly recognized binary format.
 
 ## Recommended operating practice
 

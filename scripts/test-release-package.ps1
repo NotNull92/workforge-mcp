@@ -57,6 +57,8 @@ try {
     "/scripts/Portable-Dispatch.cmd",
     "/scripts/Portable-Dispatch.ps1",
     "/scripts/WorkForge.Contract.ps1",
+    "/scripts/WorkForge.ProfileRuntime.ps1",
+    "/scripts/WorkForge.TunnelRuntime.ps1",
     "/scripts/profile-registry.ps1",
     "/scripts/Uninstall.ps1",
     "/scripts/uninstall-finalizer.ps1",

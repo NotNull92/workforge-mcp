@@ -75,6 +75,25 @@ try {
     throw "Legacy v0.1.0 install manifest compatibility was lost."
   }
 
+  $CurrentSource = New-PortableFixture -Version "0.2.0" -Marker "current"
+  $null = Install-WorkForgePortableVersion -SourceRoot $CurrentSource
+  $ResolvedCurrent = Resolve-WorkForgePortableEngine
+  if ($ResolvedCurrent.Version -cne "0.2.0") {
+    throw "v0.1.0 to v0.2.0 portable upgrade did not switch current.json."
+  }
+  $CurrentPointer = (Read-WorkForgePortableJson -Path (Join-Path $ProgramsRoot "current.json") -Description "Portable current pointer").Value
+  if ([string]$CurrentPointer.previousVersion -cne "0.1.0") {
+    throw "v0.2.0 portable upgrade did not retain v0.1.0 as the rollback target."
+  }
+  $RolledBackToV010 = Invoke-WorkForgePortableRollback
+  if ($RolledBackToV010.Version -cne "0.1.0") {
+    throw "v0.2.0 rollback did not restore the legacy v0.1.0 engine."
+  }
+  $VerifiedV010AfterRollback = Read-WorkForgePortableInstalledVersion -EngineRoot $RolledBackToV010.EngineRoot -Version "0.1.0"
+  if ([string]$VerifiedV010AfterRollback.ManifestSchemaVersion -cne "1") {
+    throw "v0.2.0 rollback restored v0.1.0 without preserving legacy manifest compatibility."
+  }
+
   $V1Source = New-PortableFixture -Version "1.3.0" -Marker "one"
   $V1 = Install-WorkForgePortableVersion -SourceRoot $V1Source
   $ResolvedV1 = Resolve-WorkForgePortableEngine

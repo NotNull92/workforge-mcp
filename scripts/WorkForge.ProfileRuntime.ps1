@@ -1,0 +1,491 @@
+Set-StrictMode -Version 3.0
+
+function Get-WorkForgeProfileFileSha256 {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  $Item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+  if ($Item.PSIsContainer -or ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw "SHA-256 input must be a regular file."
+  }
+  $Stream = [IO.File]::Open($Item.FullName, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+  try {
+    $Hasher = [Security.Cryptography.SHA256]::Create()
+    try {
+      return [BitConverter]::ToString($Hasher.ComputeHash($Stream)).Replace("-", "")
+    } finally {
+      $Hasher.Dispose()
+    }
+  } finally {
+    $Stream.Dispose()
+  }
+}
+
+function Get-WorkForgeToolRoot {
+  return (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..") -ErrorAction Stop).Path
+}
+
+function Get-WorkForgeEngineRoot {
+  return (Get-WorkForgeToolRoot)
+}
+
+function Get-WorkForgeRunsRoot {
+  if ($null -ne $script:WorkForgePortableRuntime) {
+    return $script:WorkForgePortableRuntime.StateRoot
+  }
+  return (Join-Path (Get-WorkForgeToolRoot) "runtime")
+}
+
+function Assert-WorkForgeRegularFile {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path,
+
+    [Parameter(Mandatory = $true)]
+    [long]$MaximumBytes,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Description
+  )
+
+  $ResolvedPath = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).Path
+  $Item = Get-Item -LiteralPath $ResolvedPath -Force -ErrorAction Stop
+  if (
+    $Item.PSIsContainer -or
+    ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+    $Item.Length -lt 1 -or
+    $Item.Length -gt $MaximumBytes
+  ) {
+    throw "$Description is not a bounded regular file: $ResolvedPath"
+  }
+  return $Item
+}
+
+function Read-WorkForgeUtf8Json {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path,
+
+    [Parameter(Mandatory = $true)]
+    [long]$MaximumBytes,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Description
+  )
+
+  $Item = Assert-WorkForgeRegularFile -Path $Path -MaximumBytes $MaximumBytes -Description $Description
+  $Utf8 = [System.Text.UTF8Encoding]::new($false, $true)
+  try {
+    $Raw = [IO.File]::ReadAllText($Item.FullName, $Utf8)
+    $Value = $Raw | ConvertFrom-Json -ErrorAction Stop
+  } catch {
+    throw "$Description is not valid strict UTF-8 JSON: $($Item.FullName)"
+  }
+  if ($null -eq $Value) {
+    throw "$Description is empty JSON: $($Item.FullName)"
+  }
+  return [pscustomobject]@{
+    Path = $Item.FullName
+    Value = $Value
+  }
+}
+
+function Assert-WorkForgePathHasNoReparsePoint {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Description
+  )
+
+  $FullPath = [IO.Path]::GetFullPath($Path)
+  $Current = [IO.Path]::GetPathRoot($FullPath)
+  $RelativePath = $FullPath.Substring($Current.Length)
+  foreach ($Segment in $RelativePath.Split([char[]]@('\', '/'), [StringSplitOptions]::RemoveEmptyEntries)) {
+    $Current = Join-Path $Current $Segment
+    if (-not (Test-Path -LiteralPath $Current)) {
+      throw "$Description is missing: $FullPath"
+    }
+    $Item = Get-Item -LiteralPath $Current -Force -ErrorAction Stop
+    if (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "$Description cannot traverse a reparse point: $($Item.FullName)"
+    }
+  }
+  return $FullPath
+}
+
+function Assert-WorkForgeRestrictedCredentialAcl {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path
+  )
+
+  $Acl = (Get-Item -LiteralPath $Path -Force -ErrorAction Stop).GetAccessControl()
+  if (-not $Acl.AreAccessRulesProtected) {
+    throw "Local tunnel credential ACL inheritance must be disabled."
+  }
+
+  $CurrentUserSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+  $AllowedSids = @{
+    $CurrentUserSid = $true
+    "S-1-5-18" = $true
+    "S-1-5-32-544" = $true
+  }
+  try {
+    $OwnerSid = $Acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+  } catch {
+    throw "Local tunnel credential has an unreadable ACL owner."
+  }
+  if (-not $AllowedSids.ContainsKey($OwnerSid)) {
+    throw "Local tunnel credential owner is not the current user, SYSTEM, or Administrators."
+  }
+
+  $Rules = $Acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])
+  foreach ($Rule in $Rules) {
+    $RuleSid = $Rule.IdentityReference.Value
+    if (-not $AllowedSids.ContainsKey($RuleSid)) {
+      throw "Local tunnel credential ACL grants an unapproved principal."
+    }
+  }
+}
+
+function New-WorkForgeRestrictedCredentialFile {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path
+  )
+
+  $FullPath = [IO.Path]::GetFullPath($Path)
+  try {
+    $Stream = [IO.File]::Open($FullPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    $Stream.Dispose()
+    $Acl = [Security.AccessControl.FileSecurity]::new()
+    $CurrentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+    $Acl.SetOwner($CurrentSid)
+    $Acl.SetAccessRuleProtection($true, $false)
+    foreach ($Sid in @($CurrentSid, [Security.Principal.SecurityIdentifier]::new("S-1-5-18"), [Security.Principal.SecurityIdentifier]::new("S-1-5-32-544"))) {
+      $Rule = [Security.AccessControl.FileSystemAccessRule]::new($Sid, [Security.AccessControl.FileSystemRights]::FullControl, [Security.AccessControl.AccessControlType]::Allow)
+      $null = $Acl.AddAccessRule($Rule)
+    }
+    Set-WorkForgeFileSecurity -Path $FullPath -Acl $Acl
+    Assert-WorkForgeRestrictedCredentialAcl -Path $FullPath
+  } catch {
+    if (Test-Path -LiteralPath $FullPath) {
+      Remove-Item -LiteralPath $FullPath -Force
+    }
+    throw
+  }
+}
+
+function Set-WorkForgeFileSecurity {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][Security.AccessControl.FileSecurity]$Acl
+  )
+
+  (Get-Item -LiteralPath $Path -Force -ErrorAction Stop).SetAccessControl($Acl)
+}
+
+function Assert-WorkForgeControlPlaneKeyValue {
+  param(
+    [Parameter(Mandatory = $true)]
+    [AllowEmptyString()]
+    [string]$Value
+  )
+
+  if (
+    [string]::IsNullOrWhiteSpace($Value) -or
+    $Value.Length -gt 4096 -or
+    $Value -cnotmatch '^[\x21-\x7e]+$'
+  ) {
+    throw "CONTROL_PLANE_API_KEY must be a non-empty bounded visible-ASCII value."
+  }
+}
+
+function Read-WorkForgeControlPlaneCredentialFile {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path
+  )
+
+  $null = Assert-WorkForgePathHasNoReparsePoint -Path $Path -Description "Local tunnel credential"
+  $Item = Assert-WorkForgeRegularFile -Path $Path -MaximumBytes 8192 -Description "Local tunnel credential"
+  Assert-WorkForgeRestrictedCredentialAcl -Path $Item.FullName
+
+  $Utf8 = [Text.UTF8Encoding]::new($false, $true)
+  try {
+    $Raw = [IO.File]::ReadAllText($Item.FullName, $Utf8)
+  } catch {
+    throw "Local tunnel credential is not strict UTF-8 text."
+  }
+  if ($Raw.Contains([char]0)) {
+    throw "Local tunnel credential contains invalid control data."
+  }
+
+  $Normalized = $Raw.Replace("`r`n", "`n")
+  if ($Normalized.Contains("`r")) {
+    throw "Local tunnel credential uses malformed line endings."
+  }
+  if ($Normalized.EndsWith("`n", [StringComparison]::Ordinal)) {
+    $Normalized = $Normalized.Substring(0, $Normalized.Length - 1)
+  }
+  $Lines = $Normalized.Split("`n")
+  $NamedLines = @($Lines | Where-Object { $_ -match '^CONTROL_PLANE_API_KEY=' })
+  if ($NamedLines.Count -gt 1) {
+    throw "Local tunnel credential contains duplicate CONTROL_PLANE_API_KEY entries."
+  }
+  if ($Lines.Count -ne 1 -or $NamedLines.Count -ne 1) {
+    throw "Local tunnel credential must contain exactly one CONTROL_PLANE_API_KEY entry."
+  }
+  if ($Lines[0] -notmatch '^CONTROL_PLANE_API_KEY=([\x21-\x7e]+)$') {
+    throw "Local tunnel credential has malformed CONTROL_PLANE_API_KEY syntax."
+  }
+  $Value = $Matches[1]
+  Assert-WorkForgeControlPlaneKeyValue -Value $Value
+  return $Value
+}
+
+function Initialize-WorkForgeControlPlaneCredential {
+  $ExistingValue = [Environment]::GetEnvironmentVariable("CONTROL_PLANE_API_KEY", "Process")
+  if ($null -ne $ExistingValue -and $ExistingValue.Length -gt 0) {
+    Assert-WorkForgeControlPlaneKeyValue -Value $ExistingValue
+    return [pscustomobject]@{ Source = "process-environment" }
+  }
+
+  $ExpectedPath = [IO.Path]::GetFullPath((Join-Path (Get-WorkForgeRunsRoot) ".env.local"))
+  $Value = Read-WorkForgeControlPlaneCredentialFile -Path $ExpectedPath
+  [Environment]::SetEnvironmentVariable("CONTROL_PLANE_API_KEY", $Value, "Process")
+  return [pscustomobject]@{ Source = "protected-local-file" }
+}
+
+function Get-WorkForgeStdioRuntime {
+  param(
+    [string]$ToolRoot = (Get-WorkForgeToolRoot)
+  )
+
+  $ResolvedToolRoot = (Resolve-Path -LiteralPath $ToolRoot -ErrorAction Stop).Path
+  $null = Assert-WorkForgePathHasNoReparsePoint -Path $ResolvedToolRoot -Description "Shared MCP tool root"
+  $StdioPath = Join-Path $ResolvedToolRoot "dist\stdio.js"
+  $StdioFile = Assert-WorkForgeRegularFile -Path $StdioPath -MaximumBytes 16777216 -Description "Shared MCP stdio build"
+  $null = Assert-WorkForgePathHasNoReparsePoint -Path $StdioFile.FullName -Description "Shared MCP stdio build"
+
+  $PackageJson = Read-WorkForgeUtf8Json `
+    -Path (Join-Path $ResolvedToolRoot "package.json") `
+    -MaximumBytes 1048576 `
+    -Description "Shared MCP package manifest"
+  $Dependencies = @(
+    foreach ($PackageName in @("@modelcontextprotocol/sdk", "zod")) {
+      $ExpectedProperty = $PackageJson.Value.dependencies.PSObject.Properties[$PackageName]
+      if ($null -eq $ExpectedProperty -or [string]::IsNullOrWhiteSpace([string]$ExpectedProperty.Value)) {
+        throw "Shared MCP package manifest is missing runtime dependency $PackageName."
+      }
+      $ManifestPath = Join-Path $ResolvedToolRoot ("node_modules\" + $PackageName.Replace("/", "\") + "\package.json")
+      $null = Assert-WorkForgePathHasNoReparsePoint -Path $ManifestPath -Description "Installed MCP runtime dependency $PackageName"
+      $InstalledJson = Read-WorkForgeUtf8Json `
+        -Path $ManifestPath `
+        -MaximumBytes 1048576 `
+        -Description "Installed MCP runtime dependency $PackageName"
+      $LockedVersion = [string]$ExpectedProperty.Value
+      $InstalledVersion = [string]$InstalledJson.Value.version
+      if ($InstalledVersion -cne $LockedVersion) {
+        throw "Installed MCP runtime dependency $PackageName does not match package.json."
+      }
+      [pscustomobject]@{ Name = $PackageName; Version = $InstalledVersion }
+    }
+  )
+
+  $NodePath = if ($null -ne $script:WorkForgePortableRuntime) {
+    $script:WorkForgePortableRuntime.NodePath
+  } else {
+    $NodeCommand = Get-Command node.exe -CommandType Application -ErrorAction Stop
+    (Resolve-Path -LiteralPath $NodeCommand.Source -ErrorAction Stop).Path
+  }
+  $NodeFile = Assert-WorkForgeRegularFile -Path $NodePath -MaximumBytes 268435456 -Description "Node.js runtime"
+  return [pscustomobject]@{
+    NodePath = $NodeFile.FullName
+    StdioPath = $StdioFile.FullName
+    Dependencies = $Dependencies
+  }
+}
+
+function Get-WorkForgeRegistryPath {
+  $ConfiguredPath = [Environment]::GetEnvironmentVariable("WORKFORGE_MCP_PROFILE_REGISTRY", "Process")
+  if ([string]::IsNullOrWhiteSpace($ConfiguredPath)) {
+    $ConfiguredPath = Join-Path (Get-WorkForgeRunsRoot) "profile_registry.json"
+  } elseif (-not [IO.Path]::IsPathRooted($ConfiguredPath)) {
+    throw "WORKFORGE_MCP_PROFILE_REGISTRY must be an absolute path."
+  }
+  return (Resolve-Path -LiteralPath $ConfiguredPath -ErrorAction Stop).Path
+}
+
+function Assert-WorkForgeProfileLocation {
+  param(
+    [Parameter(Mandatory = $true)]
+    [System.IO.FileInfo]$ProfileFile
+  )
+
+  $ProfileDirectory = $ProfileFile.Directory
+  $ToolsDirectory = if ($ProfileDirectory) { $ProfileDirectory.Parent } else { $null }
+  $RepoDirectory = if ($ToolsDirectory) { $ToolsDirectory.Parent } else { $null }
+  if (
+    $null -eq $ProfileDirectory -or
+    $null -eq $ToolsDirectory -or
+    $null -eq $RepoDirectory -or
+    $ProfileFile.Name -cne "profile.json" -or
+    $ProfileDirectory.Name -cne "workforge-mcp" -or
+    $ToolsDirectory.Name -cne "tools"
+  ) {
+    throw "WorkForge profile must be stored at <repo>\tools\workforge-mcp\profile.json: $($ProfileFile.FullName)"
+  }
+
+  foreach ($Directory in @($ProfileDirectory, $ToolsDirectory, $RepoDirectory)) {
+    if (($Directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "WorkForge profile location cannot traverse a reparse-point directory: $($Directory.FullName)"
+    }
+  }
+
+  $ExpectedPath = [IO.Path]::GetFullPath((Join-Path $RepoDirectory.FullName "tools\workforge-mcp\profile.json"))
+  if (-not $ProfileFile.FullName.Equals($ExpectedPath, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "WorkForge profile path does not match its derived repository location: $($ProfileFile.FullName)"
+  }
+
+  $GitPath = Join-Path $RepoDirectory.FullName ".git"
+  if (Test-Path -LiteralPath $GitPath) {
+    $GitItem = Get-Item -LiteralPath $GitPath -Force -ErrorAction Stop
+    if (($GitItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "Optional WorkForge profile .git path cannot be a reparse point: $GitPath"
+    }
+  }
+  return $RepoDirectory.FullName
+}
+
+function Get-WorkForgeRegistry {
+  $ToolRoot = Get-WorkForgeToolRoot
+  $EngineRoot = Get-WorkForgeEngineRoot
+  $RunsRoot = Get-WorkForgeRunsRoot
+  $RegistryJson = Read-WorkForgeUtf8Json -Path (Get-WorkForgeRegistryPath) -MaximumBytes 1048576 -Description "WorkForge profile registry"
+  $Registry = $RegistryJson.Value
+
+  if ([int]$Registry.version -ne $script:WorkForgeContract.RegistrySchemaVersion) {
+    throw "WorkForge profile registry has an unsupported version."
+  }
+  $Entries = @($Registry.profiles)
+  if ($Entries.Count -lt 1 -or $Entries.Count -gt $script:WorkForgeContract.MaxProfiles) {
+    throw "WorkForge profile registry exceeds the configured profile limit."
+  }
+
+  $SeenIds = @{}
+  $SeenPaths = @{}
+  $Profiles = @(
+    foreach ($Entry in $Entries) {
+      if ($null -eq $Entry) {
+        throw "WorkForge profile registry contains a null entry."
+      }
+      $ProfileId = [string]$Entry.id
+      $ProfilePathText = [string]$Entry.profilePath
+      $ExpectedHash = [string]$Entry.profileSha256
+      if (
+        [string]::IsNullOrWhiteSpace($ProfileId) -or
+        $ProfileId -cnotmatch $script:WorkForgeContract.ProfileIdPattern -or
+        $ProfileId.Length -gt $script:WorkForgeContract.MaxProfileIdLength
+      ) {
+        throw "WorkForge profile registry contains an invalid profile id."
+      }
+      if ($SeenIds.ContainsKey($ProfileId)) {
+        throw "WorkForge profile registry contains duplicate profile id $ProfileId."
+      }
+      $SeenIds[$ProfileId] = $true
+
+      if ([string]::IsNullOrWhiteSpace($ProfilePathText) -or -not [IO.Path]::IsPathRooted($ProfilePathText)) {
+        throw "WorkForge profile $ProfileId must use an absolute profilePath."
+      }
+      if ($ExpectedHash -cnotmatch "^[A-Fa-f0-9]{64}$") {
+        throw "WorkForge profile $ProfileId has an invalid profileSha256."
+      }
+
+      $ProfileFile = Assert-WorkForgeRegularFile -Path $ProfilePathText -MaximumBytes 262144 -Description "WorkForge profile $ProfileId"
+      if ($SeenPaths.ContainsKey($ProfileFile.FullName)) {
+        throw "WorkForge profile registry points multiple ids at $($ProfileFile.FullName)."
+      }
+      $SeenPaths[$ProfileFile.FullName] = $true
+
+      $RepoRoot = Assert-WorkForgeProfileLocation -ProfileFile $ProfileFile
+      $ObservedHash = Get-WorkForgeProfileFileSha256 -Path $ProfileFile.FullName
+      if (-not $ObservedHash.Equals($ExpectedHash, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "WorkForge profile $ProfileId failed its registry SHA-256 check."
+      }
+
+      $ProfileJson = Read-WorkForgeUtf8Json -Path $ProfileFile.FullName -MaximumBytes 262144 -Description "WorkForge profile $ProfileId"
+      $Profile = $ProfileJson.Value
+      if ($Profile.id -isnot [string] -or $Profile.id -cne $ProfileId) {
+        throw "WorkForge profile file id does not match registry id $ProfileId."
+      }
+      if (
+        $Profile.displayName -isnot [string] -or
+        [string]::IsNullOrWhiteSpace($Profile.displayName) -or
+        $Profile.displayName.Length -gt $script:WorkForgeContract.MaxDisplayNameLength -or
+        $Profile.displayName -ne $Profile.displayName.Trim() -or
+        [regex]::IsMatch($Profile.displayName, "[\x00-\x1f\x7f]")
+      ) {
+        throw "WorkForge profile $ProfileId has an invalid displayName."
+      }
+      $HttpPort = $null
+      $HttpPortProperty = $Profile.PSObject.Properties["httpPort"]
+      if ($null -ne $HttpPortProperty) {
+        $ParsedHttpPort = 0
+        if (
+          $HttpPortProperty.Value -is [string] -or
+          -not [int]::TryParse([string]$HttpPortProperty.Value, [ref]$ParsedHttpPort) -or
+          $ParsedHttpPort -lt 1024 -or
+          $ParsedHttpPort -gt 65535
+        ) {
+          throw "WorkForge profile $ProfileId has an invalid deprecated httpPort."
+        }
+        $HttpPort = $ParsedHttpPort
+      }
+
+      [pscustomobject]@{
+        Id = $ProfileId
+        DisplayName = $Profile.displayName
+        HttpPort = $HttpPort
+        ProfilePath = $ProfileFile.FullName
+        ProfileSha256 = $ObservedHash
+        RepoRoot = $RepoRoot
+        TunnelConfigPath = Join-Path $ProfileFile.DirectoryName "tunnel.local.yaml"
+        RuntimeRoot = Join-Path $RepoRoot "artifacts\workforge-mcp"
+        RegistryPath = $RegistryJson.Path
+      }
+    }
+  )
+
+  return [pscustomobject]@{
+    RegistryPath = $RegistryJson.Path
+    ToolRoot = $ToolRoot
+    EngineRoot = $EngineRoot
+    RunsRoot = $RunsRoot
+    Profiles = $Profiles
+  }
+}
+
+function Get-WorkForgeProfile {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$ProfileId,
+
+    [switch]$RequireTunnelConfig
+  )
+
+  if ($ProfileId -cnotmatch "^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$" -or $ProfileId.Length -gt 32) {
+    throw "Requested workforge profile id is invalid."
+  }
+  $Registry = Get-WorkForgeRegistry
+  $Matches = @($Registry.Profiles | Where-Object { $_.Id -ceq $ProfileId })
+  if ($Matches.Count -ne 1) {
+    throw "WorkForge profile $ProfileId is not registered exactly once."
+  }
+  $Profile = $Matches[0]
+  if ($RequireTunnelConfig) {
+    $null = Assert-WorkForgeRegularFile -Path $Profile.TunnelConfigPath -MaximumBytes 1048576 -Description "Tunnel config for workforge profile $ProfileId"
+  }
+  return $Profile
+}

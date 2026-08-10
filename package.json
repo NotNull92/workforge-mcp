@@ -1,6 +1,6 @@
 {
   "name": "workforge-mcp",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -29,13 +29,16 @@
     "test:security-invariants": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-security-invariants.ps1",
     "test:recovery-policy": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-recovery-policy.ps1",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
-    "check": "npm run build && npm test && npm run test:plugin && npm run test:portable-runtime && npm run test:prerequisites && npm run test:install-platform && npm run test:install-without-git && npm run test:multi-profile && npm run test:install-modes && npm run test:setup-flow && npm run test:control-ux && npm run test:control-dashboard && npm run test:ui-rendering && npm run test:uninstall && npm run test:privacy-history && npm run test:privacy-invariants && npm run test:security-invariants && npm run test:recovery-policy && npm run audit:prod",
+    "check": "npm run check:windows",
     "smoke:stdio": "node scripts/stdio-smoke.mjs",
     "smoke:plugin-stdio": "node scripts/plugin-stdio-smoke.mjs",
     "setup:macos": "node scripts/macos/setup.mjs",
     "doctor:macos": "node scripts/macos/doctor.mjs",
     "uninstall:macos": "node scripts/macos/uninstall.mjs",
-    "release": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-Release.ps1"
+    "release": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-Release.ps1",
+    "check:core": "npm run build && npm test && npm run test:plugin",
+    "check:windows": "npm run check:core && npm run test:portable-runtime && npm run test:prerequisites && npm run test:install-platform && npm run test:install-without-git && npm run test:multi-profile && npm run test:install-modes && npm run test:setup-flow && npm run test:control-ux && npm run test:control-dashboard && npm run test:ui-rendering && npm run test:uninstall && npm run test:privacy-history && npm run test:privacy-invariants && npm run test:security-invariants && npm run test:recovery-policy && npm run audit:prod",
+    "check:macos": "npm run check:core && npm run test:macos && npm run audit:prod"
   },
   "engines": {
     "node": ">=20.19"

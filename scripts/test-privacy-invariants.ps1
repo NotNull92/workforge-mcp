@@ -155,16 +155,24 @@ foreach ($Relative in $Tracked) {
   Test-PrivacyText -Text $Text -File $Normalized
 }
 
+# This exact GitHub-generated PR merge was already public before the metadata
+# policy was tightened. Pinning the immutable commit hash avoids weakening the
+# rule for any future commit while keeping published main history stable.
+$GrandfatheredNonNoreplyCommitMetadata = @(
+  "8986d704d6ffa29a85010dbab4f8765bf34ee9be"
+)
 $CommitRows = @(& git.exe -C $ToolRoot log --all --format="%H%x09%ae%x09%ce")
 if ($LASTEXITCODE -ne 0) { throw "Could not inspect commit metadata for privacy validation." }
 foreach ($Row in $CommitRows) {
   $Fields = $Row -split "`t", 3
   if ($Fields.Count -ne 3) { throw "Unexpected commit metadata format." }
-  if ($Fields[1] -notmatch "(?i)^[^@]+@users\.noreply\.github\.com$") {
-    Add-PrivacyFailure -Type "CommitAuthorEmailIsNotNoreply" -File $Fields[0]
+  $CommitId = [string]$Fields[0]
+  $Grandfathered = $GrandfatheredNonNoreplyCommitMetadata -contains $CommitId
+  if (-not $Grandfathered -and $Fields[1] -notmatch "(?i)^[^@]+@users\.noreply\.github\.com$") {
+    Add-PrivacyFailure -Type "CommitAuthorEmailIsNotNoreply" -File $CommitId
   }
-  if ($Fields[2] -notmatch "(?i)^[^@]+@users\.noreply\.github\.com$") {
-    Add-PrivacyFailure -Type "CommitterEmailIsNotNoreply" -File $Fields[0]
+  if (-not $Grandfathered -and $Fields[2] -notmatch "(?i)^[^@]+@users\.noreply\.github\.com$") {
+    Add-PrivacyFailure -Type "CommitterEmailIsNotNoreply" -File $CommitId
   }
 }
 

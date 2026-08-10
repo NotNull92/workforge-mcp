@@ -60,9 +60,10 @@ function New-TestEngine {
   $EngineRoot = Join-Path $TestRoot $Name
   $ScriptsRoot = Join-Path $EngineRoot "scripts"
   New-Item -ItemType Directory -Path $ScriptsRoot -Force | Out-Null
-  foreach ($ScriptName in @("Uninstall.ps1", "uninstall-finalizer.ps1", "WorkForge.UI.ps1", "profile-registry.ps1", "stop-tunnel.ps1")) {
+  foreach ($ScriptName in @("Uninstall.ps1", "uninstall-finalizer.ps1", "WorkForge.UI.ps1", "WorkForge.Contract.ps1", "WorkForge.ProfileRuntime.ps1", "WorkForge.TunnelRuntime.ps1", "profile-registry.ps1", "stop-tunnel.ps1")) {
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot $ScriptName) -Destination (Join-Path $ScriptsRoot $ScriptName) -Force
   }
+  Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) "workforge-contract.json") -Destination (Join-Path $EngineRoot "workforge-contract.json") -Force
   [IO.File]::WriteAllText((Join-Path $ScriptsRoot "Control.ps1"), "# test control fixture`n", $Utf8)
   [IO.File]::WriteAllText((Join-Path $EngineRoot "WorkForge Control.cmd"), "@echo off`r`nexit /b 0`r`n", $Utf8)
   Write-JsonFile -Path (Join-Path $EngineRoot "package.json") -Value ([ordered]@{ name = "workforge-mcp"; version = "1.2.0" })

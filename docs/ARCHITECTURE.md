@@ -105,8 +105,9 @@ The package catalog is fixed to `OpenJS.NodeJS.LTS`, `Git.Git`, and
 `BurntSushi.ripgrep.MSVC`, but only Node.js and ripgrep participate in required readiness.
 Missing Git never blocks Setup. When Git is absent, the WorkForge profile remains a normal
 local folder, still loads through the profile registry, and `project_resume` reports Git unavailable.
-When Git is present, the profile may be initialized as a Git repository and project history
-capabilities become available.
+WorkForge never initializes its operating profile as a Git repository. Git is used only when the
+selected target project is already a Git worktree; existing profile Git metadata from older versions
+is preserved but is not required for normal operation.
 Compatible existing installations cause no package-manager call. Unit tests inject command
 and installer fixtures, so the quality gate never installs or upgrades software on its runner.
 
@@ -142,7 +143,7 @@ The engine and generated mutable state are separated from the durable workstatio
     runtimes/ripgrep/rg.exe     bundled search executable
     runtimes/tunnel-client/     bundled ChatGPT tunnel executable
     plugins/workforge/          Agent Plugins package and generated Codex adapter
-    .workforge-install.json     critical-file SHA-256 manifest
+    .workforge-install.json     immutable runtime SHA-256 manifest
 
 <source checkout>/
   dist/                         built MCP server
@@ -167,6 +168,8 @@ The engine and generated mutable state are separated from the durable workstatio
 ```
 
 The registry supports multiple distinct profile roots. Each profile manifest is pinned by SHA-256. New profiles no longer emit the unused `httpPort` field; older v1 profiles that still contain a valid port remain readable for compatibility, and duplicate legacy values do not affect profile identity. Direct filesystem tools reject another registered profile's root, and `shell_start` applies the same rule to its working directory. The PowerShell command itself is not an OS sandbox and retains the current Windows user's ACL/UAC access.
+
+On Windows, `scripts/profile-registry.ps1` remains the compatibility entry point for existing lifecycle scripts. It now delegates profile, credential, and stdio validation to `WorkForge.ProfileRuntime.ps1` and tunnel/process concerns to `WorkForge.TunnelRuntime.ps1`. Shared profile limits live in `workforge-contract.json` and are consumed by both TypeScript and PowerShell.
 
 ## Mutation gates
 
@@ -202,6 +205,10 @@ scripts/Uninstall.ps1
 KeepWorkspace removes operational profile configuration and command evidence but preserves the workspace folder, policy files, user-created files, and Git history when that workspace happens to use Git. RemoveEverything requires an exact confirmation phrase or an explicit non-interactive destructive switch.
 
 A directory containing `.git` is always treated as a source checkout and is never auto-deleted. A release engine can remove itself only when `.workforge-release.json` is valid and no other profile remains registered.
+
+## Quality gates
+
+`npm run check:core` owns the platform-neutral TypeScript and plugin checks. `npm run check:windows` adds portable-runtime, installer, dashboard, privacy, security, recovery, and production-audit coverage. `npm run check:macos` adds the macOS setup/doctor/uninstall and plugin smoke flow. GitHub runs the Windows and macOS gates separately on Node.js 20 and 24 so a platform port cannot silently bypass CI.
 
 ## Release build
 

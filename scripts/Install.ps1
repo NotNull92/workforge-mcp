@@ -425,14 +425,13 @@ try {
     }
     Ensure-IdentityMarker
 
-    if (-not [string]::IsNullOrWhiteSpace($script:GitPath)) {
-      if (-not (Test-Path -LiteralPath (Join-Path $WorkspaceRoot ".git") -PathType Container)) {
-        & $script:GitPath -C $WorkspaceRoot init --initial-branch=main | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "Could not initialize the optional profile Git repository." }
-      }
+    $ExistingProfileGit = Join-Path $WorkspaceRoot ".git"
+    if (Test-Path -LiteralPath $ExistingProfileGit) {
+      Write-WorkForgeDetail -Text "Existing profile Git metadata was preserved. WorkForge does not create profile repositories automatically." -Tone "muted"
     } else {
-      Write-WorkForgeDetail -Text "Git is not installed; the WorkForge profile will remain a normal local folder." -Tone "muted"
+      Write-WorkForgeDetail -Text "The WorkForge operating workspace remains a normal local folder. Git is used only when a selected target project provides it." -Tone "muted"
     }
+
 
     if (-not $script:ProfileExists) {
       $Profile = [ordered]@{

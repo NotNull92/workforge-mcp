@@ -1,6 +1,6 @@
 # Uninstall WorkForge
 
-WorkForge 1.2 provides a safe uninstall flow with two explicit modes.
+WorkForge provides a safe uninstall flow with two explicit modes.
 
 ## Recommended: remove WorkForge and keep the workspace
 
@@ -18,7 +18,7 @@ The following user-owned workspace content remains:
 %USERPROFILE%\WorkForge\AGENTS.md
 %USERPROFILE%\WorkForge\README.md
 %USERPROFILE%\WorkForge\WORKSTATION_POLICY.md
-%USERPROFILE%\WorkForge\.git\
+%USERPROFILE%\WorkForge\.git\    (only when it already exists, such as from an older install)
 ```
 
 User-created files inside the workspace also remain. Operational profile data below `tools\workforge-mcp` and `artifacts\workforge-mcp` is removed.

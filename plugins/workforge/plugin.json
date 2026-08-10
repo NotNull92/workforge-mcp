@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "workforge",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Secure, profile-scoped access to a local Windows or macOS workstation through WorkForge.",
   "author": {
     "name": "NotNull92",
@@ -10,13 +10,22 @@
   "homepage": "https://github.com/NotNull92/workforge-mcp",
   "repository": "https://github.com/NotNull92/workforge-mcp",
   "license": "MIT",
-  "keywords": ["mcp", "windows", "macos", "workstation", "portable-runtime"],
+  "keywords": [
+    "mcp",
+    "windows",
+    "macos",
+    "workstation",
+    "portable-runtime"
+  ],
   "extensions": {
     "io.github.notnull92.workforge": {
       "displayName": "WorkForge",
       "shortDescription": "Secure local workstation tools",
       "category": "Developer Tools",
-      "capabilities": ["Read", "Write"]
+      "capabilities": [
+        "Read",
+        "Write"
+      ]
     }
   }
 }

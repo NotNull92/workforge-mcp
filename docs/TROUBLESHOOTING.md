@@ -1,11 +1,11 @@
 # Troubleshooting
 
-This guide covers the WorkForge 1.2 Windows runtime and source checkout.
+This guide covers the current WorkForge Windows portable runtime and source checkout.
 
 ## Setup reports a missing required component
 
-The current runtime ZIP requires Node.js 20 or newer on x64 and ripgrep. Git for Windows is optional.
-Setup checks these commands before creating or changing a WorkForge profile:
+The Windows portable ZIP bundles Node.js and ripgrep. Source-checkout Setup requires Node.js 20.19 or newer and ripgrep; Git for Windows remains optional.
+Source-checkout Setup checks these commands before creating or changing a WorkForge profile:
 
 ```powershell
 Get-Command node.exe

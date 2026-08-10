@@ -40,7 +40,8 @@ $RuntimeScripts = @(
   "scripts\Setup-Entry.ps1", "scripts\Setup.ps1", "scripts\start-tunnel.ps1", "scripts\stop-tunnel.ps1",
   "scripts\tunnel-status.ps1", "scripts\tunnel-supervisor.ps1", "scripts\Uninstall.ps1",
   "scripts\uninstall-finalizer.ps1", "scripts\WorkForge.Portable.ps1", "scripts\WorkForge.Prerequisites.ps1",
-  "scripts\WorkForge.UI.ps1", "scripts\WorkForge.Contract.ps1", "scripts\profile-registry.ps1", "scripts\control-server.mjs"
+  "scripts\WorkForge.UI.ps1", "scripts\WorkForge.Contract.ps1", "scripts\WorkForge.ProfileRuntime.ps1",
+  "scripts\WorkForge.TunnelRuntime.ps1", "scripts\profile-registry.ps1", "scripts\control-server.mjs"
 )
 $RuntimeDocs = @(
   "docs\logo", "docs\ADDING_PROFILES.md", "docs\ARCHITECTURE.md", "docs\TROUBLESHOOTING.md", "docs\UNINSTALL.md"
