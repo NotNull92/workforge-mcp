@@ -4,13 +4,15 @@
   "private": true,
   "license": "MIT",
   "type": "module",
-  "description": "A secure Windows workstation MCP gateway for ChatGPT over OpenAI Secure MCP Tunnel.",
+  "description": "A secure Windows and macOS workstation MCP gateway for ChatGPT over OpenAI Secure MCP Tunnel.",
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "npm run clean && tsc -p tsconfig.json",
     "test": "vitest run",
     "generate:plugin": "node scripts/Generate-Plugin.mjs",
+    "stage:plugin:macos": "node scripts/Stage-MacPlugin.mjs",
     "test:plugin": "node scripts/test-plugin-package.mjs",
+    "test:macos": "node scripts/test-macos.mjs",
     "test:portable-runtime": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-portable-runtime.ps1",
     "test:prerequisites": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-prerequisites.ps1",
     "test:install-platform": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/test-install-platform.ps1",
@@ -30,10 +32,13 @@
     "check": "npm run build && npm test && npm run test:plugin && npm run test:portable-runtime && npm run test:prerequisites && npm run test:install-platform && npm run test:install-without-git && npm run test:multi-profile && npm run test:install-modes && npm run test:setup-flow && npm run test:control-ux && npm run test:control-dashboard && npm run test:ui-rendering && npm run test:uninstall && npm run test:privacy-history && npm run test:privacy-invariants && npm run test:security-invariants && npm run test:recovery-policy && npm run audit:prod",
     "smoke:stdio": "node scripts/stdio-smoke.mjs",
     "smoke:plugin-stdio": "node scripts/plugin-stdio-smoke.mjs",
+    "setup:macos": "node scripts/macos/setup.mjs",
+    "doctor:macos": "node scripts/macos/doctor.mjs",
+    "uninstall:macos": "node scripts/macos/uninstall.mjs",
     "release": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-Release.ps1"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.19"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",

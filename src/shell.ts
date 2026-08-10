@@ -10,6 +10,7 @@ import {
   readFileSync,
   realpathSync,
   renameSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { mkdir, stat, writeFile } from "node:fs/promises";
@@ -30,6 +31,9 @@ const MAX_ACTIVE_JOBS_PER_PROFILE = 8;
 const MAX_LOG_BYTES_PER_STREAM = 16 * 1024 * 1024;
 const MAX_STATUS_MANIFEST_BYTES = 64 * 1024;
 const PROFILE_SHELL_BUSY_EXIT_CODE = 75;
+const CONTAINMENT_KIND = process.platform === "win32"
+  ? "windows_job_object_kill_on_close"
+  : "posix_process_group";
 const WINDOWS_JOB_OBJECT_CSHARP = String.raw`
 using System;
 using System.ComponentModel;
@@ -242,6 +246,45 @@ function now(): string {
   return new Date().toISOString();
 }
 
+function tryAcquirePosixLease(leasePath: string, ownerPath: string): boolean {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const leaseHandle = openSync(leasePath, "wx", 0o600);
+      closeSync(leaseHandle);
+      return true;
+    } catch (error) {
+      if (!error || typeof error !== "object" || !("code" in error) || error.code !== "EEXIST") throw error;
+    }
+
+    let ownerProcessId: number | undefined;
+    try {
+      const owner = JSON.parse(readFileSync(ownerPath, "utf8")) as { processId?: unknown };
+      if (typeof owner.processId === "number" && Number.isInteger(owner.processId) && owner.processId > 0) {
+        ownerProcessId = owner.processId;
+      }
+    } catch {
+      // A new owner gets a short window to publish its evidence.
+    }
+    if (ownerProcessId !== undefined) {
+      try {
+        process.kill(ownerProcessId, 0);
+        return false;
+      } catch (error) {
+        if (error && typeof error === "object" && "code" in error && error.code === "EPERM") return false;
+      }
+    } else {
+      try {
+        if (Date.now() - lstatSync(leasePath).mtimeMs < 10_000) return false;
+      } catch {
+        continue;
+      }
+    }
+    try { unlinkSync(ownerPath); } catch { /* stale owner evidence was already absent */ }
+    try { unlinkSync(leasePath); } catch { /* another process recovered it first */ }
+  }
+  return false;
+}
+
 function assertJobId(id: string): void {
   if (!JOB_ID_PATTERN.test(id)) throw new Error("Invalid shell job id.");
 }
@@ -384,7 +427,7 @@ function archiveStatus(context: ProjectContext, id: string) {
     processId: record.processId,
     leaseAcquired: record.leaseAcquired,
     ownerEvidencePath: paths.ownerEvidencePath,
-    containmentKind: "windows_job_object_kill_on_close" as const,
+    containmentKind: CONTAINMENT_KIND,
     containmentEnforced: record.containmentEnforced,
     containmentEvidencePath: paths.containmentEvidencePath,
     trackingState: terminal ? "archived_terminal" as const : "ownership_lost" as const,
@@ -421,7 +464,7 @@ function refreshJobEvidence(job: ShellJob): void {
       };
       job.containmentEnforced = evidence.jobId === job.id
         && evidence.processId === job.child.pid
-        && evidence.kind === "windows_job_object_kill_on_close"
+        && evidence.kind === CONTAINMENT_KIND
         && evidence.enforced === true;
     } catch {
       // The wrapper may still be compiling the containment helper.
@@ -443,7 +486,7 @@ function publicStatus(job: ShellJob) {
     processId: job.child.pid ?? null,
     leaseAcquired: job.leaseAcquired,
     ownerEvidencePath: job.ownerEvidencePath,
-    containmentKind: "windows_job_object_kill_on_close" as const,
+    containmentKind: CONTAINMENT_KIND,
     containmentEnforced: job.containmentEnforced,
     containmentEvidencePath: job.containmentEvidencePath,
     trackingState: "attached" as const,
@@ -561,6 +604,7 @@ async function startReservedShellJob(input: {
   await mkdir(paths.runtimeRoot, { recursive: true });
   await mkdir(paths.jobRoot, { recursive: false });
   const profileOwnerPath = resolve(paths.runtimeRoot, "profile-shell-owner.json");
+  const profileLeasePath = resolve(paths.runtimeRoot, "profile-shell-owner.lock");
   await Promise.all([
     writeFile(paths.stdoutPath, Buffer.alloc(0), { flag: "wx" }),
     writeFile(paths.stderrPath, Buffer.alloc(0), { flag: "wx" }),
@@ -605,25 +649,65 @@ async function startReservedShellJob(input: {
     replayAllowed: false,
   });
 
-  const child = spawn(
-    resolvePowerShellExecutable(),
-    ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", POWERSHELL_STDIN_WRAPPER],
-    {
+  let ownsPosixLease = false;
+  let command = input.command;
+  if (process.platform !== "win32") {
+    ownsPosixLease = tryAcquirePosixLease(profileLeasePath, profileOwnerPath);
+    if (!ownsPosixLease) {
+      let owner = "initializing_or_unavailable";
+      try {
+        owner = readFileSync(profileOwnerPath, "utf8").trim() || owner;
+      } catch {
+        // The current owner may still be writing its evidence.
+      }
+      const busyMessage = `PROFILE_SHELL_LEASE_BUSY: another ChatGPT workstation shell job owns this profile shell lease. owner=${owner}`;
+      command = `printf '%s\\n' '${busyMessage.replaceAll("'", "'\\''")}' >&2\nexit ${PROFILE_SHELL_BUSY_EXIT_CODE}`;
+    }
+  }
+
+  const childEnvironment = makeWorkstationEnvironment(process.platform === "win32" ? {
+    WORKFORGE_MCP_PROFILE_SHELL_MUTEX: `Local\\WorkForgeMcp-ProfileShell-${input.context.profile.id}`,
+    WORKFORGE_MCP_JOB_OBJECT_CSHARP: WINDOWS_JOB_OBJECT_CSHARP,
+    WORKFORGE_MCP_PROFILE_ID: input.context.profile.id,
+    WORKFORGE_MCP_SHELL_JOB_ID: id,
+    WORKFORGE_MCP_PROFILE_SHELL_OWNER_PATH: profileOwnerPath,
+    WORKFORGE_MCP_SHELL_OWNER_EVIDENCE_PATH: paths.ownerEvidencePath,
+    WORKFORGE_MCP_SHELL_CONTAINMENT_EVIDENCE_PATH: paths.containmentEvidencePath,
+  } : {});
+  const child = process.platform === "win32"
+    ? spawn(
+      resolvePowerShellExecutable(),
+      ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", POWERSHELL_STDIN_WRAPPER],
+      { cwd, env: childEnvironment, windowsHide: true, shell: false, stdio: ["pipe", "pipe", "pipe"] },
+    )
+    : spawn(
+      "/bin/zsh",
+      ["-f"],
+      { cwd, env: childEnvironment, detached: true, shell: false, stdio: ["pipe", "pipe", "pipe"] },
+    );
+  if (ownsPosixLease && child.pid) {
+    const owner = {
+      version: 1,
+      profileId: input.context.profile.id,
+      jobId: id,
+      processId: child.pid,
+      createdAt,
       cwd,
-      env: makeWorkstationEnvironment({
-        WORKFORGE_MCP_PROFILE_SHELL_MUTEX: `Local\\WorkForgeMcp-ProfileShell-${input.context.profile.id}`,
-        WORKFORGE_MCP_JOB_OBJECT_CSHARP: WINDOWS_JOB_OBJECT_CSHARP,
-        WORKFORGE_MCP_PROFILE_ID: input.context.profile.id,
-        WORKFORGE_MCP_SHELL_JOB_ID: id,
-        WORKFORGE_MCP_PROFILE_SHELL_OWNER_PATH: profileOwnerPath,
-        WORKFORGE_MCP_SHELL_OWNER_EVIDENCE_PATH: paths.ownerEvidencePath,
-        WORKFORGE_MCP_SHELL_CONTAINMENT_EVIDENCE_PATH: paths.containmentEvidencePath,
-      }),
-      windowsHide: true,
-      shell: false,
-      stdio: ["pipe", "pipe", "pipe"],
-    },
-  );
+      leaseScope: `profile:${input.context.profile.id}:shell`,
+      containment: CONTAINMENT_KIND,
+    };
+    const containment = {
+      version: 1,
+      kind: CONTAINMENT_KIND,
+      enforced: true,
+      jobId: id,
+      processId: child.pid,
+      createdAt,
+    };
+    writeFileSync(profileOwnerPath, `${JSON.stringify(owner)}\n`, { mode: 0o600 });
+    writeFileSync(paths.ownerEvidencePath, `${JSON.stringify(owner)}\n`, { mode: 0o600 });
+    writeFileSync(paths.containmentEvidencePath, `${JSON.stringify(containment)}\n`, { mode: 0o600 });
+  }
   const stdoutStream = createWriteStream(paths.stdoutPath, { flags: "a" });
   const stderrStream = createWriteStream(paths.stderrPath, { flags: "a" });
   const stdoutFinished = new Promise<Error | undefined>((resolveFinished) => {
@@ -662,8 +746,8 @@ async function startReservedShellJob(input: {
     stderrChunks: [],
     stdoutTruncated: false,
     stderrTruncated: false,
-    leaseAcquired: false,
-    containmentEnforced: false,
+    leaseAcquired: ownsPosixLease,
+    containmentEnforced: ownsPosixLease,
     timer: setTimeout(() => undefined, 0),
   };
   clearTimeout(job.timer);
@@ -699,6 +783,15 @@ async function startReservedShellJob(input: {
     if (job.cancelRequested || job.timedOut) job.status = "cancelled";
     else job.status = exitCode === 0 ? "completed" : "failed";
     job.updatedAt = now();
+    if (ownsPosixLease) {
+      try {
+        const owner = JSON.parse(readFileSync(profileOwnerPath, "utf8")) as { jobId?: unknown };
+        if (owner.jobId === id) unlinkSync(profileOwnerPath);
+      } catch {
+        // Cleanup is best effort; the lease file below remains authoritative.
+      }
+      try { unlinkSync(profileLeasePath); } catch { /* already removed */ }
+    }
     stdoutStream.end();
     stderrStream.end();
     void Promise.all([stdoutFinished, stderrFinished]).then(([stdoutError, stderrError]) => {
@@ -718,6 +811,12 @@ async function startReservedShellJob(input: {
       // Keep the in-memory record available for the current connection.
     });
   });
+  if (process.platform !== "win32") {
+    child.once("exit", () => {
+      if (!child.pid) return;
+      try { process.kill(-child.pid, "SIGTERM"); } catch { /* no descendants remain */ }
+    });
+  }
   job.timer = setTimeout(() => {
     job.timedOut = true;
     job.cancelRequested = true;
@@ -725,7 +824,7 @@ async function startReservedShellJob(input: {
     killProcessTree(child);
   }, input.timeoutMs);
 
-  child.stdin.end(input.command, "utf8");
+  child.stdin.end(command, "utf8");
   return publicStatus(job);
 }
 
