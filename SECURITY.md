@@ -103,6 +103,10 @@ Direct filesystem tools enforce registered-profile path boundaries. `shell_start
 - Tunnel start is always an explicit user or Setup-session action.
 - Tunnel configuration records the exact Node.js executable and compiled `dist/stdio.js` path that WorkForge validated, instead of a relative `node.exe dist/stdio.js` command.
 - Configure Tunnel validates the selected profile, tunnel client, and MCP runtime before changing the protected local credential.
+- On macOS, tunnel runtime metadata for both Apple Silicon and Intel is pinned in `runtime-lock.json`; the installer verifies the selected archive SHA-256 before extraction.
+- macOS Runtime API Keys are stored in Keychain. WorkForge runs `security` in interactive mode and sends the `add-generic-password` command, including hex-encoded password data, through stdin. The encoded secret is never placed in the OS process argument list.
+- macOS long-running supervisors start with `CONTROL_PLANE_API_KEY` removed from their inherited environment. Only the tunnel-client child receives the Keychain value through its explicit environment reference.
+- macOS tunnel configuration writes destination-local temporary files before atomic rename, so project configuration does not rely on cross-filesystem rename from `/tmp`.
 - Commands are never replayed automatically.
 - Connection-owned shell jobs are cancelled when their exact MCP connection closes.
 - Windows Job Objects contain shell descendants and terminate the process tree when ownership ends.

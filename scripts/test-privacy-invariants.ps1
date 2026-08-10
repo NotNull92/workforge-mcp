@@ -171,7 +171,11 @@ foreach ($Row in $CommitRows) {
   if (-not $Grandfathered -and $Fields[1] -notmatch "(?i)^[^@]+@users\.noreply\.github\.com$") {
     Add-PrivacyFailure -Type "CommitAuthorEmailIsNotNoreply" -File $CommitId
   }
-  if (-not $Grandfathered -and $Fields[2] -notmatch "(?i)^[^@]+@users\.noreply\.github\.com$") {
+  # GitHub uses noreply@github.com as the committer of the synthetic merge
+  # commit created for pull_request checks. Both accepted forms are public
+  # GitHub noreply identities; author emails remain restricted to the
+  # per-account users.noreply.github.com form above.
+  if (-not $Grandfathered -and $Fields[2] -notmatch "(?i)^(?:[^@]+@users\.noreply\.github\.com|noreply@github\.com)$") {
     Add-PrivacyFailure -Type "CommitterEmailIsNotNoreply" -File $CommitId
   }
 }
