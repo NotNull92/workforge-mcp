@@ -13,7 +13,7 @@ import {
 } from "node:fs/promises";
 import { basename, dirname, extname, resolve } from "node:path";
 import type { ProjectContext } from "./profile.js";
-import { makeWorkstationEnvironment, runProcess } from "./process.js";
+import { makeWorkstationEnvironment, resolveToolExecutable, runProcess } from "./process.js";
 import { resolveAuthorizedWorkstationPath } from "./workstation.js";
 
 const MAX_TEXT_BYTES = 64 * 1024 * 1024;
@@ -220,7 +220,7 @@ export async function searchFiles(input: {
   for (const glob of input.globs) commonArgs.push("--glob", glob);
 
   if (input.mode === "path") {
-    const result = await runProcess("rg.exe", ["--files", ...commonArgs, "--", target], {
+    const result = await runProcess(resolveToolExecutable("rg"), ["--files", ...commonArgs, "--", target], {
       cwd,
       timeoutMs: 120_000,
       maxStdoutBytes: MAX_SEARCH_OUTPUT_BYTES,
@@ -253,7 +253,7 @@ export async function searchFiles(input: {
   const args = ["--json", "--line-number", "--column", "--color", "never", ...commonArgs];
   if (!input.regex) args.push("--fixed-strings");
   args.push("--", input.query, target);
-  const result = await runProcess("rg.exe", args, {
+  const result = await runProcess(resolveToolExecutable("rg"), args, {
     cwd,
     timeoutMs: 120_000,
     maxStdoutBytes: MAX_SEARCH_OUTPUT_BYTES,

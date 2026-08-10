@@ -1,7 +1,7 @@
 {
   "name": "workforge",
   "version": "0.1.1",
-  "description": "Secure, profile-scoped access to a local Windows workstation through WorkForge.",
+  "description": "Secure, profile-scoped access to a local Windows or macOS workstation through WorkForge.",
   "author": {
     "name": "NotNull92",
     "url": "https://github.com/NotNull92"
@@ -12,6 +12,7 @@
   "keywords": [
     "mcp",
     "windows",
+    "macos",
     "workstation",
     "portable-runtime"
   ],
@@ -19,8 +20,8 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "WorkForge",
-    "shortDescription": "Secure local Windows workstation tools",
-    "longDescription": "Secure, profile-scoped access to a local Windows workstation through WorkForge.",
+    "shortDescription": "Secure local workstation tools",
+    "longDescription": "Secure, profile-scoped access to a local Windows or macOS workstation through WorkForge.",
     "developerName": "NotNull92",
     "category": "Developer Tools",
     "capabilities": [

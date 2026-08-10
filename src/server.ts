@@ -63,7 +63,7 @@ function serverInstructions(context: ProjectContext): string {
   return [
     `You are the ${context.profile.displayName} workstation agent (${context.profile.id}).`,
     `Start from ${context.defaultWorkingDirectory}.`,
-    "Direct filesystem tools run as the current Windows user but enforce registered-profile path boundaries. PowerShell also runs as the current Windows user; WorkForge validates its cwd, but commands can access anything that Windows ACLs/UAC allow and are not an OS sandbox.",
+    "Direct filesystem tools run as the current OS user and enforce registered-profile path boundaries. PowerShell on Windows and zsh on macOS also run as the current OS user; WorkForge validates their cwd, but commands can access anything that OS ACLs, UAC, or local permissions allow and are not an OS sandbox.",
     `Before the first mutation or shell command, call workstation_context and review every bootstrapEntries item: ${bootstrap}.`,
     "Pass the returned contextRevision to write_text_file, replace_text, and shell_start. Refresh it after bootstrap files change.",
     "When continuing existing work, call project_resume with the task's actual project path after workstation_context and inspect only task-relevant changed files.",
@@ -92,7 +92,7 @@ const shellStatusOutputSchema = {
   processId: nullableNumber,
   leaseAcquired: z.boolean(),
   ownerEvidencePath: z.string(),
-  containmentKind: z.literal("windows_job_object_kill_on_close"),
+  containmentKind: z.enum(["windows_job_object_kill_on_close", "posix_process_group"]),
   containmentEnforced: z.boolean(),
   containmentEvidencePath: z.string(),
   trackingState: z.enum(["attached", "archived_terminal", "ownership_lost"]),
@@ -140,7 +140,7 @@ export function createServer(context: ProjectContext): McpServer {
           content: z.string(),
         })),
         platform: z.string(),
-        accessBoundary: z.literal("current_windows_user"),
+        accessBoundary: z.literal("current_os_user"),
       },
       annotations: localReadAnnotations,
     },
@@ -369,8 +369,8 @@ export function createServer(context: ProjectContext): McpServer {
   server.registerTool(
     "shell_start",
     {
-      title: "Start an asynchronous PowerShell job",
-      description: "Run a PowerShell command as the current Windows user after workstation_context. The command may modify or delete data; only one shell job runs at a time inside this profile.",
+      title: "Start an asynchronous shell job",
+      description: "Run a PowerShell command on Windows or a zsh command on macOS as the current OS user after workstation_context. The command may modify or delete data; only one shell job runs at a time inside this profile.",
       inputSchema: {
         contextRevision: CONTEXT_REVISION_SCHEMA,
         command: z.string().min(1).max(1024 * 1024),
@@ -389,7 +389,7 @@ export function createServer(context: ProjectContext): McpServer {
   server.registerTool(
     "shell_status",
     {
-      title: "Read PowerShell job status",
+      title: "Read shell job status",
       description: "Poll one shell job without starting or changing a process. ownership_lost never authorizes automatic replay.",
       inputSchema: { id: SHELL_ID_SCHEMA },
       outputSchema: shellStatusOutputSchema,
@@ -401,7 +401,7 @@ export function createServer(context: ProjectContext): McpServer {
   server.registerTool(
     "shell_output",
     {
-      title: "Read PowerShell job output",
+      title: "Read shell job output",
       description: "Read bounded paged stdout and stderr and check complete before treating output as final.",
       inputSchema: {
         id: SHELL_ID_SCHEMA,
@@ -428,8 +428,8 @@ export function createServer(context: ProjectContext): McpServer {
   server.registerTool(
     "shell_cancel",
     {
-      title: "Cancel a PowerShell job",
-      description: "Stop an attached shell job by terminating its verified Windows process tree.",
+      title: "Cancel a shell job",
+      description: "Stop an attached shell job by terminating its verified Windows Job Object or macOS process group.",
       inputSchema: { id: SHELL_ID_SCHEMA },
       outputSchema: shellStatusOutputSchema,
       annotations: processControlAnnotations,

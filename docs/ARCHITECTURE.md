@@ -23,6 +23,12 @@ The canonical Agent Plugins `plugin.json` and `mcp.json` generate the OpenAI
 `.codex-plugin/plugin.json` and `.mcp.json`; no tunnel credential is stored in
 either package. ChatGPT intentionally remains on the Secure MCP Tunnel path.
 
+On macOS, the source preview connects Codex directly through stdio. It uses the
+system Node.js and ripgrep, stores a non-secret engine pointer below
+`~/Library/Application Support/WorkForge`, and runs commands with `/bin/zsh -f`
+inside a dedicated POSIX process group. The Windows Secure MCP Tunnel,
+supervisor, portable runtime, and control dashboard remain Windows-only.
+
 ## Setup orchestration
 
 ```text
@@ -166,10 +172,10 @@ The registry supports multiple distinct profile roots. Each profile manifest is 
 
 - `workstation_context` returns all bootstrap instructions and a `contextRevision` hash.
 - File mutation and shell execution require the current revision.
-- Windows path comparison, containment, and existing-ancestor canonicalization are centralized in `src/path-policy.ts` so profile, filesystem, Git-resume, and shell boundaries share the same semantics.
+- Platform-aware path comparison, containment, and existing-ancestor canonicalization are centralized in `src/path-policy.ts` so profile, filesystem, Git-resume, and shell boundaries share the same semantics.
 - File replacement requires the exact current SHA-256.
 - Writes use temporary files and atomic replacement.
-- Shell work is connection-owned, bounded, and contained by a Windows Job Object.
+- Shell work is connection-owned and bounded. Windows uses a Job Object; macOS uses a dedicated POSIX process group for cancellation, timeout, and descendant cleanup.
 - Commands are never replayed automatically after disconnect or ownership loss.
 
 ## Uninstall lifecycle

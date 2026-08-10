@@ -109,7 +109,7 @@ export function resolveWorkstationPath(context: ProjectContext, rawPath = "."): 
   let expanded = rawPath;
   if (rawPath === "~" || rawPath.startsWith("~/") || rawPath.startsWith("~\\")) {
     const userProfile = process.env.USERPROFILE ?? process.env.HOME;
-    if (!userProfile) throw new Error("The current Windows user profile directory is unavailable.");
+    if (!userProfile) throw new Error("The current user profile directory is unavailable.");
     expanded = rawPath === "~" ? userProfile : resolve(userProfile, rawPath.slice(2));
   }
   return resolve(isAbsolute(expanded) ? expanded : resolve(context.defaultWorkingDirectory, expanded));
@@ -140,6 +140,6 @@ export async function getWorkstationContext(context: ProjectContext) {
     bootstrapFiles: [...context.profile.bootstrapFiles],
     ...bootstrap,
     platform: `${process.platform}-${process.arch}`,
-    accessBoundary: "current_windows_user",
+    accessBoundary: "current_os_user",
   } as const;
 }

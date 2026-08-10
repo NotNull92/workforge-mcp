@@ -2,10 +2,10 @@ import { realpath, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { isPathWithinOrEqual } from "./path-policy.js";
 import type { ProjectContext } from "./profile.js";
-import { makeSafeEnvironment, runProcess, type ProcessResult } from "./process.js";
+import { makeSafeEnvironment, resolveToolExecutable, runProcess, type ProcessResult } from "./process.js";
 import { resolveAuthorizedWorkstationPath } from "./workstation.js";
 
-const GIT_EXECUTABLE = "git.exe";
+const GIT_EXECUTABLE = resolveToolExecutable("git");
 const GIT_TIMEOUT_MS = 20_000;
 const MAX_GIT_STDOUT_BYTES = 512 * 1024;
 const MAX_GIT_STDERR_BYTES = 64 * 1024;

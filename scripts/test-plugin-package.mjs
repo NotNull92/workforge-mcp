@@ -12,6 +12,7 @@ execFileSync(process.execPath, [resolve(root, "scripts", "Generate-Plugin.mjs"),
 
 const canonical = JSON.parse(readFileSync(resolve(pluginRoot, "plugin.json"), "utf8"));
 const agentMcp = JSON.parse(readFileSync(resolve(pluginRoot, "mcp.json"), "utf8"));
+const macMcp = JSON.parse(readFileSync(resolve(pluginRoot, "mcp.macos.json"), "utf8"));
 const codex = JSON.parse(readFileSync(resolve(pluginRoot, ".codex-plugin", "plugin.json"), "utf8"));
 const codexMcp = JSON.parse(readFileSync(resolve(pluginRoot, ".mcp.json"), "utf8"));
 const packageManifest = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
@@ -28,8 +29,11 @@ if (codex.mcpServers !== "./.mcp.json" || codex.skills !== "./skills/") {
 if (codexMcp.mcpServers?.workforge?.command !== "./bin/workforge-stdio.cmd") {
   throw new Error("Generated Codex MCP adapter is invalid.");
 }
+if (macMcp.mcpServers?.workforge?.command !== "node" || macMcp.mcpServers.workforge.args?.[0] !== "./bin/workforge-stdio.mjs") {
+  throw new Error("macOS WorkForge MCP adapter is invalid.");
+}
 
-const authored = [canonical, agentMcp, codex, codexMcp].map((value) => JSON.stringify(value)).join("\n");
+const authored = [canonical, agentMcp, macMcp, codex, codexMcp].map((value) => JSON.stringify(value)).join("\n");
 if (/CONTROL_PLANE_API_KEY|tunnel_id|[A-Z]:\\Users\\/iu.test(authored)) {
   throw new Error("Plugin package contains runtime credentials or an absolute user path.");
 }

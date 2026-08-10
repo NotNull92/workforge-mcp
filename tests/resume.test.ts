@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ProjectContext, ProjectProfile } from "../src/profile.js";
-import { runProcess } from "../src/process.js";
+import { resolveToolExecutable, runProcess } from "../src/process.js";
 import { getProjectResume } from "../src/resume.js";
 
 const temporaryRoots: string[] = [];
@@ -35,7 +35,7 @@ async function makeContext(root?: string): Promise<{ context: ProjectContext; ro
 }
 
 async function git(root: string, ...args: string[]): Promise<void> {
-  const result = await runProcess("git.exe", args, { cwd: root, timeoutMs: 20_000 });
+  const result = await runProcess(resolveToolExecutable("git"), args, { cwd: root, timeoutMs: 20_000 });
   if (result.exitCode !== 0) {
     throw new Error(`git ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
   }
@@ -128,7 +128,7 @@ describe("project resume snapshot", () => {
     await writeFile(join(root, "tracked.txt"), "main\n", "utf8");
     await git(root, "add", "tracked.txt");
     await git(root, "commit", "-m", "main change");
-    const merge = await runProcess("git.exe", ["merge", "conflict-side"], { cwd: root, timeoutMs: 20_000 });
+    const merge = await runProcess(resolveToolExecutable("git"), ["merge", "conflict-side"], { cwd: root, timeoutMs: 20_000 });
     expect(merge.exitCode).not.toBe(0);
 
     const conflicted = await getProjectResume(context);
