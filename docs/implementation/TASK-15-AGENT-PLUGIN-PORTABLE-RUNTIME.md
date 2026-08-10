@@ -1,6 +1,6 @@
 # TASK-15: Agent Plugin and Portable Runtime Architecture
 
-Status: **Implemented locally; public release, signing, and third-party license approval remain gated**
+Status: **Implemented; v0.1.0 public release and third-party redistribution approved; signing remains gated**
 Date: 2026-08-09
 Baseline: `main` at `9fdfe9f322020b655e9258add6284e260b2154f4`
 
@@ -38,6 +38,11 @@ This task treats three topics as one architecture problem:
 The design was approved for local implementation on 2026-08-09. It does not
 authorize public release, signing, external-service mutation, or legal approval
 of third-party redistribution.
+
+On 2026-08-10, the exact pinned v0.1.0 production dependency graph and bundled
+runtime set were reviewed, and the user explicitly approved third-party
+redistribution and the first public GitHub Release. This approval covers the
+unsigned portable ZIP only; code signing remains a separate gate.
 
 ## Implementation outcome
 

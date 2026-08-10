@@ -27,6 +27,12 @@ for `OpenJS.NodeJS.LTS` and `BurntSushi.ripgrep.MSVC` after required-component
 consent. `Git.Git` is optional and requires separate consent. Portable release
 installs do not use WinGet for Node.js or ripgrep.
 
-Review upstream license texts and the complete dependency graph whenever dependencies, bundled executables, or release packaging change.
-Public release remains blocked until the third-party redistribution review is
-explicitly approved; a validation build is non-public QA evidence only.
+For v0.1.0, the complete 93-package production dependency graph was checked:
+all packages declare MIT, ISC, BSD-2-Clause, or BSD-3-Clause terms and include a
+license file. The pinned Node.js, ripgrep, and `tunnel-client` archives and their
+staged upstream license texts were also verified. Third-party redistribution
+for this exact release set was explicitly approved on 2026-08-10.
+
+Repeat the review and obtain a new explicit approval whenever dependencies,
+bundled executables, or release packaging change. A validation build remains
+non-public QA evidence only.
