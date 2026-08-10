@@ -1,6 +1,10 @@
 @echo off
 setlocal
 set "PSModulePath="
+if exist "%~dp0.workforge-release.json" (
+  call "%~dp0scripts\Portable-Control.cmd" %*
+  exit /b %ERRORLEVEL%
+)
 if /I "%~1"=="--cli" goto CLI
 
 "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\Launch-Control.ps1" %*

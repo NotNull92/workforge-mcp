@@ -11,6 +11,7 @@ $Wrapper = Get-Content -Raw -LiteralPath $WrapperPath
 if ($Wrapper -notmatch 'Launch-Control\.ps1') { throw "Control wrapper does not launch the HTML dashboard." }
 if ($Wrapper -notmatch '--cli') { throw "Control wrapper does not expose the CLI fallback." }
 if ($Wrapper -notmatch 'Control\.ps1') { throw "Control wrapper lost the CLI fallback implementation." }
+if ($Wrapper -notmatch 'Portable-Control\.cmd') { throw "Release-root Control wrapper does not delegate to the installed portable engine." }
 if ($Wrapper -notmatch 'if not "%EXIT_CODE%"=="0"') { throw "Control wrapper does not preserve a visible error path." }
 if ($Wrapper -notmatch 'exit /b %EXIT_CODE%') { throw "Control wrapper does not propagate the launcher exit code." }
 
