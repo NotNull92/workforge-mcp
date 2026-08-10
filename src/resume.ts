@@ -267,7 +267,8 @@ export async function getProjectResume(
   }
   const repositoryRoot = await realpath(resolve(reportedRoot));
   await resolveAuthorizedWorkstationPath(context, repositoryRoot, "tree");
-  if (!isPathWithinOrEqual(repositoryRoot, workingDirectory)) {
+  const canonicalWorkingDirectory = await realpath(workingDirectory);
+  if (!isPathWithinOrEqual(repositoryRoot, canonicalWorkingDirectory)) {
     return unavailableResult(context, workingDirectory, true, "Git worktree root does not contain the requested working directory.");
   }
 

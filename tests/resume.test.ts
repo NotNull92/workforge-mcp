@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -159,6 +159,24 @@ describe("project resume snapshot", () => {
     expect(resume.gitAvailable).toBe(true);
     expect(resume.isGitRepository).toBe(true);
     expect(resume.workingDirectory).toBe(repositoryRoot);
+    expect(resume.repositoryRoot).toBe(await realpath(repositoryRoot));
+  });
+
+  it("recognizes a repository when the requested working directory is an alias of its canonical path", async () => {
+    const { context } = await makeContext();
+    const fixtureRoot = await mkdtemp(join(tmpdir(), "project-resume-alias-"));
+    temporaryRoots.push(fixtureRoot);
+    const repositoryRoot = join(fixtureRoot, "repository");
+    const aliasRoot = join(fixtureRoot, "alias");
+    await mkdir(repositoryRoot, { recursive: true });
+    await initializeRepository(repositoryRoot);
+    await symlink(repositoryRoot, aliasRoot, process.platform === "win32" ? "junction" : "dir");
+
+    const resume = await getProjectResume(context, 5, 200, aliasRoot);
+
+    expect(resume.gitAvailable).toBe(true);
+    expect(resume.isGitRepository).toBe(true);
+    expect(resume.workingDirectory).toBe(aliasRoot);
     expect(resume.repositoryRoot).toBe(await realpath(repositoryRoot));
   });
 

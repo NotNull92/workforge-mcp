@@ -33,6 +33,10 @@ This keeps the public/lifecycle call surface stable while separating profile con
 
 Windows Install/Repair/Upgrade no longer runs `git init` in `%USERPROFILE%\WorkForge` merely because Git is available. The operating workspace remains a normal local folder. Existing `.git` metadata from older installations is preserved, not deleted. Git Enhanced Mode applies to the actual target passed to `project_resume(path)`.
 
+### Canonical project-resume paths
+
+`project_resume(path)` now canonicalizes the requested working directory before comparing it with Git's canonical worktree root. This prevents Windows short-path aliases, junctions, or equivalent filesystem aliases from making a valid repository appear to be outside its own worktree. The tool still returns the user's resolved requested path as `workingDirectory`; canonicalization is used only for containment comparison.
+
 ### Platform quality gates
 
 The package scripts now distinguish:
