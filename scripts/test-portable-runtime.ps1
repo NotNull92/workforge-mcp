@@ -134,6 +134,34 @@ try {
   $RolledBack = Invoke-WorkForgePortableRollback
   if ($RolledBack.Version -cne "1.3.0") { throw "Portable rollback did not restore the prior version." }
 
+  $StagedSource = New-PortableFixture -Version "1.3.2" -Marker "staged"
+  $Staged = Stage-WorkForgePortableVersion -SourceRoot $StagedSource
+  $OriginalReadInstalled = ${function:Read-WorkForgePortableInstalledVersion}
+  function Read-WorkForgePortableInstalledVersion { throw "redundant installed-engine validation" }
+  try {
+    $Activated = Activate-WorkForgePortableVersion -Version "1.3.2" -PreviousVersion "1.3.1" -ValidatedInstalled $Staged
+    if ($Activated.Version -cne "1.3.2") { throw "Validated staged record did not activate the staged engine." }
+  } finally {
+    Set-Item -LiteralPath Function:\Read-WorkForgePortableInstalledVersion -Value $OriginalReadInstalled
+  }
+
+  $script:ReadInstalledCallCount = 0
+  function Read-WorkForgePortableInstalledVersion {
+    param(
+      [Parameter(Mandatory = $true)][string]$EngineRoot,
+      [Parameter(Mandatory = $true)][string]$Version,
+      [string]$ExpectedManifestHash
+    )
+    $script:ReadInstalledCallCount += 1
+    return & $OriginalReadInstalled @PSBoundParameters
+  }
+  try {
+    $null = Activate-WorkForgePortableVersion -Version "1.3.2" -PreviousVersion "1.3.1"
+    if ($script:ReadInstalledCallCount -le 0) { throw "Activation without a validated staged record did not validate the installed engine." }
+  } finally {
+    Set-Item -LiteralPath Function:\Read-WorkForgePortableInstalledVersion -Value $OriginalReadInstalled
+  }
+
   [IO.File]::AppendAllText((Join-Path $RolledBack.EngineRoot "control-ui\app.js"), "tampered", $Utf8)
   try {
     $null = Resolve-WorkForgePortableEngine
