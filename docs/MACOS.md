@@ -6,6 +6,11 @@ macOS user's permissions. WorkForge never installs a LaunchAgent or starts at lo
 
 Requirements: Apple Silicon or Intel macOS, Node.js 20.19 or newer, Git, and ripgrep.
 
+Setup validates the running Node.js version before writing profile state. Doctor validates
+the exact Node.js executable recorded in `~/Library/Application Support/WorkForge/current.json`.
+After upgrading Node.js, rerun setup; if the executable path changed, configure the tunnel again
+so its generated stdio command points to the supported runtime.
+
 ```sh
 npm ci
 npm run build

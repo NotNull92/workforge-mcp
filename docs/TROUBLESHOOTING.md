@@ -73,6 +73,23 @@ Release users do not need npm, TypeScript, or Vitest. A source checkout needs np
 `dist` or the exact production dependencies are absent. The Node.js LTS package normally
 provides `npm.cmd` for that source-build fallback.
 
+## macOS Setup or Doctor rejects Node.js
+
+The macOS source preview requires Node.js 20.19 or newer. Setup checks the runtime executing
+`setup.mjs` before creating or changing profile state. Doctor separately checks the exact
+`nodePath` recorded in `~/Library/Application Support/WorkForge/current.json`, so an old
+registered executable cannot be reported as healthy merely because another newer `node`
+appears first on `PATH`.
+
+```sh
+which -a node
+node -p "process.versions.node + ' ' + process.execPath"
+```
+
+Upgrade Node.js deliberately and rerun macOS setup. When the executable path changes, run the
+tunnel configuration step again before starting the tunnel so the generated stdio command no
+longer references the old Node.js path.
+
 ## The terminal UI is garbled, has no color, or is hard to read
 
 WorkForge automatically selects plain output for redirected output, CI, and non-interactive hosts. Force deterministic plain output with one of these options:
