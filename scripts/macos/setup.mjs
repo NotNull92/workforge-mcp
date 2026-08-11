@@ -4,10 +4,12 @@ import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertSupportedNodeVersion } from "./node-runtime.mjs";
 
 if (process.platform !== "darwin") throw new Error("This setup entrypoint supports macOS only.");
 
 const engineRoot = realpathSync(resolve(fileURLToPath(new URL(".", import.meta.url)), "..", ".."));
+assertSupportedNodeVersion(process.versions.node, engineRoot, process.execPath);
 const argumentsMap = new Map();
 for (let index = 2; index < process.argv.length; index += 2) {
   const key = process.argv[index];
