@@ -1,4 +1,4 @@
-import { rmSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   atomicWrite,
@@ -13,6 +13,7 @@ const profileIndex = process.argv.indexOf("--profile");
 const profileId = profileIndex >= 0 ? process.argv[profileIndex + 1] : "workstation";
 const installation = loadInstallation(profileId);
 const paths = runtimePaths(installation);
+mkdirSync(installation.runtimeRoot, { recursive: true, mode: 0o700 });
 rmSync(paths.desiredPath, { force: true });
 atomicWrite(paths.stopPath, `${profileId}\n`);
 const supervisorScript = resolve(installation.engineRoot, "scripts", "macos", "tunnel-supervisor.mjs");

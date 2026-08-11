@@ -545,7 +545,7 @@ async function performAction(action) {
   try {
     if (action === 'start') {
       recordActivity('info', 'Starting secure tunnel...');
-      if (isMacOS) await runMacOSScript('start-tunnel.mjs', ['--profile', profileId], 45_000);
+      if (isMacOS) await runMacOSScript('start-tunnel.mjs', ['--profile', profileId], 90_000);
       else await runPowerShell('start-tunnel.ps1', ['-ProfileId', profileId]);
       recordActivity('success', 'Start command completed.');
     } else if (action === 'stop') {

@@ -182,6 +182,7 @@ export function tunnelDoctor(installation, key, stdio = "ignore") {
   ], {
     env: { ...scrubControlPlaneEnvironment(), CONTROL_PLANE_API_KEY: validateControlPlaneKey(key) },
     stdio,
+    timeout: 10_000,
   });
   return result.status === 0;
 }

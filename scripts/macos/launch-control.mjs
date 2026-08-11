@@ -31,8 +31,11 @@ const child = spawn(installation.nodePath, argumentsList, {
   stdio: ["ignore", logHandle, logHandle],
 });
 closeSync(logHandle);
+let spawnError;
+child.on("error", (error) => { spawnError = error; });
 
 await delay(700);
+if (spawnError) throw new Error(`Could not launch WorkForge Control: ${spawnError.message}`);
 if (child.exitCode !== null) {
   const detail = readFileSync(logPath, "utf8").slice(-12_000).trim();
   throw new Error(detail || `WorkForge Control exited with code ${child.exitCode}.`);
