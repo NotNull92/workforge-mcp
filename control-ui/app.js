@@ -29,6 +29,12 @@ const elements = {
   latestVersionMetric: document.querySelector('#latestVersionMetric'),
   checkUpdateButton: document.querySelector('#checkUpdateButton'),
   updateButton: document.querySelector('#updateButton'),
+  updateProgress: document.querySelector('#updateProgress'),
+  updateProgressLabel: document.querySelector('#updateProgressLabel'),
+  updateProgressPercent: document.querySelector('#updateProgressPercent'),
+  updateProgressTrack: document.querySelector('#updateProgressTrack'),
+  updateProgressBar: document.querySelector('#updateProgressBar'),
+  updateStageList: document.querySelector('#updateStageList'),
   toast: document.querySelector('#toast'),
   uninstallDialog: document.querySelector('#uninstallDialog'),
   openUninstallButton: document.querySelector('#openUninstallButton'),
@@ -42,7 +48,9 @@ const elements = {
 
 let currentStatus = null;
 let currentUpdate = null;
+let currentUpdateProgress = null;
 let pollTimer = null;
+let updateProgressTimer = null;
 let toastTimer = null;
 let actionInFlight = false;
 let lastPreviewMode = null;
@@ -83,13 +91,14 @@ function setBusy(active, label = 'Idle') {
 
 function updateButtons() {
   const running = Boolean(currentStatus?.running);
-  elements.startButton.disabled = actionInFlight || running;
-  elements.stopButton.disabled = actionInFlight || !running;
-  elements.refreshButton.disabled = actionInFlight;
-  elements.doctorButton.disabled = actionInFlight;
-  elements.checkUpdateButton.disabled = actionInFlight;
-  elements.updateButton.disabled = actionInFlight || !currentUpdate?.updateAvailable;
-  elements.openUninstallButton.disabled = actionInFlight;
+  const updating = currentUpdateProgress?.status === 'running' || currentUpdateProgress?.status === 'rollback';
+  elements.startButton.disabled = actionInFlight || updating || running;
+  elements.stopButton.disabled = actionInFlight || updating || !running;
+  elements.refreshButton.disabled = actionInFlight || updating;
+  elements.doctorButton.disabled = actionInFlight || updating;
+  elements.checkUpdateButton.disabled = actionInFlight || updating;
+  elements.updateButton.disabled = actionInFlight || updating || !currentUpdate?.updateAvailable;
+  elements.openUninstallButton.disabled = actionInFlight || updating;
 }
 
 function labelState(value) {
@@ -247,6 +256,82 @@ async function runAction(action) {
   }
 }
 
+const updateStageOrder = [
+  'checking',
+  'downloading',
+  'verifying',
+  'staging',
+  'stopping',
+  'activating',
+  'rebinding',
+  'doctor',
+  'restarting',
+  'finalizing',
+];
+
+function renderUpdateProgress(progress) {
+  currentUpdateProgress = progress || null;
+  if (!progress || progress.status === 'idle') {
+    elements.updateProgress.className = 'update-progress hidden';
+    updateButtons();
+    return;
+  }
+
+  const status = String(progress.status || 'running');
+  const percent = Math.max(0, Math.min(100, Math.round(Number(progress.percent) || 0)));
+  const stage = String(progress.stage || 'starting');
+  const targetVersion = progress.targetVersion || currentUpdate?.latestVersion || 'the latest version';
+  elements.updateProgress.className = `update-progress ${status}`;
+  elements.updateProgressLabel.textContent = progress.message || 'WorkForge update is running...';
+  elements.updateProgressPercent.textContent = `${percent}%`;
+  elements.updateProgressTrack.setAttribute('aria-valuenow', String(percent));
+  elements.updateProgressBar.style.width = `${percent}%`;
+
+  const activeIndex = updateStageOrder.indexOf(stage);
+  const completedAll = status === 'completed';
+  for (const item of elements.updateStageList.querySelectorAll('[data-update-stage]')) {
+    const index = updateStageOrder.indexOf(item.dataset.updateStage);
+    item.className = '';
+    if (completedAll || (activeIndex >= 0 && index < activeIndex)) item.classList.add('complete');
+    if (!completedAll && index === activeIndex) item.classList.add('current');
+  }
+
+  if (status === 'running') {
+    elements.updateTitle.textContent = `Updating WorkForge to ${targetVersion}...`;
+    elements.updateSummary.textContent = progress.message || 'The update is running. Keep this Control window open.';
+    elements.updateBadge.textContent = 'Updating';
+    elements.updateBadge.className = 'badge badge-warning';
+  } else if (status === 'rollback') {
+    elements.updateTitle.textContent = 'Restoring the previous WorkForge version...';
+    elements.updateSummary.textContent = progress.message || 'Update validation failed. WorkForge is rolling back safely.';
+    elements.updateBadge.textContent = 'Rolling back';
+    elements.updateBadge.className = 'badge badge-error';
+  } else if (status === 'failed') {
+    elements.updateTitle.textContent = 'WorkForge update failed';
+    elements.updateSummary.textContent = progress.message || 'The update did not complete. Review Recent Activity and retry when ready.';
+    elements.updateBadge.textContent = 'Update failed';
+    elements.updateBadge.className = 'badge badge-error';
+  } else if (status === 'completed') {
+    elements.updateTitle.textContent = `WorkForge ${targetVersion} installed`;
+    elements.updateSummary.textContent = progress.message || 'The update completed successfully.';
+    elements.updateBadge.textContent = 'Updated';
+    elements.updateBadge.className = 'badge badge-success';
+  }
+  updateButtons();
+}
+
+function startUpdateProgressPolling() {
+  clearInterval(updateProgressTimer);
+  updateProgressTimer = setInterval(() => {
+    if (!document.hidden) refreshUpdate({ quiet: true });
+  }, 800);
+}
+
+function stopUpdateProgressPolling() {
+  clearInterval(updateProgressTimer);
+  updateProgressTimer = null;
+}
+
 function renderUpdate(update) {
   currentUpdate = update;
   elements.currentVersionMetric.textContent = update.currentVersion || 'Unknown';
@@ -280,10 +365,19 @@ async function refreshUpdate({ force = false, quiet = false } = {}) {
   try {
     const payload = await api(force ? '/api/update?refresh=1' : '/api/update');
     renderUpdate(payload.update);
+    renderUpdateProgress(payload.updateProgress);
     if (payload.activity) renderActivity(payload.activity);
+    if (payload.activeAction === 'update') {
+      setBusy(true, 'Updating…');
+      if (!updateProgressTimer) startUpdateProgressPolling();
+    }
   } catch (error) {
-    renderUpdateFailure(error.message);
-    if (!quiet) toast(error.message, 'error');
+    if (currentUpdateProgress?.status === 'running' || currentUpdateProgress?.status === 'rollback') {
+      elements.updateProgressLabel.textContent = 'Waiting for the local update service...';
+    } else {
+      renderUpdateFailure(error.message);
+      if (!quiet) toast(error.message, 'error');
+    }
   }
 }
 
@@ -292,16 +386,33 @@ async function applyUpdate() {
   const targetVersion = currentUpdate.latestVersion || 'the latest version';
   if (!window.confirm(`Update WorkForge to ${targetVersion}? Running WorkForge tunnels will be restarted automatically. If validation fails, WorkForge will roll back to the current engine.`)) return;
 
+  renderUpdateProgress({
+    status: 'running',
+    stage: 'starting',
+    percent: 2,
+    message: 'Starting the WorkForge update...',
+    targetVersion,
+  });
   setBusy(true, 'Updating…');
+  startUpdateProgressPolling();
   try {
     const payload = await api('/api/update', {
       method: 'POST',
       body: JSON.stringify({ confirm: true }),
     });
+    stopUpdateProgressPolling();
     clearInterval(pollTimer);
+    renderUpdateProgress(payload.updateProgress || {
+      status: 'completed',
+      stage: 'completed',
+      percent: 100,
+      message: payload.message || 'WorkForge update completed.',
+      targetVersion,
+    });
     toast(payload.message || 'WorkForge update completed.', 'success');
     document.body.innerHTML = '<main class="shell"><section class="panel"><p class="eyebrow">WORKFORGE UPDATED</p><h1>Update completed</h1><p class="panel-copy">Open WorkForge Control again to use the new engine and dashboard.</p></section></main>';
   } catch (error) {
+    stopUpdateProgressPolling();
     toast(error.message, 'error');
     setBusy(false);
     await refreshUpdate({ force: true, quiet: true });

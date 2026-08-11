@@ -53,6 +53,15 @@ let cachedStatusAt = 0;
 let statusPromise = null;
 let cachedUpdate = null;
 let cachedUpdateAt = 0;
+let updateProgress = {
+  status: 'idle',
+  stage: 'idle',
+  percent: 0,
+  message: '',
+  targetVersion: null,
+  startedAt: null,
+  updatedAt: null,
+};
 const statusCacheMs = testMode ? 0 : 3000;
 const updateCacheMs = testMode ? 0 : 5 * 60_000;
 
@@ -63,6 +72,37 @@ function recordActivity(kind, message) {
     message: sanitizeText(message),
   });
   if (activity.length > 30) activity.length = 30;
+}
+
+function setUpdateProgress({ status, stage, percent, message, targetVersion } = {}) {
+  const now = new Date().toISOString();
+  updateProgress = {
+    ...updateProgress,
+    ...(status ? { status: String(status) } : {}),
+    ...(stage ? { stage: String(stage) } : {}),
+    ...(Number.isFinite(percent) ? { percent: Math.max(0, Math.min(100, Math.round(percent))) } : {}),
+    ...(message != null ? { message: sanitizeText(message) } : {}),
+    ...(targetVersion !== undefined ? { targetVersion: targetVersion == null ? null : String(targetVersion) } : {}),
+    startedAt: updateProgress.startedAt || now,
+    updatedAt: now,
+  };
+}
+
+function consumeUpdateProgressLine(line) {
+  const prefix = 'WORKFORGE_UPDATE_PROGRESS ';
+  if (!String(line).startsWith(prefix)) return false;
+  try {
+    const event = JSON.parse(String(line).slice(prefix.length));
+    setUpdateProgress({
+      status: event.stage === 'completed' ? 'completed' : event.stage === 'rollback' ? 'rollback' : 'running',
+      stage: event.stage,
+      percent: Number(event.percent),
+      message: event.message,
+    });
+  } catch {
+    setUpdateProgress({ status: 'running', message: 'WorkForge update is still running...' });
+  }
+  return true;
 }
 
 recordActivity('info', 'Control dashboard started.');
@@ -198,7 +238,7 @@ function terminateProcessTree(child) {
   killer.unref();
 }
 
-function runPowerShell(scriptName, argumentsList = [], timeoutMs = 90_000) {
+function runPowerShell(scriptName, argumentsList = [], timeoutMs = 90_000, options = {}) {
   return new Promise((resolve, reject) => {
     const scriptPath = path.join(scriptDirectory, scriptName);
     const environment = controlEnvironment();
@@ -216,6 +256,7 @@ function runPowerShell(scriptName, argumentsList = [], timeoutMs = 90_000) {
 
     let stdout = '';
     let stderr = '';
+    let stderrRemainder = '';
     const maxOutput = 512 * 1024;
     let overflow = false;
     const append = (current, chunk) => {
@@ -226,7 +267,16 @@ function runPowerShell(scriptName, argumentsList = [], timeoutMs = 90_000) {
       return current + chunk.toString('utf8');
     };
     child.stdout.on('data', chunk => { stdout = append(stdout, chunk); });
-    child.stderr.on('data', chunk => { stderr = append(stderr, chunk); });
+    const handleStderrLine = line => {
+      if (typeof options.onStderrLine === 'function' && options.onStderrLine(line) === true) return;
+      stderr = append(stderr, `${line}\n`);
+    };
+    child.stderr.on('data', chunk => {
+      stderrRemainder += chunk.toString('utf8');
+      const lines = stderrRemainder.split(/\r?\n/);
+      stderrRemainder = lines.pop() || '';
+      for (const line of lines) handleStderrLine(line);
+    });
 
     const timer = setTimeout(() => {
       terminateProcessTree(child);
@@ -239,6 +289,10 @@ function runPowerShell(scriptName, argumentsList = [], timeoutMs = 90_000) {
     });
     child.once('close', code => {
       clearTimeout(timer);
+      if (stderrRemainder) {
+        handleStderrLine(stderrRemainder);
+        stderrRemainder = '';
+      }
       if (overflow) {
         reject(new Error(`${scriptName} produced too much output.`));
         return;
@@ -340,9 +394,23 @@ async function getUpdateStatus({ force = false } = {}) {
 async function performUpdate() {
   if (activeAction) throw new Error(`Another control action is already running: ${activeAction}.`);
   activeAction = 'update';
+  updateProgress = {
+    status: 'running',
+    stage: 'starting',
+    percent: 2,
+    message: 'Starting the WorkForge update...',
+    targetVersion: cachedUpdate?.latestVersion ? String(cachedUpdate.latestVersion) : null,
+    startedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
   try {
     recordActivity('info', 'Downloading and validating the WorkForge update...');
-    const result = await runPowerShell('Update.ps1', ['-Action', 'Apply', '-Json'], 10 * 60_000);
+    const result = await runPowerShell(
+      'Update.ps1',
+      ['-Action', 'Apply', '-Json', '-EmitProgress'],
+      10 * 60_000,
+      { onStderrLine: consumeUpdateProgressLine },
+    );
     let parsed;
     try {
       parsed = JSON.parse(result.stdout);
@@ -351,8 +419,20 @@ async function performUpdate() {
     }
     if (parsed.updated) recordActivity('success', `Updated WorkForge to ${parsed.version}.`);
     else recordActivity('info', parsed.message || 'WorkForge is already up to date.');
+    setUpdateProgress({
+      status: 'completed',
+      stage: 'completed',
+      percent: 100,
+      message: parsed.message || 'WorkForge update completed.',
+      targetVersion: parsed.version || parsed.latestVersion || updateProgress.targetVersion,
+    });
     return parsed;
   } catch (error) {
+    setUpdateProgress({
+      status: 'failed',
+      percent: updateProgress.percent,
+      message: error.message,
+    });
     recordActivity('error', `update failed: ${error.message}`);
     throw error;
   } finally {
@@ -477,8 +557,16 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === 'GET' && url.pathname === '/api/update') {
-      const update = await getUpdateStatus({ force: url.searchParams.get('refresh') === '1' });
-      sendJson(response, 200, { ok: true, update, activity, activeAction });
+      const useCachedUpdate = activeAction === 'update' || updateProgress.status === 'completed';
+      const update = useCachedUpdate
+        ? cachedUpdate || {
+            supported: true,
+            currentVersion: version,
+            latestVersion: updateProgress.targetVersion,
+            updateAvailable: true,
+          }
+        : await getUpdateStatus({ force: url.searchParams.get('refresh') === '1' });
+      sendJson(response, 200, { ok: true, update, updateProgress, activity, activeAction });
       return;
     }
 
@@ -500,7 +588,7 @@ const server = http.createServer(async (request, response) => {
       const body = await readJsonBody(request);
       if (body.confirm !== true) throw new Error('Explicit update confirmation is required.');
       const update = await performUpdate();
-      sendJson(response, 200, { ok: true, update, message: update.message || 'WorkForge update completed.' });
+      sendJson(response, 200, { ok: true, update, updateProgress, message: update.message || 'WorkForge update completed.' });
       if (update.updated) {
         shuttingDown = true;
         setTimeout(() => server.close(() => process.exit(0)), 900).unref();

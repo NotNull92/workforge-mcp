@@ -32,10 +32,16 @@ assert(!serverSource.includes("spawn('cmd.exe'"), 'Control dashboard must not re
 assert(htmlSource.includes('Start Tunnel'), 'Control dashboard is missing Start.');
 assert(htmlSource.includes('Run Doctor'), 'Control dashboard is missing Doctor.');
 assert(htmlSource.includes('Update WorkForge'), 'Control dashboard is missing update flow.');
+assert(htmlSource.includes('updateProgressTrack'), 'Control dashboard is missing update progress semantics.');
+assert(htmlSource.includes('data-update-stage="downloading"'), 'Control dashboard is missing update stage indicators.');
 assert(htmlSource.includes('Remove WorkForge'), 'Control dashboard is missing uninstall flow.');
 assert(serverSource.includes("url.pathname === '/api/update'"), 'Control server is missing update endpoints.');
 assert(serverSource.includes("runPowerShell('Update.ps1'"), 'Control server does not use the transactional updater.');
+assert(serverSource.includes('WORKFORGE_UPDATE_PROGRESS '), 'Control server does not consume updater progress events.');
+assert(serverSource.includes("'-EmitProgress'"), 'Control server does not opt into updater progress events.');
 assert(appSource.includes("'/api/update'"), 'Control dashboard does not invoke the update API.');
+assert(appSource.includes('startUpdateProgressPolling'), 'Control dashboard does not poll update progress.');
+assert(appSource.includes('updateProgressBar.style.width'), 'Control dashboard does not render progress width.');
 assert(appSource.includes("'/api/uninstall/preview'"), 'Control dashboard does not preview uninstall.');
 assert(appSource.includes("phrase: elements.destructivePhrase.value"), 'Destructive uninstall phrase is not forwarded.');
 

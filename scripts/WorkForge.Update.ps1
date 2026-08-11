@@ -6,6 +6,21 @@ $script:WorkForgeUpdateDownloadPrefix = "https://github.com/NotNull92/workforge-
 $script:WorkForgeUpdateUserAgent = "WorkForge-Updater"
 $script:WorkForgeUpdateMaxArchiveBytes = 536870912
 
+function Invoke-WorkForgeUpdateProgressCallback {
+  param(
+    [scriptblock]$ProgressCallback,
+    [Parameter(Mandatory = $true)][string]$Stage,
+    [Parameter(Mandatory = $true)][int]$Percent,
+    [Parameter(Mandatory = $true)][string]$Message
+  )
+  if ($null -eq $ProgressCallback) { return }
+  try {
+    $null = & $ProgressCallback $Stage $Percent $Message
+  } catch {
+    # Progress reporting is observational and must never change update correctness.
+  }
+}
+
 function ConvertTo-WorkForgeStableVersion {
   param([Parameter(Mandatory = $true)][string]$Value)
   if ($Value -cnotmatch '^\d+\.\d+\.\d+$') { throw "WorkForge update versions must use stable semantic versioning." }
@@ -78,7 +93,10 @@ function Get-WorkForgeUpdateInfo {
 }
 
 function Receive-WorkForgeUpdateRelease {
-  param([Parameter(Mandatory = $true)][object]$Descriptor)
+  param(
+    [Parameter(Mandatory = $true)][object]$Descriptor,
+    [scriptblock]$ProgressCallback
+  )
   $Roots = Get-WorkForgePortableRoots
   $UpdatesRoot = Join-Path $Roots.StateRoot "updates"
   New-Item -ItemType Directory -Path $UpdatesRoot -Force | Out-Null
@@ -89,8 +107,11 @@ function Receive-WorkForgeUpdateRelease {
     $ArchivePath = Join-Path $TempRoot $Descriptor.ArchiveName
     $ChecksumPath = Join-Path $TempRoot $Descriptor.ChecksumName
     $Headers = @{ "User-Agent" = $script:WorkForgeUpdateUserAgent }
+    Invoke-WorkForgeUpdateProgressCallback -ProgressCallback $ProgressCallback -Stage "downloading" -Percent 15 -Message "Downloading WorkForge $($Descriptor.LatestVersion)..."
     Invoke-WebRequest -UseBasicParsing -Uri $Descriptor.ArchiveUrl -Headers $Headers -OutFile $ArchivePath -TimeoutSec 120
+    Invoke-WorkForgeUpdateProgressCallback -ProgressCallback $ProgressCallback -Stage "downloading" -Percent 28 -Message "Downloading the release checksum..."
     Invoke-WebRequest -UseBasicParsing -Uri $Descriptor.ChecksumUrl -Headers $Headers -OutFile $ChecksumPath -TimeoutSec 120
+    Invoke-WorkForgeUpdateProgressCallback -ProgressCallback $ProgressCallback -Stage "verifying" -Percent 34 -Message "Verifying the downloaded release..."
 
     $Archive = Get-Item -LiteralPath $ArchivePath -Force -ErrorAction Stop
     $Checksum = Get-Item -LiteralPath $ChecksumPath -Force -ErrorAction Stop
@@ -105,6 +126,7 @@ function Receive-WorkForgeUpdateRelease {
     $ObservedHash = (Get-WorkForgeFileSha256 -Path $ArchivePath).ToLowerInvariant()
     if ($ObservedHash -cne $ExpectedHash) { throw "Downloaded WorkForge archive failed its SHA-256 check." }
 
+    Invoke-WorkForgeUpdateProgressCallback -ProgressCallback $ProgressCallback -Stage "verifying" -Percent 40 -Message "SHA-256 verified. Extracting the release..."
     New-Item -ItemType Directory -Path $ExtractRoot -Force | Out-Null
     Expand-Archive -LiteralPath $ArchivePath -DestinationPath $ExtractRoot -Force
     $Manifests = @(Get-ChildItem -LiteralPath $ExtractRoot -Recurse -Force -File -Filter ".workforge-release.json")
@@ -113,6 +135,7 @@ function Receive-WorkForgeUpdateRelease {
     $Release = Get-WorkForgePortableRelease -SourceRoot $ReleaseRoot
     if ($Release.ValidationBuild) { throw "Validation builds cannot be installed by the automatic updater." }
     if ($Release.Version -cne $Descriptor.LatestVersion) { throw "Downloaded WorkForge release version does not match GitHub metadata." }
+    Invoke-WorkForgeUpdateProgressCallback -ProgressCallback $ProgressCallback -Stage "verifying" -Percent 46 -Message "Release package verified."
     return [pscustomobject]@{ Root = $Release.Root; Version = $Release.Version; TempRoot = $TempRoot; Sha256 = $ObservedHash }
   } catch {
     if (Test-Path -LiteralPath $TempRoot) { Remove-Item -LiteralPath $TempRoot -Recurse -Force -ErrorAction SilentlyContinue }
@@ -181,7 +204,10 @@ function Write-WorkForgeUpdateAtomicBytes {
 }
 
 function Invoke-WorkForgeTransactionalUpgrade {
-  param([Parameter(Mandatory = $true)][string]$SourceRoot)
+  param(
+    [Parameter(Mandatory = $true)][string]$SourceRoot,
+    [scriptblock]$ProgressCallback
+  )
 
   $CurrentRuntime = Resolve-WorkForgePortableEngine
   $Release = Get-WorkForgePortableRelease -SourceRoot $SourceRoot
@@ -190,7 +216,9 @@ function Invoke-WorkForgeTransactionalUpgrade {
   }
 
   # Full immutable-engine hashing happens before any tunnel is stopped or current.json changes.
+  Invoke-WorkForgeUpdateProgressCallback -ProgressCallback $ProgressCallback -Stage "staging" -Percent 50 -Message "Staging the new engine side-by-side..."
   $null = Stage-WorkForgePortableVersion -SourceRoot $SourceRoot
+  Invoke-WorkForgeUpdateProgressCallback -ProgressCallback $ProgressCallback -Stage "staging" -Percent 57 -Message "Capturing existing tunnel state..."
   $Profiles = @(Get-WorkForgeUpdateProfileRecords -EngineRoot $CurrentRuntime.EngineRoot)
   $ProfileStates = @()
   foreach ($Profile in $Profiles) {
@@ -211,21 +239,27 @@ function Invoke-WorkForgeTransactionalUpgrade {
   $Activated = $false
   $NewRuntime = $null
   try {
+    Invoke-WorkForgeUpdateProgressCallback -ProgressCallback $ProgressCallback -Stage "stopping" -Percent 63 -Message "Pausing running WorkForge tunnels..."
     foreach ($State in $ProfileStates | Where-Object { $_.WasRunning }) {
       & (Join-Path $CurrentRuntime.EngineRoot "scripts\stop-tunnel.ps1") -ProfileId $State.Id | Out-Null
     }
 
+    Invoke-WorkForgeUpdateProgressCallback -ProgressCallback $ProgressCallback -Stage "activating" -Percent 70 -Message "Activating WorkForge $($Release.Version)..."
     $ActivationAttempted = $true
     $NewRuntime = Activate-WorkForgePortableVersion -Version $Release.Version -PreviousVersion $CurrentRuntime.Version
     $Activated = $true
 
+    Invoke-WorkForgeUpdateProgressCallback -ProgressCallback $ProgressCallback -Stage "rebinding" -Percent 79 -Message "Rebinding tunnel profiles to the new runtime..."
     foreach ($State in $ProfileStates | Where-Object { $_.Configured }) {
       & (Join-Path $NewRuntime.EngineRoot "scripts\Configure-Tunnel.ps1") -ProfileId $State.Id -RebindRuntime -SkipDoctor | Out-Null
+      Invoke-WorkForgeUpdateProgressCallback -ProgressCallback $ProgressCallback -Stage "doctor" -Percent 86 -Message "Running post-update Doctor checks..."
       & (Join-Path $NewRuntime.EngineRoot "scripts\Doctor.ps1") -ProfileId $State.Id | Out-Null
     }
+    Invoke-WorkForgeUpdateProgressCallback -ProgressCallback $ProgressCallback -Stage "restarting" -Percent 93 -Message "Restoring the previous tunnel running state..."
     foreach ($State in $ProfileStates | Where-Object { $_.WasRunning }) {
       & (Join-Path $NewRuntime.EngineRoot "scripts\start-tunnel.ps1") -ProfileId $State.Id | Out-Null
     }
+    Invoke-WorkForgeUpdateProgressCallback -ProgressCallback $ProgressCallback -Stage "finalizing" -Percent 98 -Message "Finalizing the WorkForge update..."
 
     return [pscustomobject]@{
       Updated = $true
@@ -236,6 +270,7 @@ function Invoke-WorkForgeTransactionalUpgrade {
     }
   } catch {
     $OriginalError = $_.Exception.Message
+    Invoke-WorkForgeUpdateProgressCallback -ProgressCallback $ProgressCallback -Stage "rollback" -Percent 96 -Message "Update validation failed. Restoring the previous WorkForge engine..."
     $RollbackIssues = [Collections.Generic.List[string]]::new()
 
     if ($Activated -and $null -ne $NewRuntime) {

@@ -103,6 +103,9 @@ try {
   [Environment]::SetEnvironmentVariable("WORKFORGE_PORTABLE_STATE_ROOT", $StateRoot, "Process")
   . (Join-Path $PSScriptRoot "WorkForge.Update.ps1")
 
+  $ThrowingProgressCallback = { throw "simulated progress renderer failure" }
+  Invoke-WorkForgeUpdateProgressCallback -ProgressCallback $ThrowingProgressCallback -Stage "test" -Percent 1 -Message "test"
+
   $Metadata = [pscustomobject]@{
     draft = $false
     prerelease = $false
@@ -127,8 +130,21 @@ try {
   $CurrentSource = New-UpdateFixture -Version "0.2.0" -Marker "current"
   $null = Install-WorkForgePortableVersion -SourceRoot $CurrentSource
   $TargetSource = New-UpdateFixture -Version "0.2.1" -Marker "target"
-  $Upgrade = Invoke-WorkForgeTransactionalUpgrade -SourceRoot $TargetSource
+  $ProgressEvents = [Collections.Generic.List[object]]::new()
+  $ProgressCallback = {
+    param([string]$Stage, [int]$Percent, [string]$Message)
+    $ProgressEvents.Add([pscustomobject]@{ Stage = $Stage; Percent = $Percent; Message = $Message })
+  }.GetNewClosure()
+  $Upgrade = Invoke-WorkForgeTransactionalUpgrade -SourceRoot $TargetSource -ProgressCallback $ProgressCallback
   if ($Upgrade.Version -cne "0.2.1" -or (Resolve-WorkForgePortableEngine).Version -cne "0.2.1") { throw "Transactional update did not activate the target version." }
+  $ObservedProgressStages = @($ProgressEvents | ForEach-Object { $_.Stage })
+  foreach ($ExpectedStage in @("staging", "stopping", "activating", "rebinding", "restarting", "finalizing")) {
+    if ($ObservedProgressStages -notcontains $ExpectedStage) { throw "Transactional update did not emit progress stage: $ExpectedStage" }
+  }
+  $ObservedProgressPercents = @($ProgressEvents | ForEach-Object { [int]$_.Percent })
+  for ($Index = 1; $Index -lt $ObservedProgressPercents.Count; $Index += 1) {
+    if ($ObservedProgressPercents[$Index] -lt $ObservedProgressPercents[$Index - 1]) { throw "Transactional update progress moved backwards." }
+  }
   $RolledBack = Invoke-WorkForgePortableRollback
   if ($RolledBack.Version -cne "0.2.0") { throw "Portable rollback did not restore the pre-update version." }
 
@@ -146,12 +162,14 @@ try {
   $RunningMarker = Join-Path $StateRoot "tunnel-workstation.running"
   Write-FixtureText -Path $RunningMarker -Text "running"
   $FailingSource = New-UpdateFixture -Version "0.2.2" -Marker "failing" -FailRebind
+  $ProgressEvents.Clear()
   try {
-    $null = Invoke-WorkForgeTransactionalUpgrade -SourceRoot $FailingSource
+    $null = Invoke-WorkForgeTransactionalUpgrade -SourceRoot $FailingSource -ProgressCallback $ProgressCallback
     throw "Transactional update unexpectedly ignored the rebind failure."
   } catch {
     if ($_.Exception.Message -notmatch "simulated rebind failure") { throw }
   }
+  if (@($ProgressEvents | ForEach-Object { $_.Stage }) -notcontains "rollback") { throw "Failed transactional update did not emit rollback progress." }
   if ((Resolve-WorkForgePortableEngine).Version -cne "0.2.0") { throw "Failed update did not restore the prior engine." }
   if ((Get-Content -Raw -LiteralPath $TunnelConfigPath).Trim() -cne "original-config") { throw "Failed update did not restore the original tunnel configuration." }
   if (-not (Test-Path -LiteralPath $RunningMarker -PathType Leaf)) { throw "Failed update did not restore the pre-update running tunnel state." }

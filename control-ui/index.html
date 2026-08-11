@@ -132,6 +132,35 @@
           <strong id="latestVersionMetric">—</strong>
         </div>
       </div>
+      <div id="updateProgress" class="update-progress hidden" aria-live="polite">
+        <div class="update-progress-heading">
+          <strong id="updateProgressLabel">Preparing update…</strong>
+          <span id="updateProgressPercent">0%</span>
+        </div>
+        <div
+          id="updateProgressTrack"
+          class="update-progress-track"
+          role="progressbar"
+          aria-label="WorkForge update progress"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="0"
+        >
+          <div id="updateProgressBar" class="update-progress-bar"></div>
+        </div>
+        <div id="updateStageList" class="update-stage-list" aria-label="Update stages">
+          <span data-update-stage="checking">Check</span>
+          <span data-update-stage="downloading">Download</span>
+          <span data-update-stage="verifying">Verify</span>
+          <span data-update-stage="staging">Stage</span>
+          <span data-update-stage="stopping">Pause tunnels</span>
+          <span data-update-stage="activating">Activate</span>
+          <span data-update-stage="rebinding">Rebind</span>
+          <span data-update-stage="doctor">Doctor</span>
+          <span data-update-stage="restarting">Restart</span>
+          <span data-update-stage="finalizing">Finish</span>
+        </div>
+      </div>
       <div class="button-row">
         <button id="checkUpdateButton" class="button button-secondary" type="button">Check again</button>
         <button id="updateButton" class="button button-primary" type="button" disabled>Update WorkForge</button>
