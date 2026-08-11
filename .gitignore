@@ -11,3 +11,4 @@ uninstall-*.json
 .workforge-install.json
 current.json
 *.user
+.worktrees/
