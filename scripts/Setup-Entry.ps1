@@ -1,10 +1,53 @@
+[CmdletBinding()]
+param(
+  [ValidateSet("Auto", "Install", "Repair", "Upgrade")]
+  [string]$Mode = "Auto",
+
+  [string]$WorkspaceRoot = (Join-Path $env:USERPROFILE "WorkForge"),
+
+  [string]$ProfileId = "workstation",
+
+  [string]$DisplayName = "WorkForge",
+
+  [string]$TunnelId,
+
+  [switch]$SkipTunnelConfiguration,
+
+  [switch]$ReconfigureTunnel,
+
+  [switch]$SkipStart,
+
+  [switch]$SkipOnlineDoctor,
+
+  [switch]$NoBrowser,
+
+  [switch]$SkipTunnelDownload,
+
+  [switch]$NoDesktopShortcut,
+
+  [switch]$InstallMissingPrerequisites,
+
+  [switch]$InstallGit,
+
+  [switch]$NonInteractive,
+
+  [string]$RegistryPath,
+
+  [switch]$Plain,
+
+  [switch]$NoLog
+)
+
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version 3.0
 
 $SourceRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..") -ErrorAction Stop).Path
 $SetupPath = Join-Path $PSScriptRoot "Setup.ps1"
 $PortableModule = Join-Path $PSScriptRoot "WorkForge.Portable.ps1"
-$SetupArguments = @($args)
+$SetupArguments = @{}
+foreach ($Entry in $PSBoundParameters.GetEnumerator()) {
+  $SetupArguments[$Entry.Key] = $Entry.Value
+}
 
 if (Test-Path -LiteralPath (Join-Path $SourceRoot ".workforge-release.json") -PathType Leaf) {
   . $PortableModule
@@ -29,7 +72,7 @@ if (Test-Path -LiteralPath (Join-Path $SourceRoot ".workforge-release.json") -Pa
         . (Join-Path $PSScriptRoot "WorkForge.Update.ps1")
         $Upgrade = Invoke-WorkForgeTransactionalUpgrade -SourceRoot $SourceRoot
         Write-Output ("WorkForge updated from {0} to {1}. Existing profiles, credentials, and workspace files were preserved." -f $Upgrade.PreviousVersion, $Upgrade.Version)
-        if ($SetupArguments -notcontains "-SkipStart") { $SetupArguments += "-SkipStart" }
+        $SetupArguments["SkipStart"] = $true
         $Runtime = Resolve-WorkForgePortableEngine
       }
     }

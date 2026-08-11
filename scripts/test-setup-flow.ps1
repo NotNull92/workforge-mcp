@@ -4,23 +4,37 @@ Set-StrictMode -Version 3.0
 $ToolRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..") -ErrorAction Stop).Path
 . (Join-Path $PSScriptRoot "WorkForge.Portable.ps1")
 $SetupPath = Join-Path $PSScriptRoot "Setup-Entry.ps1"
+$SetupImplementationPath = Join-Path $PSScriptRoot "Setup.ps1"
 $TestRoot = Join-Path ([IO.Path]::GetTempPath()) ("workforge-setup-" + [guid]::NewGuid().ToString("N"))
 $WorkspaceRoot = Join-Path $TestRoot "workspace"
 $RegistryPath = Join-Path $TestRoot "runtime\profile_registry.json"
 $Utf8 = [Text.UTF8Encoding]::new($false)
-$SetupText = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "Setup.ps1")
+$SetupText = Get-Content -Raw -LiteralPath $SetupImplementationPath
 $SetupEntryText = Get-Content -Raw -LiteralPath $SetupPath
 foreach ($RequiredUpgradeToken in @(
   "Invoke-WorkForgeTransactionalUpgrade",
   "profile_registry.json",
   "Setup refuses to downgrade WorkForge",
-  "SetupArguments",
-  "-SkipStart"
+  '$PSBoundParameters',
+  '$SetupArguments["SkipStart"] = $true'
 )) {
   if ($SetupEntryText.IndexOf($RequiredUpgradeToken, [StringComparison]::Ordinal) -lt 0) {
     throw "Portable Setup entry lost the transactional upgrade bridge: $RequiredUpgradeToken"
   }
 }
+if ($SetupEntryText.Contains('$SetupArguments += "-SkipStart"')) {
+  throw "Portable Setup entry must not inject SkipStart as a positional array token."
+}
+
+$SetupAst = [Management.Automation.Language.Parser]::ParseFile($SetupImplementationPath, [ref]$null, [ref]$null)
+$SetupEntryAst = [Management.Automation.Language.Parser]::ParseFile($SetupPath, [ref]$null, [ref]$null)
+$SetupParameterNames = @($SetupAst.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath } | Sort-Object)
+$SetupEntryParameterNames = @($SetupEntryAst.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath } | Sort-Object)
+$ParameterDifference = @(Compare-Object -ReferenceObject $SetupParameterNames -DifferenceObject $SetupEntryParameterNames)
+if ($ParameterDifference.Count -gt 0) {
+  throw "Setup-Entry.ps1 parameter surface drifted from Setup.ps1: $($ParameterDifference | Out-String)"
+}
+
 $UnqualifiedTunnelAssignments = [regex]::Matches($SetupText, '(?m)^\s*\$TunnelConfigured\s*=')
 if ($UnqualifiedTunnelAssignments.Count -gt 0) {
   throw "Setup loses successful tunnel state when a stage body assigns TunnelConfigured in its child scope."
