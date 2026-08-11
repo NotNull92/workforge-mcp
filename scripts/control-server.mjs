@@ -511,6 +511,16 @@ async function performUninstall(mode, body) {
   }
 }
 
+function closeControlServer(delayMs = 0) {
+  shuttingDown = true;
+  const close = () => {
+    server.close(() => process.exit(0));
+    server.closeAllConnections();
+  };
+  if (delayMs > 0) setTimeout(close, delayMs).unref();
+  else close();
+}
+
 async function serveStatic(pathname, response, setSession = false) {
   const files = new Map([
     ['/', [path.join(uiRoot, 'index.html'), 'text/html; charset=utf-8']],
@@ -599,8 +609,7 @@ const server = http.createServer(async (request, response) => {
       const update = await performUpdate();
       sendJson(response, 200, { ok: true, update, updateProgress, message: update.message || 'WorkForge update completed.' });
       if (update.updated) {
-        shuttingDown = true;
-        setTimeout(() => server.close(() => process.exit(0)), 900).unref();
+        closeControlServer(900);
       }
       return;
     }
@@ -617,15 +626,13 @@ const server = http.createServer(async (request, response) => {
       const mode = String(body.mode || '');
       await performUninstall(mode, body);
       sendJson(response, 200, { ok: true, message: 'Uninstall completed. WorkForge Control will now close.' });
-      shuttingDown = true;
-      setTimeout(() => server.close(() => process.exit(0)), 700).unref();
+      closeControlServer(700);
       return;
     }
 
     if (url.pathname === '/api/shutdown') {
       sendJson(response, 200, { ok: true, message: 'Control dashboard closed.' });
-      shuttingDown = true;
-      setTimeout(() => server.close(() => process.exit(0)), 150).unref();
+      closeControlServer(150);
       return;
     }
 
@@ -664,8 +671,7 @@ server.listen({ host: '127.0.0.1', port: requestedPort, exclusive: true }, () =>
 
 const idleTimer = setInterval(() => {
   if (!shuttingDown && !activeAction && Date.now() - lastRequestAt > idleTimeoutMs) {
-    shuttingDown = true;
-    server.close(() => process.exit(0));
+    closeControlServer();
   }
 }, 10_000);
 idleTimer.unref();
@@ -673,7 +679,6 @@ idleTimer.unref();
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {
     if (shuttingDown) return;
-    shuttingDown = true;
-    server.close(() => process.exit(0));
+    closeControlServer();
   });
 }

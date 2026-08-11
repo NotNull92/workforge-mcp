@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
+import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -116,7 +117,29 @@ async function waitForReady() {
   throw new Error(`Timed out waiting for control server. stdout=${stdout} stderr=${stderr}`);
 }
 
+function openUnfinishedControlRequest({ port, origin, cookie }) {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host: '127.0.0.1', port });
+    socket.once('error', reject);
+    socket.once('connect', () => {
+      socket.write([
+        'POST /api/start HTTP/1.1',
+        `Host: 127.0.0.1:${port}`,
+        `Origin: ${origin}`,
+        `Cookie: ${cookie}`,
+        'Content-Type: application/json',
+        'Content-Length: 2',
+        'Connection: keep-alive',
+        '',
+        '{',
+      ].join('\r\n'));
+      resolve(socket);
+    });
+  });
+}
+
 let port;
+let unfinishedRequest;
 try {
   ({ port } = await waitForReady());
   const origin = `http://127.0.0.1:${port}`;
@@ -177,6 +200,8 @@ try {
   });
   assert(wrongOrigin.status === 403, `Cross-origin POST returned ${wrongOrigin.status}.`);
 
+  unfinishedRequest = await openUnfinishedControlRequest({ port, origin, cookie });
+
   const shutdown = await fetch(`${origin}/api/shutdown`, {
     method: 'POST',
     headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' },
@@ -191,8 +216,9 @@ try {
       resolve(code);
     });
   });
-  assert(exitCode === 0, `Control server exited with ${exitCode}. stderr=${stderr}`);
+  assert(exitCode === 0, `Control server did not stop with an unfinished dashboard request. stderr=${stderr}`);
 } finally {
+  unfinishedRequest?.destroy();
   if (child.exitCode === null) child.kill();
 }
 
