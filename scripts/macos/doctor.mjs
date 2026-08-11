@@ -4,8 +4,12 @@ import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { assertSupportedNodeRuntime } from "./node-runtime.mjs";
+import { loadInstallation, readStoredControlPlaneKey, tunnelDoctor } from "./tunnel-common.mjs";
 
 if (process.platform !== "darwin") throw new Error("This doctor entrypoint supports macOS only.");
+const profileIndex = process.argv.indexOf("--profile");
+const profileId = profileIndex >= 0 ? process.argv[profileIndex + 1] : "workstation";
+const online = process.argv.includes("--online");
 const configuredSupportRoot = process.env.WORKFORGE_MACOS_STATE_ROOT;
 if (configuredSupportRoot && !isAbsolute(configuredSupportRoot)) throw new Error("WORKFORGE_MACOS_STATE_ROOT must be absolute.");
 const statePath = resolve(configuredSupportRoot ?? resolve(homedir(), "Library", "Application Support", "WorkForge"), "current.json");
@@ -26,3 +30,9 @@ execFileSync(nodePath, [
   stdio: "ignore",
 });
 console.log(`WORKFORGE_MACOS_DOCTOR_OK (${process.arch}, Node.js ${nodeVersion})`);
+if (online) {
+  const installation = loadInstallation(profileId);
+  const key = readStoredControlPlaneKey(profileId);
+  if (!tunnelDoctor(installation, key, "inherit")) throw new Error("Tunnel control-plane authentication failed.");
+  console.log(`WORKFORGE_MACOS_ONLINE_DOCTOR_OK (${profileId})`);
+}

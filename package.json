@@ -45,7 +45,7 @@
     "release": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Build-Release.ps1",
     "check:core": "npm run build && npm test && npm run test:plugin && npm run test:macos-tunnel",
     "check:windows": "npm run check:core && npm run test:portable-runtime && npm run test:update && npm run test:prerequisites && npm run test:install-platform && npm run test:install-without-git && npm run test:multi-profile && npm run test:install-modes && npm run test:setup-flow && npm run test:control-ux && npm run test:control-dashboard && npm run test:ui-rendering && npm run test:uninstall && npm run test:privacy-history && npm run test:privacy-invariants && npm run test:security-invariants && npm run test:recovery-policy && npm run audit:prod",
-    "check:macos": "npm run check:core && npm run test:macos && npm run audit:prod"
+    "check:macos": "npm run check:core && npm run test:control-dashboard && npm run test:macos && npm run audit:prod"
   },
   "engines": {
     "node": ">=20.19"
