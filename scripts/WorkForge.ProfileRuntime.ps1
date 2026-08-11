@@ -315,7 +315,11 @@ function Get-WorkForgeRegistryPath {
   } elseif (-not [IO.Path]::IsPathRooted($ConfiguredPath)) {
     throw "WORKFORGE_MCP_PROFILE_REGISTRY must be an absolute path."
   }
-  return (Resolve-Path -LiteralPath $ConfiguredPath -ErrorAction Stop).Path
+  try {
+    return (Resolve-Path -LiteralPath $ConfiguredPath -ErrorAction Stop).Path
+  } catch [Management.Automation.ItemNotFoundException] {
+    throw "WorkForge profile registry is missing. Run Setup.cmd to create a WorkForge profile."
+  }
 }
 
 function Assert-WorkForgeProfileLocation {

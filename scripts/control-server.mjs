@@ -16,6 +16,7 @@ const system32Root = path.join(systemRoot, 'System32');
 const powershellPath = path.join(system32Root, 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 const cmdPath = path.join(system32Root, 'cmd.exe');
 const taskkillPath = path.join(system32Root, 'taskkill.exe');
+const profileRegistrySetupMessage = 'WorkForge profile registry is missing. Run Setup.cmd to create a WorkForge profile.';
 
 function readArgument(name, fallback = null) {
   const index = process.argv.indexOf(name);
@@ -354,7 +355,15 @@ async function getStatus({ force = false } = {}) {
   if (!force && statusPromise) return await statusPromise;
 
   const request = (async () => {
-    const result = await runPowerShell('tunnel-status.ps1', ['-ProfileId', profileId, '-Snapshot'], 15_000);
+    let result;
+    try {
+      result = await runPowerShell('tunnel-status.ps1', ['-ProfileId', profileId, '-Snapshot'], 15_000);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes(profileRegistrySetupMessage)) {
+        throw new Error(profileRegistrySetupMessage);
+      }
+      throw error;
+    }
     let parsed;
     try {
       parsed = JSON.parse(result.stdout);

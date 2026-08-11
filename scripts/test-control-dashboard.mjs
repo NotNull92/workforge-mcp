@@ -153,6 +153,11 @@ try {
   const statusFailure = await fetch(`${origin}/api/status`, { headers: { Cookie: cookie } });
   assert(statusFailure.status === 500, `Missing-profile status returned ${statusFailure.status}.`);
   const statusFailureText = await statusFailure.text();
+  const statusFailureJson = JSON.parse(statusFailureText);
+  assert(
+    statusFailureJson.error === 'WorkForge profile registry is missing. Run Setup.cmd to create a WorkForge profile.',
+    'Missing-profile status did not explain how to set up WorkForge.',
+  );
   if (process.env.USERPROFILE) {
     assert(!statusFailureText.toLowerCase().includes(process.env.USERPROFILE.toLowerCase()), 'Dashboard error leaked the literal user profile path.');
   }
