@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
@@ -102,9 +104,18 @@ assert(appSource.includes('updateProgressBar.style.width'), 'Control dashboard d
 assert(appSource.includes("'/api/uninstall/preview'"), 'Control dashboard does not preview uninstall.');
 assert(appSource.includes("phrase: elements.destructivePhrase.value"), 'Destructive uninstall phrase is not forwarded.');
 
+// Point both platform adapters at an empty state root so the missing-profile assertions below
+// hold on a developer machine that already has WorkForge installed.
+const emptyStateRoot = mkdtempSync(path.join(os.tmpdir(), 'workforge-dashboard-test-'));
+
 const child = spawn(process.execPath, [serverPath, '--profile', 'missing-dashboard-test', '--no-browser', '--port', '0'], {
   cwd: toolRoot,
-  env: { ...process.env, WORKFORGE_CONTROL_TEST_MODE: '1' },
+  env: {
+    ...process.env,
+    WORKFORGE_CONTROL_TEST_MODE: '1',
+    WORKFORGE_MCP_PROFILE_REGISTRY: path.join(emptyStateRoot, 'profile_registry.json'),
+    WORKFORGE_MACOS_STATE_ROOT: emptyStateRoot,
+  },
   windowsHide: true,
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -238,6 +249,7 @@ try {
 } finally {
   unfinishedRequest?.destroy();
   if (child.exitCode === null) child.kill();
+  rmSync(emptyStateRoot, { recursive: true, force: true });
 }
 
 console.log('CONTROL_DASHBOARD_TEST_OK');
