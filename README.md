@@ -433,6 +433,10 @@ WorkForge Control.cmd
 
 Instead of a console menu, WorkForge now opens a **local browser dashboard** where you can see the important state at a glance and manage it with buttons.
 
+![WorkForge Control dashboard in Korean, showing the language selector, ready tunnel state, and Doctor card](docs/images/workforge-control-dashboard-ko.jpg)
+
+*The dashboard shown in Korean. Use the language selector at the upper right to switch to English, Korean, Japanese, or Chinese.*
+
 ```text
 Secure Tunnel   Online / Offline
 Health          Healthy / Attention
@@ -450,6 +454,8 @@ From the Dashboard you can:
 - **Update WorkForge** to check the canonical stable GitHub Release and install it transactionally after ZIP/checksum and engine-integrity verification.
 - Review **Recent Activity** in short human-readable messages.
 - Open **Uninstall**, preview the removal with `WhatIf`, and confirm before anything is deleted.
+
+The Dashboard starts in your browser language when it can, and remembers the language you choose. During an update, keep the Control window open: its progress display shows the safety path from checking and downloading through verification, staging, tunnel pause/rebind, Doctor, restart, and finish. If a validation step fails, WorkForge restores the previous engine instead of leaving a mixed installation behind.
 
 The Dashboard is not a remotely exposed admin site. It binds only to **`127.0.0.1` on the current PC**, uses a fresh local session each time, rejects cross-origin control requests, and shuts its background Control Server down after the browser stops making requests for a while.
 

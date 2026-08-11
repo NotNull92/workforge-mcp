@@ -434,6 +434,10 @@ WorkForge Control.cmd
 
 그러면 콘솔 메뉴 대신 **로컬 WorkForge Dashboard가 기본 브라우저에서 열립니다.** 여기서 현재 상태를 한눈에 확인하고 버튼으로 관리할 수 있습니다.
 
+![언어 전환, 준비된 터널 상태, Doctor 카드가 보이는 한국어 WorkForge 제어판](docs/images/workforge-control-dashboard-ko.jpg)
+
+*한국어로 표시한 Dashboard입니다. 오른쪽 위 언어 버튼에서 English, 한국어, 日本語, 中文으로 바꿀 수 있습니다.*
+
 ```text
 Secure Tunnel   Online / Offline
 Health          Healthy / Attention
@@ -451,6 +455,8 @@ Dashboard에서 바로 할 수 있는 일:
 - **Update WorkForge**: 공식 stable GitHub Release를 확인하고 ZIP/checksum 및 새 엔진 무결성을 검증한 뒤 트랜잭션 방식으로 업데이트합니다.
 - **Recent Activity**: 방금 어떤 일이 일어났는지 쉬운 문장으로 확인합니다.
 - **Uninstall**: 실제 삭제 전에 `WhatIf` 미리보기를 보여주고 다시 확인을 받습니다.
+
+Dashboard는 가능한 경우 브라우저 언어로 처음 열리고, 사용자가 고른 언어를 기억합니다. 업데이트 중에는 제어판 창을 열어 두세요. 진행 화면에서 확인, 다운로드, 검증, 스테이징, 터널 일시 중지와 재연결, Doctor, 재시작, 마무리 단계를 차례대로 보여줍니다. 검증 단계에 실패하면 섞인 설치 상태를 남기지 않고 이전 엔진으로 안전하게 되돌립니다.
 
 Dashboard는 인터넷에 공개되는 관리 페이지가 아닙니다. **현재 PC의 `127.0.0.1`에서만 열리는 로컬 화면**이며, 실행할 때마다 새로운 세션을 사용합니다. 브라우저 탭을 닫고 요청이 없어지면 백그라운드 Control Server도 일정 시간 뒤 자동 종료됩니다.
 
