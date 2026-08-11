@@ -253,15 +253,14 @@ function terminateProcessTree(child) {
   killer.unref();
 }
 
-function runMacOSScript(scriptName, argumentsList = [], timeoutMs = 90_000, options = {}) {
+function runChildScript(executable, spawnArguments, scriptName, timeoutMs, options, spawnOptions) {
   return new Promise((resolve, reject) => {
-    const scriptPath = path.join(scriptDirectory, 'macos', scriptName);
-    const child = spawn(process.execPath, [scriptPath, ...argumentsList], {
+    const child = spawn(executable, spawnArguments, {
       cwd: os.tmpdir(),
-      detached: true,
       env: controlEnvironment(),
       shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
+      ...spawnOptions,
     });
 
     let stdout = '';
@@ -315,75 +314,15 @@ function runMacOSScript(scriptName, argumentsList = [], timeoutMs = 90_000, opti
   });
 }
 
+function runMacOSScript(scriptName, argumentsList = [], timeoutMs = 90_000, options = {}) {
+  const scriptPath = path.join(scriptDirectory, 'macos', scriptName);
+  return runChildScript(process.execPath, [scriptPath, ...argumentsList], scriptName, timeoutMs, options, { detached: true });
+}
+
 function runPowerShell(scriptName, argumentsList = [], timeoutMs = 90_000, options = {}) {
-  return new Promise((resolve, reject) => {
-    const scriptPath = path.join(scriptDirectory, scriptName);
-    const environment = controlEnvironment();
-
-    const child = spawn(
-      powershellPath,
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, ...argumentsList],
-      {
-        cwd: os.tmpdir(),
-        env: environment,
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      },
-    );
-
-    let stdout = '';
-    let stderr = '';
-    let stderrRemainder = '';
-    const maxOutput = 512 * 1024;
-    let overflow = false;
-    const append = (current, chunk) => {
-      if (current.length + chunk.length > maxOutput) {
-        overflow = true;
-        return current;
-      }
-      return current + chunk.toString('utf8');
-    };
-    child.stdout.on('data', chunk => { stdout = append(stdout, chunk); });
-    const handleStderrLine = line => {
-      if (typeof options.onStderrLine === 'function' && options.onStderrLine(line) === true) return;
-      stderr = append(stderr, `${line}\n`);
-    };
-    child.stderr.on('data', chunk => {
-      stderrRemainder += chunk.toString('utf8');
-      const lines = stderrRemainder.split(/\r?\n/);
-      stderrRemainder = lines.pop() || '';
-      for (const line of lines) handleStderrLine(line);
-    });
-
-    const timer = setTimeout(() => {
-      terminateProcessTree(child);
-      reject(new Error(`${scriptName} timed out.`));
-    }, timeoutMs);
-
-    child.once('error', error => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.once('close', code => {
-      clearTimeout(timer);
-      if (stderrRemainder) {
-        handleStderrLine(stderrRemainder);
-        stderrRemainder = '';
-      }
-      if (overflow) {
-        reject(new Error(`${scriptName} produced too much output.`));
-        return;
-      }
-      const cleanStdout = sanitizeText(stdout.trim());
-      const cleanStderr = sanitizeText(stderr.trim());
-      if (code !== 0) {
-        const detail = cleanStderr || cleanStdout || `${scriptName} failed with exit code ${code}.`;
-        reject(new Error(detail.slice(0, 12_000)));
-        return;
-      }
-      resolve({ stdout: cleanStdout, stderr: cleanStderr, code });
-    });
-  });
+  const scriptPath = path.join(scriptDirectory, scriptName);
+  const spawnArguments = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, ...argumentsList];
+  return runChildScript(powershellPath, spawnArguments, scriptName, timeoutMs, options, { windowsHide: true });
 }
 
 function simplifyStatus(snapshot) {

@@ -32,7 +32,10 @@ execFileSync(nodePath, [
 console.log(`WORKFORGE_MACOS_DOCTOR_OK (${process.arch}, Node.js ${nodeVersion})`);
 if (online) {
   const installation = loadInstallation(profileId);
-  const key = readStoredControlPlaneKey(profileId);
+  let key;
+  try { key = readStoredControlPlaneKey(profileId); } catch {
+    throw new Error("No Runtime API Key is stored for this profile. Run npm run configure:tunnel:macos first.");
+  }
   if (!tunnelDoctor(installation, key, "inherit")) throw new Error("Tunnel control-plane authentication failed.");
   console.log(`WORKFORGE_MACOS_ONLINE_DOCTOR_OK (${profileId})`);
 }

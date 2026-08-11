@@ -1,4 +1,4 @@
-import { closeSync, mkdirSync, openSync, readFileSync, realpathSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
@@ -20,6 +20,7 @@ const controlRoot = resolve(installation.root, "control");
 const logPath = resolve(controlRoot, `${profileId}.log`);
 mkdirSync(controlRoot, { recursive: true, mode: 0o700 });
 const logHandle = openSync(logPath, "a", 0o600);
+const logOffset = statSync(logPath).size;
 const argumentsList = [serverPath, "--profile", profileId];
 if (noBrowser) argumentsList.push("--no-browser");
 
@@ -37,7 +38,7 @@ child.on("error", (error) => { spawnError = error; });
 await delay(700);
 if (spawnError) throw new Error(`Could not launch WorkForge Control: ${spawnError.message}`);
 if (child.exitCode !== null) {
-  const detail = readFileSync(logPath, "utf8").slice(-12_000).trim();
+  const detail = readFileSync(logPath).subarray(logOffset).toString("utf8").slice(-12_000).trim();
   throw new Error(detail || `WorkForge Control exited with code ${child.exitCode}.`);
 }
 child.unref();

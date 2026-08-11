@@ -37,7 +37,9 @@ if (running && localReady) {
 const ready = localReady && controlPlaneHealthy;
 let state = null;
 try { state = JSON.parse(readFileSync(paths.statusPath, "utf8")); } catch { /* no state yet */ }
-const processState = state?.state ?? (running ? "running" : "stopped");
+// A supervisor killed with SIGKILL leaves its last state behind, so trust the live process check
+// over status.json unless the persisted state is the terminal "exhausted" diagnosis.
+const processState = running ? (state?.state ?? "running") : (state?.state === "exhausted" ? "exhausted" : "stopped");
 console.log(JSON.stringify({
   profileId,
   running,
