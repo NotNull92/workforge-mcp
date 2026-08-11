@@ -455,7 +455,7 @@ From the Dashboard you can:
 - Review **Recent Activity** in short human-readable messages.
 - Open **Uninstall**, preview the removal with `WhatIf`, and confirm before anything is deleted.
 
-The Dashboard starts in your browser language when it can, and remembers the language you choose. During an update, keep the Control window open: its progress display shows the safety path from checking and downloading through verification, staging, tunnel pause/rebind, Doctor, restart, and finish. If a validation step fails, WorkForge restores the previous engine instead of leaving a mixed installation behind.
+The Dashboard starts in your browser language when it can, and remembers the language you choose. During an update, keep the Control window open: its progress display shows the safety path from checking and downloading through verification, staging, tunnel pause/rebind, Doctor, restart, and finish. If a validation step fails, WorkForge restores the previous engine instead of leaving a mixed installation behind. After a successful update, it retires the old Control Server so the old Dashboard cannot keep checking status against the newly activated engine. Close the update tab and open **WorkForge Control** again to load the active version's Dashboard.
 
 The Dashboard is not a remotely exposed admin site. It binds only to **`127.0.0.1` on the current PC**, uses a fresh local session each time, rejects cross-origin control requests, and shuts its background Control Server down after the browser stops making requests for a while.
 
