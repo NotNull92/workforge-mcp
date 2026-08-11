@@ -29,9 +29,7 @@ if ($RebindRuntime) {
 }
 if ($TunnelId -cnotmatch '^tunnel_[a-f0-9]{32}$') { throw "tunnel_id is invalid." }
 
-$McpNodePath = $StdioRuntime.NodePath.Replace("\", "/")
-$McpStdioPath = $StdioRuntime.StdioPath.Replace("\", "/")
-$McpCommand = ('"{0}" "{1}" --profile {2}' -f $McpNodePath, $McpStdioPath, $ProfileId)
+$McpCommand = New-WorkForgeMcpCommand -StdioRuntime $StdioRuntime -ProfileId $ProfileId
 $RunsRoot = Get-WorkForgeRunsRoot
 New-Item -ItemType Directory -Path $RunsRoot -Force | Out-Null
 $CredentialPath = Join-Path $RunsRoot ".env.local"

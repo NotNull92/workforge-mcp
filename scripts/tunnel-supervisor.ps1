@@ -13,6 +13,7 @@ $Profile = Get-WorkForgeProfile -ProfileId $ProfileId -RequireTunnelConfig
 $ToolRoot = Get-WorkForgeToolRoot
 $ExecutablePath = Get-WorkForgeTunnelExecutablePath
 $StdioRuntime = Get-WorkForgeStdioRuntime
+Set-WorkForgeMcpRuntimeEnvironment -StdioRuntime $StdioRuntime
 $Paths = Get-WorkForgeTunnelRuntimePaths -Profile $Profile
 $MaximumRestarts = 3
 $RecoveryWindowSeconds = 300

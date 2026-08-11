@@ -371,6 +371,43 @@ if ($ProfileRuntimeText -match 'missing its canonical \.git directory') {
 if ($ProfileRuntimeText -match 'reuses registered httpPort') {
   throw "Deprecated httpPort must not prevent multi-profile loading."
 }
+. (Join-Path $PSScriptRoot "WorkForge.ProfileRuntime.ps1")
+$OriginalMcpNode = [Environment]::GetEnvironmentVariable("WORKFORGE_MCP_NODE", "Process")
+$OriginalMcpStdio = [Environment]::GetEnvironmentVariable("WORKFORGE_MCP_STDIO", "Process")
+$McpCommandTestRoot = Join-Path ([IO.Path]::GetTempPath()) ("workforge-mcp-command-" + [guid]::NewGuid().ToString("N"))
+try {
+  $SpacedRuntimeDirectory = Join-Path $McpCommandTestRoot "spaced runtime"
+  New-Item -ItemType Directory -Path $SpacedRuntimeDirectory -Force | Out-Null
+  $ProbePath = Join-Path $SpacedRuntimeDirectory "mcp probe.cmd"
+  Set-Content -LiteralPath $ProbePath -Encoding ascii -Value @'
+@echo WORKFORGE_MCP_COMMAND_SPACE_PATH_TEST_OK
+@exit /b 0
+'@
+  $McpCommand = New-WorkForgeMcpCommand `
+    -StdioRuntime ([pscustomobject]@{ NodePath = $ProbePath; StdioPath = $ProbePath }) `
+    -ProfileId "workstation"
+  $ExpectedMcpCommand = "cmd.exe /d /s /c %WORKFORGE_MCP_NODE% %WORKFORGE_MCP_STDIO% --profile workstation"
+  if ($McpCommand -cne $ExpectedMcpCommand) {
+    throw "Spaced MCP paths must use the cmd.exe environment bridge. Observed: $McpCommand"
+  }
+  $ExpectedQuotedPath = ('"{0}"' -f $ProbePath.Replace("\", "/"))
+  if ([Environment]::GetEnvironmentVariable("WORKFORGE_MCP_NODE", "Process") -cne $ExpectedQuotedPath) {
+    throw "MCP node environment value must retain the complete quoted spaced path."
+  }
+  if ([Environment]::GetEnvironmentVariable("WORKFORGE_MCP_STDIO", "Process") -cne $ExpectedQuotedPath) {
+    throw "MCP stdio environment value must retain the complete quoted spaced path."
+  }
+  $McpOutput = (& $env:ComSpec /d /s /c '%WORKFORGE_MCP_NODE%' 2>&1 | Out-String)
+  if ($LASTEXITCODE -ne 0 -or $McpOutput -notmatch "WORKFORGE_MCP_COMMAND_SPACE_PATH_TEST_OK") {
+    throw "cmd.exe did not execute the quoted spaced MCP runtime path. Output: $McpOutput"
+  }
+} finally {
+  [Environment]::SetEnvironmentVariable("WORKFORGE_MCP_NODE", $OriginalMcpNode, "Process")
+  [Environment]::SetEnvironmentVariable("WORKFORGE_MCP_STDIO", $OriginalMcpStdio, "Process")
+  if (Test-Path -LiteralPath $McpCommandTestRoot) {
+    Remove-Item -LiteralPath $McpCommandTestRoot -Recurse -Force
+  }
+}
 $InstallText = Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "Install.ps1")
 if ($InstallText -match '(?m)^\s*httpPort\s*=') {
   throw "New WorkForge profiles must not emit the deprecated httpPort field."
@@ -385,12 +422,13 @@ if ($ProfilePreflightIndex -lt 0 -or $CredentialIndex -lt 0 -or $ProfilePrefligh
 if ($ConfigureTunnelText -match 'node\.exe dist/stdio\.js') {
   throw "Configure Tunnel must not persist an unverified relative MCP runtime command."
 }
-foreach ($NormalizedPathToken in @(
-  '$McpNodePath = $StdioRuntime.NodePath.Replace("\", "/")',
-  '$McpStdioPath = $StdioRuntime.StdioPath.Replace("\", "/")'
-)) {
-  if ($ConfigureTunnelText.IndexOf($NormalizedPathToken, [StringComparison]::Ordinal) -lt 0) {
-    throw "Configure Tunnel must normalize Windows MCP command paths before tunnel-client parses them: $NormalizedPathToken"
+if ($ConfigureTunnelText.IndexOf('New-WorkForgeMcpCommand -StdioRuntime $StdioRuntime -ProfileId $ProfileId', [StringComparison]::Ordinal) -lt 0) {
+  throw "Configure Tunnel must build the MCP command through the spaced-path-safe bridge."
+}
+foreach ($RuntimeBridgePath in @("scripts\\Doctor.ps1", "scripts\\tunnel-supervisor.ps1")) {
+  $RuntimeBridgeText = Get-Content -Raw -LiteralPath (Join-Path $ToolRoot $RuntimeBridgePath)
+  if ($RuntimeBridgeText.IndexOf('Set-WorkForgeMcpRuntimeEnvironment', [StringComparison]::Ordinal) -lt 0) {
+    throw "$RuntimeBridgePath must supply the MCP command environment before invoking tunnel-client."
   }
 }
 $CredentialExistsIndex = $ConfigureTunnelText.IndexOf('$CredentialExists = Test-Path -LiteralPath $CredentialPath', [StringComparison]::Ordinal)

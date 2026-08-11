@@ -9,6 +9,7 @@ $ErrorActionPreference = "Stop"
 $Profile = Get-WorkForgeProfile -ProfileId $ProfileId -RequireTunnelConfig
 $TunnelExecutable = Get-WorkForgeTunnelExecutablePath
 $Stdio = Get-WorkForgeStdioRuntime
+Set-WorkForgeMcpRuntimeEnvironment -StdioRuntime $Stdio
 $Credential = Initialize-WorkForgeControlPlaneCredential
 & (Join-Path $PSScriptRoot "start-tunnel.ps1") -ProfileId $ProfileId -ValidateOnly
 if ($Online) {

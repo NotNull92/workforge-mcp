@@ -308,6 +308,28 @@ function Get-WorkForgeStdioRuntime {
   }
 }
 
+function Set-WorkForgeMcpRuntimeEnvironment {
+  param([Parameter(Mandatory = $true)][object]$StdioRuntime)
+
+  $NodePath = [string]$StdioRuntime.NodePath
+  $StdioPath = [string]$StdioRuntime.StdioPath
+  if ([string]::IsNullOrWhiteSpace($NodePath) -or [string]::IsNullOrWhiteSpace($StdioPath)) {
+    throw "MCP runtime must provide absolute Node.js and stdio paths."
+  }
+  [Environment]::SetEnvironmentVariable("WORKFORGE_MCP_NODE", ('"{0}"' -f $NodePath.Replace("\", "/")), "Process")
+  [Environment]::SetEnvironmentVariable("WORKFORGE_MCP_STDIO", ('"{0}"' -f $StdioPath.Replace("\", "/")), "Process")
+}
+
+function New-WorkForgeMcpCommand {
+  param(
+    [Parameter(Mandatory = $true)][object]$StdioRuntime,
+    [Parameter(Mandatory = $true)][string]$ProfileId
+  )
+
+  Set-WorkForgeMcpRuntimeEnvironment -StdioRuntime $StdioRuntime
+  return ("cmd.exe /d /s /c %WORKFORGE_MCP_NODE% %WORKFORGE_MCP_STDIO% --profile {0}" -f $ProfileId)
+}
+
 function Get-WorkForgeRegistryPath {
   $ConfiguredPath = [Environment]::GetEnvironmentVariable("WORKFORGE_MCP_PROFILE_REGISTRY", "Process")
   if ([string]::IsNullOrWhiteSpace($ConfiguredPath)) {
