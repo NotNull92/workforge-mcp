@@ -15,15 +15,21 @@
       <div class="brand">
         <img class="brand-logo" src="/logo.png" alt="WorkForge" />
         <div>
-          <p class="eyebrow">LOCAL CONTROL DASHBOARD</p>
-          <h1>WorkForge Control</h1>
-          <p class="subtitle">Your AI's hands on Windows, with a dashboard you can actually read.</p>
+          <p class="eyebrow" data-i18n="brand.eyebrow">LOCAL CONTROL DASHBOARD</p>
+          <h1 data-i18n="brand.title">WorkForge Control</h1>
+          <p class="subtitle" data-i18n="brand.subtitle">Your AI's hands on Windows, with a dashboard you can actually read.</p>
         </div>
       </div>
       <div class="topbar-actions">
         <span id="profileChip" class="chip">profile: …</span>
         <span id="connectionChip" class="chip chip-neutral"><span class="dot"></span> Checking</span>
-        <button id="closeControlButton" class="button button-ghost" type="button">Close Control</button>
+        <div id="languageSwitch" class="language-switch" role="group" aria-label="Language" data-i18n-aria-label="language.label">
+          <button class="language-button" type="button" data-language="en" aria-pressed="false">EN</button>
+          <button class="language-button" type="button" data-language="ko" aria-pressed="false">한국어</button>
+          <button class="language-button" type="button" data-language="ja" aria-pressed="false">日本語</button>
+          <button class="language-button" type="button" data-language="zh" aria-pressed="false">中文</button>
+        </div>
+        <button id="closeControlButton" class="button button-ghost" type="button" data-i18n="control.close">Close Control</button>
       </div>
     </header>
 
@@ -31,59 +37,59 @@
       <article class="panel panel-hero">
         <div class="panel-heading">
           <div>
-            <p class="eyebrow">SECURE TUNNEL</p>
-            <h2 id="tunnelTitle">Checking your connection…</h2>
+            <p class="eyebrow" data-i18n="tunnel.eyebrow">SECURE TUNNEL</p>
+            <h2 id="tunnelTitle" data-i18n="tunnel.checkingTitle">Checking your connection…</h2>
           </div>
-          <div id="heroStatus" class="status-orb status-neutral" aria-label="Tunnel status"></div>
+          <div id="heroStatus" class="status-orb status-neutral" aria-label="Tunnel status" data-i18n-aria-label="aria.tunnelStatus"></div>
         </div>
-        <p id="tunnelSummary" class="panel-copy">WorkForge is asking the local supervisor for the current state.</p>
+        <p id="tunnelSummary" class="panel-copy" data-i18n="tunnel.checkingSummary">WorkForge is asking the local supervisor for the current state.</p>
 
         <div class="metric-row">
           <div class="metric">
-            <span class="metric-label">Health</span>
-            <strong id="healthMetric">Checking</strong>
+            <span class="metric-label" data-i18n="metric.health">Health</span>
+            <strong id="healthMetric" data-i18n="state.checking">Checking</strong>
           </div>
           <div class="metric">
-            <span class="metric-label">Readiness</span>
-            <strong id="readyMetric">Checking</strong>
+            <span class="metric-label" data-i18n="metric.readiness">Readiness</span>
+            <strong id="readyMetric" data-i18n="state.checking">Checking</strong>
           </div>
           <div class="metric">
-            <span class="metric-label">Supervisor</span>
-            <strong id="supervisorMetric">Checking</strong>
+            <span class="metric-label" data-i18n="metric.supervisor">Supervisor</span>
+            <strong id="supervisorMetric" data-i18n="state.checking">Checking</strong>
           </div>
           <div class="metric">
-            <span class="metric-label">Recovery</span>
-            <strong id="recoveryMetric">Checking</strong>
+            <span class="metric-label" data-i18n="metric.recovery">Recovery</span>
+            <strong id="recoveryMetric" data-i18n="state.checking">Checking</strong>
           </div>
         </div>
 
         <div class="button-row">
-          <button id="startButton" class="button button-primary" type="button">▶ Start Tunnel</button>
-          <button id="stopButton" class="button button-secondary" type="button">■ Stop Tunnel</button>
-          <button id="refreshButton" class="button button-ghost" type="button">↻ Refresh</button>
+          <button id="startButton" class="button button-primary" type="button" data-i18n="button.startTunnel">▶ Start Tunnel</button>
+          <button id="stopButton" class="button button-secondary" type="button" data-i18n="button.stopTunnel">■ Stop Tunnel</button>
+          <button id="refreshButton" class="button button-ghost" type="button" data-i18n="button.refresh">↻ Refresh</button>
         </div>
       </article>
 
       <article class="panel">
         <div class="panel-heading compact">
           <div>
-            <p class="eyebrow">SYSTEM CHECK</p>
-            <h2>Doctor</h2>
+            <p class="eyebrow" data-i18n="doctor.eyebrow">SYSTEM CHECK</p>
+            <h2 data-i18n="doctor.title">Doctor</h2>
           </div>
-          <span id="doctorBadge" class="badge badge-neutral">Not run yet</span>
+          <span id="doctorBadge" class="badge badge-neutral" data-i18n="doctor.notRun">Not run yet</span>
         </div>
-        <p class="panel-copy">One click checks the local profile, runtime, tunnel client, credential and online tunnel path.</p>
+        <p class="panel-copy" data-i18n="doctor.summary">One click checks the local profile, runtime, tunnel client, credential and online tunnel path.</p>
 
         <div id="healthChecklist" class="checklist">
-          <div class="check-row"><span>Profile</span><span id="profileCheck" class="check-state">…</span></div>
-          <div class="check-row"><span>Tunnel process</span><span id="processCheck" class="check-state">…</span></div>
-          <div class="check-row"><span>Supervisor</span><span id="supervisorCheck" class="check-state">…</span></div>
-          <div class="check-row"><span>MCP readiness</span><span id="readyCheck" class="check-state">…</span></div>
+          <div class="check-row"><span data-i18n="doctor.item.profile">Profile</span><span id="profileCheck" class="check-state">…</span></div>
+          <div class="check-row"><span data-i18n="doctor.item.process">Tunnel process</span><span id="processCheck" class="check-state">…</span></div>
+          <div class="check-row"><span data-i18n="doctor.item.supervisor">Supervisor</span><span id="supervisorCheck" class="check-state">…</span></div>
+          <div class="check-row"><span data-i18n="doctor.item.readiness">MCP readiness</span><span id="readyCheck" class="check-state">…</span></div>
         </div>
 
-        <button id="doctorButton" class="button button-primary button-full" type="button">Run Doctor</button>
+        <button id="doctorButton" class="button button-primary button-full" type="button" data-i18n="doctor.run">Run Doctor</button>
         <details id="doctorDetails" class="details-box">
-          <summary>View technical details</summary>
+          <summary data-i18n="doctor.details">View technical details</summary>
           <pre id="doctorOutput">Doctor has not been run in this dashboard session.</pre>
         </details>
       </article>
@@ -93,8 +99,8 @@
       <article class="panel activity-panel">
         <div class="panel-heading compact">
           <div>
-            <p class="eyebrow">RECENT ACTIVITY</p>
-            <h2>What just happened?</h2>
+            <p class="eyebrow" data-i18n="activity.eyebrow">RECENT ACTIVITY</p>
+            <h2 data-i18n="activity.title">What just happened?</h2>
           </div>
           <span id="busyBadge" class="badge badge-neutral">Idle</span>
         </div>
@@ -102,13 +108,13 @@
       </article>
 
       <article class="panel help-panel">
-        <p class="eyebrow">QUICK GUIDE</p>
-        <h2>Green means go.</h2>
-        <p class="panel-copy">If Tunnel, Health and Ready are green, ChatGPT can reach WorkForge. If something turns red, run Doctor before changing anything else.</p>
+        <p class="eyebrow" data-i18n="guide.eyebrow">QUICK GUIDE</p>
+        <h2 data-i18n="guide.title">Green means go.</h2>
+        <p class="panel-copy" data-i18n="guide.summary">If Tunnel, Health and Ready are green, ChatGPT can reach WorkForge. If something turns red, run Doctor before changing anything else.</p>
         <div class="legend">
-          <span><i class="legend-dot legend-green"></i> Ready</span>
-          <span><i class="legend-dot legend-amber"></i> Working / attention</span>
-          <span><i class="legend-dot legend-red"></i> Needs help</span>
+          <span><i class="legend-dot legend-green"></i><span data-i18n="guide.ready">Ready</span></span>
+          <span><i class="legend-dot legend-amber"></i><span data-i18n="guide.working">Working / attention</span></span>
+          <span><i class="legend-dot legend-red"></i><span data-i18n="guide.needsHelp">Needs help</span></span>
         </div>
       </article>
     </section>
@@ -116,25 +122,25 @@
     <section class="panel update-panel">
       <div class="panel-heading compact">
         <div>
-          <p class="eyebrow">WORKFORGE UPDATE</p>
-          <h2 id="updateTitle">Checking for updates…</h2>
+          <p class="eyebrow" data-i18n="update.eyebrow">WORKFORGE UPDATE</p>
+          <h2 id="updateTitle" data-i18n="update.checkingTitle">Checking for updates…</h2>
         </div>
-        <span id="updateBadge" class="badge badge-neutral">Checking</span>
+        <span id="updateBadge" class="badge badge-neutral" data-i18n="state.checking">Checking</span>
       </div>
-      <p id="updateSummary" class="panel-copy">WorkForge checks the canonical GitHub release and verifies the release checksum before installing anything.</p>
+      <p id="updateSummary" class="panel-copy" data-i18n="update.checkingSummary">WorkForge checks the canonical GitHub release and verifies the release checksum before installing anything.</p>
       <div class="metric-row update-metrics">
         <div class="metric">
-          <span class="metric-label">Current</span>
+          <span class="metric-label" data-i18n="update.current">Current</span>
           <strong id="currentVersionMetric">—</strong>
         </div>
         <div class="metric">
-          <span class="metric-label">Latest</span>
+          <span class="metric-label" data-i18n="update.latest">Latest</span>
           <strong id="latestVersionMetric">—</strong>
         </div>
       </div>
       <div id="updateProgress" class="update-progress hidden" aria-live="polite">
         <div class="update-progress-heading">
-          <strong id="updateProgressLabel">Preparing update…</strong>
+          <strong id="updateProgressLabel" data-i18n="update.preparing">Preparing update…</strong>
           <span id="updateProgressPercent">0%</span>
         </div>
         <div
@@ -142,43 +148,44 @@
           class="update-progress-track"
           role="progressbar"
           aria-label="WorkForge update progress"
+          data-i18n-aria-label="aria.updateProgress"
           aria-valuemin="0"
           aria-valuemax="100"
           aria-valuenow="0"
         >
           <div id="updateProgressBar" class="update-progress-bar"></div>
         </div>
-        <div id="updateStageList" class="update-stage-list" aria-label="Update stages">
-          <span data-update-stage="checking">Check</span>
-          <span data-update-stage="downloading">Download</span>
-          <span data-update-stage="verifying">Verify</span>
-          <span data-update-stage="staging">Stage</span>
-          <span data-update-stage="stopping">Pause tunnels</span>
-          <span data-update-stage="activating">Activate</span>
-          <span data-update-stage="rebinding">Rebind</span>
-          <span data-update-stage="doctor">Doctor</span>
-          <span data-update-stage="restarting">Restart</span>
-          <span data-update-stage="finalizing">Finish</span>
+        <div id="updateStageList" class="update-stage-list" aria-label="Update stages" data-i18n-aria-label="aria.updateStages">
+          <span data-update-stage="checking" data-i18n="progress.check">Check</span>
+          <span data-update-stage="downloading" data-i18n="progress.download">Download</span>
+          <span data-update-stage="verifying" data-i18n="progress.verify">Verify</span>
+          <span data-update-stage="staging" data-i18n="progress.stage">Stage</span>
+          <span data-update-stage="stopping" data-i18n="progress.pauseTunnels">Pause tunnels</span>
+          <span data-update-stage="activating" data-i18n="progress.activate">Activate</span>
+          <span data-update-stage="rebinding" data-i18n="progress.rebind">Rebind</span>
+          <span data-update-stage="doctor" data-i18n="progress.doctor">Doctor</span>
+          <span data-update-stage="restarting" data-i18n="progress.restart">Restart</span>
+          <span data-update-stage="finalizing" data-i18n="progress.finish">Finish</span>
         </div>
       </div>
       <div class="button-row">
-        <button id="checkUpdateButton" class="button button-secondary" type="button">Check again</button>
-        <button id="updateButton" class="button button-primary" type="button" disabled>Update WorkForge</button>
+        <button id="checkUpdateButton" class="button button-secondary" type="button" data-i18n="update.checkAgain">Check again</button>
+        <button id="updateButton" class="button button-primary" type="button" disabled data-i18n="update.button">Update WorkForge</button>
       </div>
     </section>
 
     <section class="panel danger-panel">
       <div class="danger-copy">
-        <p class="eyebrow">DANGER ZONE</p>
-        <h2>Remove WorkForge</h2>
-        <p class="panel-copy">You can remove WorkForge while keeping your workspace, or remove everything. Nothing happens until you preview and explicitly confirm it.</p>
+        <p class="eyebrow" data-i18n="danger.eyebrow">DANGER ZONE</p>
+        <h2 data-i18n="danger.title">Remove WorkForge</h2>
+        <p class="panel-copy" data-i18n="danger.summary">You can remove WorkForge while keeping your workspace, or remove everything. Nothing happens until you preview and explicitly confirm it.</p>
       </div>
-      <button id="openUninstallButton" class="button button-danger" type="button">Uninstall…</button>
+      <button id="openUninstallButton" class="button button-danger" type="button" data-i18n="danger.uninstall">Uninstall…</button>
     </section>
 
     <footer>
       <span id="versionText">WorkForge</span>
-      <span>Local only · 127.0.0.1 · No remote dashboard access</span>
+      <span data-i18n="footer.localOnly">Local only · 127.0.0.1 · No remote dashboard access</span>
     </footer>
   </main>
 
@@ -188,48 +195,48 @@
     <form method="dialog" class="modal-card" id="uninstallForm">
       <div class="modal-heading">
         <div>
-          <p class="eyebrow">SAFE REMOVAL</p>
-          <h2>Choose what to keep</h2>
+          <p class="eyebrow" data-i18n="uninstall.eyebrow">SAFE REMOVAL</p>
+          <h2 data-i18n="uninstall.title">Choose what to keep</h2>
         </div>
-        <button class="icon-button" value="cancel" aria-label="Close">×</button>
+        <button class="icon-button" value="cancel" aria-label="Close" data-i18n-aria-label="aria.close">×</button>
       </div>
 
       <label class="choice-card">
         <input type="radio" name="uninstallMode" value="KeepWorkspace" checked />
         <span>
-          <strong>Keep my workspace <em>Recommended</em></strong>
-          <small>Remove WorkForge operational state while preserving your workspace, Git history and user files.</small>
+          <strong><span data-i18n="uninstall.keepWorkspace">Keep my workspace</span> <em data-i18n="uninstall.recommended">Recommended</em></strong>
+          <small data-i18n="uninstall.keepDescription">Remove WorkForge operational state while preserving your workspace, Git history and user files.</small>
         </span>
       </label>
 
       <label class="choice-card choice-danger">
         <input type="radio" name="uninstallMode" value="RemoveEverything" />
         <span>
-          <strong>Remove everything</strong>
-          <small>Remove WorkForge and the selected workspace. This is permanent.</small>
+          <strong data-i18n="uninstall.removeEverything">Remove everything</strong>
+          <small data-i18n="uninstall.removeDescription">Remove WorkForge and the selected workspace. This is permanent.</small>
         </span>
       </label>
 
-      <button id="previewUninstallButton" class="button button-secondary button-full" type="button">Preview what will happen</button>
+      <button id="previewUninstallButton" class="button button-secondary button-full" type="button" data-i18n="uninstall.preview">Preview what will happen</button>
 
       <details id="uninstallPreviewDetails" class="details-box" open>
-        <summary>Removal preview</summary>
+        <summary data-i18n="uninstall.removalPreview">Removal preview</summary>
         <pre id="uninstallPreview">Run the preview before removing anything.</pre>
       </details>
 
       <label class="confirm-row">
         <input id="uninstallConfirm" type="checkbox" />
-        <span>I reviewed the preview and want to continue.</span>
+        <span data-i18n="uninstall.confirm">I reviewed the preview and want to continue.</span>
       </label>
 
       <div id="destructivePhraseBox" class="phrase-box hidden">
-        <label for="destructivePhrase">Type <strong>REMOVE WORKFORGE</strong> exactly:</label>
+        <label for="destructivePhrase"><span data-i18n="uninstall.phrasePrefix">Type</span> <strong>REMOVE WORKFORGE</strong> <span data-i18n="uninstall.phraseSuffix">exactly:</span></label>
         <input id="destructivePhrase" autocomplete="off" spellcheck="false" />
       </div>
 
       <div class="modal-actions">
-        <button class="button button-ghost" value="cancel">Cancel</button>
-        <button id="confirmUninstallButton" class="button button-danger" type="button">Remove WorkForge</button>
+        <button class="button button-ghost" value="cancel" data-i18n="uninstall.cancel">Cancel</button>
+        <button id="confirmUninstallButton" class="button button-danger" type="button" data-i18n="uninstall.removeButton">Remove WorkForge</button>
       </div>
     </form>
   </dialog>

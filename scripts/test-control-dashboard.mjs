@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const toolRoot = path.resolve(scriptDirectory, '..');
@@ -35,6 +36,49 @@ assert(htmlSource.includes('Update WorkForge'), 'Control dashboard is missing up
 assert(htmlSource.includes('updateProgressTrack'), 'Control dashboard is missing update progress semantics.');
 assert(htmlSource.includes('data-update-stage="downloading"'), 'Control dashboard is missing update stage indicators.');
 assert(htmlSource.includes('Remove WorkForge'), 'Control dashboard is missing uninstall flow.');
+assert(htmlSource.includes('id="languageSwitch"'), 'Control dashboard is missing the language switch.');
+for (const language of ['en', 'ko', 'ja', 'zh']) {
+  assert(htmlSource.includes(`data-language="${language}"`), `Control dashboard is missing language option: ${language}`);
+}
+assert(appSource.includes("workforge-control-language"), 'Control dashboard does not persist the selected language.');
+assert(appSource.includes('navigator.languages'), 'Control dashboard does not resolve an initial browser language.');
+assert(appSource.includes("language.startsWith('ko')"), 'Control dashboard does not auto-detect Korean.');
+assert(appSource.includes("language.startsWith('ja')"), 'Control dashboard does not auto-detect Japanese.');
+assert(appSource.includes("language.startsWith('zh')"), 'Control dashboard does not auto-detect Chinese.');
+assert(appSource.includes('document.documentElement.lang = currentLanguage'), 'Control dashboard does not update the document language.');
+assert(appSource.includes("'brand.title': 'WorkForge 제어판'"), 'Control dashboard is missing Korean translations.');
+assert(appSource.includes("'brand.title': 'WorkForge コントロール'"), 'Control dashboard is missing Japanese translations.');
+assert(appSource.includes("'brand.title': 'WorkForge 控制台'"), 'Control dashboard is missing Chinese translations.');
+
+const dictionaryStartMarker = 'const strings = ';
+const dictionaryEndMarker = ';\n\nfunction normalizeLanguage';
+const dictionaryStart = appSource.indexOf(dictionaryStartMarker);
+const dictionaryEnd = appSource.indexOf(dictionaryEndMarker, dictionaryStart);
+assert(dictionaryStart >= 0 && dictionaryEnd > dictionaryStart, 'Control dashboard translation dictionary could not be parsed.');
+const dictionarySource = appSource.slice(dictionaryStart + dictionaryStartMarker.length, dictionaryEnd);
+const dictionaries = vm.runInNewContext(`(${dictionarySource})`, Object.create(null), { timeout: 1000 });
+const supportedLanguages = ['en', 'ko', 'ja', 'zh'];
+const referenceKeys = Object.keys(dictionaries.en || {}).sort();
+assert(referenceKeys.length > 0, 'English translation dictionary is empty.');
+for (const language of supportedLanguages) {
+  const observedKeys = Object.keys(dictionaries[language] || {}).sort();
+  assert(
+    JSON.stringify(observedKeys) === JSON.stringify(referenceKeys),
+    `Control dashboard translation key set differs for language: ${language}`,
+  );
+}
+
+const staticI18nKeys = new Set(
+  [...htmlSource.matchAll(/data-i18n(?:-aria-label)?="([^"]+)"/g)].map(match => match[1]),
+);
+const runtimeI18nKeys = new Set(
+  [...appSource.matchAll(/\bt\('([^']+)'/g)].map(match => match[1]),
+);
+for (const key of new Set([...staticI18nKeys, ...runtimeI18nKeys])) {
+  for (const language of supportedLanguages) {
+    assert(Object.hasOwn(dictionaries[language], key), `Missing ${language} translation for key: ${key}`);
+  }
+}
 assert(serverSource.includes("url.pathname === '/api/update'"), 'Control server is missing update endpoints.');
 assert(serverSource.includes("runPowerShell('Update.ps1'"), 'Control server does not use the transactional updater.');
 assert(serverSource.includes('WORKFORGE_UPDATE_PROGRESS '), 'Control server does not consume updater progress events.');
