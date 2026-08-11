@@ -129,6 +129,8 @@ const strings = {
     'update.upToDateSummary': 'No newer stable WorkForge release is currently available.',
     'update.upToDateBadge': 'Up to date',
     'update.unavailableTitle': 'Could not check for updates',
+    'update.sourcePreviewTitle': 'Manual updates on macOS',
+    'update.sourcePreviewSummary': 'The macOS source preview does not update itself. Download the new release and run setup again.',
     'update.updatingTitle': 'Updating WorkForge to {version}...',
     'update.runningSummary': 'The update is running. Keep this Control window open.',
     'update.updatingBadge': 'Updating',
@@ -322,6 +324,8 @@ const strings = {
     'update.upToDateSummary': '현재 사용할 수 있는 더 새로운 안정 버전이 없습니다.',
     'update.upToDateBadge': '최신 버전',
     'update.unavailableTitle': '업데이트를 확인할 수 없습니다',
+    'update.sourcePreviewTitle': 'macOS에서는 수동으로 업데이트합니다',
+    'update.sourcePreviewSummary': 'macOS 소스 프리뷰는 자동 업데이트되지 않습니다. 새 릴리스를 받은 뒤 setup을 다시 실행하세요.',
     'update.updatingTitle': 'WorkForge {version}(으)로 업데이트 중...',
     'update.runningSummary': '업데이트가 진행 중입니다. 이 제어판 창을 열어 두세요.',
     'update.updatingBadge': '업데이트 중',
@@ -515,6 +519,8 @@ const strings = {
     'update.upToDateSummary': '現在利用できる新しい安定版はありません。',
     'update.upToDateBadge': '最新版',
     'update.unavailableTitle': 'アップデートを確認できません',
+    'update.sourcePreviewTitle': 'macOS では手動でアップデートします',
+    'update.sourcePreviewSummary': 'macOS ソースプレビューは自動更新されません。新しいリリースを取得して setup を再実行してください。',
     'update.updatingTitle': 'WorkForge {version} にアップデート中...',
     'update.runningSummary': 'アップデートを実行中です。このコントロール画面を開いたままにしてください。',
     'update.updatingBadge': 'アップデート中',
@@ -708,6 +714,8 @@ const strings = {
     'update.upToDateSummary': '当前没有更新的稳定版本可用。',
     'update.upToDateBadge': '已是最新',
     'update.unavailableTitle': '无法检查更新',
+    'update.sourcePreviewTitle': 'macOS 需要手动更新',
+    'update.sourcePreviewSummary': 'macOS 源码预览版不会自动更新。请下载新版本并重新运行 setup。',
     'update.updatingTitle': '正在将 WorkForge 更新到 {version}...',
     'update.runningSummary': '更新正在进行中。请保持此控制面板窗口打开。',
     'update.updatingBadge': '更新中',
@@ -968,13 +976,15 @@ function setBusy(active, label = null) {
 function updateButtons() {
   const running = Boolean(currentStatus?.running);
   const updating = currentUpdateProgress?.status === 'running' || currentUpdateProgress?.status === 'rollback';
+  const updateSupported = currentMeta?.capabilities?.update !== false;
+  const uninstallSupported = currentMeta?.capabilities?.uninstall !== false;
   elements.startButton.disabled = actionInFlight || updating || running;
   elements.stopButton.disabled = actionInFlight || updating || !running;
   elements.refreshButton.disabled = actionInFlight || updating;
   elements.doctorButton.disabled = actionInFlight || updating;
-  elements.checkUpdateButton.disabled = actionInFlight || updating;
-  elements.updateButton.disabled = actionInFlight || updating || !currentUpdate?.updateAvailable;
-  elements.openUninstallButton.disabled = actionInFlight || updating;
+  elements.checkUpdateButton.disabled = actionInFlight || updating || !updateSupported;
+  elements.updateButton.disabled = actionInFlight || updating || !updateSupported || !currentUpdate?.updateAvailable;
+  elements.openUninstallButton.disabled = actionInFlight || updating || !uninstallSupported;
 }
 
 function setChip(kind, text) {
@@ -1226,7 +1236,12 @@ function renderUpdate(update) {
   updateFailureMessage = null;
   elements.currentVersionMetric.textContent = update.currentVersion || t('state.unknown');
   elements.latestVersionMetric.textContent = update.latestVersion || t('state.unknown');
-  if (update.updateAvailable) {
+  if (update.supported === false) {
+    elements.updateTitle.textContent = t('update.sourcePreviewTitle');
+    elements.updateSummary.textContent = t('update.sourcePreviewSummary');
+    elements.updateBadge.textContent = t('state.unavailable');
+    elements.updateBadge.className = 'badge badge-neutral';
+  } else if (update.updateAvailable) {
     elements.updateTitle.textContent = t('update.availableTitle', { version: update.latestVersion });
     elements.updateSummary.textContent = t('update.availableSummary');
     elements.updateBadge.textContent = t('update.availableBadge');
@@ -1475,6 +1490,11 @@ async function initialize() {
     currentMeta = meta;
     elements.profileChip.textContent = t('profile.value', { profile: meta.profileId });
     elements.versionText.textContent = `WorkForge ${meta.version}`;
+    const removeEverything = document.querySelector('input[name="uninstallMode"][value="RemoveEverything"]');
+    if (removeEverything && meta.capabilities?.removeEverything === false) {
+      removeEverything.disabled = true;
+      removeEverything.closest('.choice-card')?.classList.add('hidden');
+    }
   } catch (error) {
     toast(error.message, 'error');
   }

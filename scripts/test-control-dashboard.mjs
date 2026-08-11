@@ -10,6 +10,8 @@ const toolRoot = path.resolve(scriptDirectory, '..');
 const serverPath = path.join(scriptDirectory, 'control-server.mjs');
 const htmlPath = path.join(toolRoot, 'control-ui', 'index.html');
 const appPath = path.join(toolRoot, 'control-ui', 'app.js');
+const macLauncherPath = path.join(toolRoot, 'scripts', 'macos', 'launch-control.mjs');
+const macCommandPath = path.join(toolRoot, 'WorkForge Control.command');
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -18,6 +20,8 @@ function assert(condition, message) {
 const serverSource = await readFile(serverPath, 'utf8');
 const htmlSource = await readFile(htmlPath, 'utf8');
 const appSource = await readFile(appPath, 'utf8');
+const macLauncherSource = await readFile(macLauncherPath, 'utf8');
+const macCommandSource = await readFile(macCommandPath, 'utf8');
 
 assert(serverSource.includes("host: '127.0.0.1'"), 'Control dashboard must bind to 127.0.0.1 only.');
 assert(!serverSource.includes('0.0.0.0'), 'Control dashboard must never bind to 0.0.0.0.');
@@ -31,6 +35,14 @@ assert(serverSource.includes("path.join(system32Root, 'taskkill.exe')"), 'Contro
 assert(serverSource.includes('terminateProcessTree(child)'), 'Control dashboard timeouts must terminate the child process tree.');
 assert(!serverSource.includes("spawn('powershell.exe'"), 'Control dashboard must not resolve PowerShell through the working directory or PATH.');
 assert(!serverSource.includes("spawn('cmd.exe'"), 'Control dashboard must not resolve cmd through the working directory or PATH.');
+assert(serverSource.includes("process.platform === 'darwin'"), 'Control dashboard is missing the macOS platform adapter.');
+assert(serverSource.includes("spawn('/usr/bin/open'"), 'macOS Control must open the browser through /usr/bin/open.');
+assert(serverSource.includes("runMacOSScript('start-tunnel.mjs'"), 'macOS Control is missing tunnel start.');
+assert(serverSource.includes("runMacOSScript('stop-tunnel.mjs'"), 'macOS Control is missing tunnel stop.');
+assert(serverSource.includes("runMacOSScript('doctor.mjs'"), 'macOS Control is missing online Doctor.');
+assert(macLauncherSource.includes('scrubControlPlaneEnvironment'), 'macOS Control launcher must scrub the tunnel credential.');
+assert(macLauncherSource.includes('installation.engineRoot !== toolRoot'), 'macOS Control launcher must reject a stale engine root.');
+assert(macCommandSource.includes('/usr/bin/plutil'), 'macOS Control command must resolve the recorded Node.js runtime without shell JSON parsing.');
 assert(htmlSource.includes('Start Tunnel'), 'Control dashboard is missing Start.');
 assert(htmlSource.includes('Run Doctor'), 'Control dashboard is missing Doctor.');
 assert(htmlSource.includes('Update WorkForge'), 'Control dashboard is missing update flow.');
@@ -172,13 +184,19 @@ try {
   const metaJson = await meta.json();
   assert(metaJson.localOnly === true, 'Dashboard meta does not report local-only mode.');
   assert(metaJson.profileId === 'missing-dashboard-test', 'Dashboard profile id changed unexpectedly.');
+  assert(metaJson.platform === (process.platform === 'darwin' ? 'macos' : 'windows'), 'Dashboard platform metadata is incorrect.');
+  assert(typeof metaJson.capabilities?.update === 'boolean', 'Dashboard capabilities are missing update support.');
+  assert(typeof metaJson.capabilities?.removeEverything === 'boolean', 'Dashboard capabilities are missing destructive uninstall support.');
 
   const statusFailure = await fetch(`${origin}/api/status`, { headers: { Cookie: cookie } });
   assert(statusFailure.status === 500, `Missing-profile status returned ${statusFailure.status}.`);
   const statusFailureText = await statusFailure.text();
   const statusFailureJson = JSON.parse(statusFailureText);
+  const expectedSetupMessage = process.platform === 'darwin'
+    ? 'WorkForge macOS profile is missing. Run npm run setup:macos to create it.'
+    : 'WorkForge profile registry is missing. Run Setup.cmd to create a WorkForge profile.';
   assert(
-    statusFailureJson.error === 'WorkForge profile registry is missing. Run Setup.cmd to create a WorkForge profile.',
+    statusFailureJson.error === expectedSetupMessage,
     'Missing-profile status did not explain how to set up WorkForge.',
   );
   if (process.env.USERPROFILE) {

@@ -37,4 +37,24 @@ if (running && localReady) {
 const ready = localReady && controlPlaneHealthy;
 let state = null;
 try { state = JSON.parse(readFileSync(paths.statusPath, "utf8")); } catch { /* no state yet */ }
-console.log(JSON.stringify({ profileId, running, healthy, localReady, controlPlaneHealthy, ready, healthUrl, state }, null, 2));
+const processState = state?.state ?? (running ? "running" : "stopped");
+console.log(JSON.stringify({
+  profileId,
+  running,
+  healthy,
+  health: healthy,
+  localReady,
+  controlPlaneHealthy,
+  ready,
+  healthUrl,
+  state,
+  processState,
+  desiredRunning: existsSync(paths.desiredPath),
+  stopRequested: existsSync(paths.stopPath),
+  supervised: running,
+  supervisorState: processState,
+  recoveryState: processState === "exhausted" ? "exhausted" : null,
+  recoveryFailureCount: state?.failureCount ?? 0,
+  pid: state?.tunnelPid ?? null,
+  supervisorPid: record?.pid ?? state?.supervisorPid ?? null,
+}, null, 2));

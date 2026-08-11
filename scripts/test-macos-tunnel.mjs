@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -64,7 +64,11 @@ writeFileSync(resolve(stateRoot, "registry.json"), `${JSON.stringify({
   }],
 })}\n`);
 writeFileSync(resolve(stateRoot, "current.json"), `${JSON.stringify({
-  version: 1, engineRoot: root, registryPath: resolve(stateRoot, "registry.json"), nodePath: process.execPath,
+  version: 1,
+  engineRoot: root,
+  registryPath: resolve(stateRoot, "registry.json"),
+  nodePath: process.execPath,
+  ripgrepPath: "/usr/bin/grep",
 })}\n`);
 writeFileSync(fakeTunnel, `#!/usr/bin/env node
 import { createHash } from "node:crypto";
@@ -101,6 +105,7 @@ const environment = {
 };
 const originalStateRoot = process.env.WORKFORGE_MACOS_STATE_ROOT;
 process.env.WORKFORGE_MACOS_STATE_ROOT = stateRoot;
+let dashboard;
 try {
   deleteStoredControlPlaneKey(profileId);
   storeControlPlaneKey(profileId, longRuntimeKey);
@@ -113,25 +118,97 @@ try {
   assert.equal(arm64Runtime.archiveName, `tunnel-client-v${arm64Runtime.version}-darwin-arm64.zip`);
   assert.equal(x64Runtime.archiveName, `tunnel-client-v${x64Runtime.version}-darwin-amd64.zip`);
 
-  execFileSync(process.execPath, [resolve(root, "scripts", "macos", "start-tunnel.mjs"), "--profile", profileId], { env: environment, stdio: "inherit" });
+  dashboard = spawn(process.execPath, [
+    resolve(root, "scripts", "control-server.mjs"),
+    "--profile", profileId,
+    "--no-browser",
+    "--port", "0",
+  ], {
+    cwd: root,
+    env: { ...environment, WORKFORGE_CONTROL_TEST_MODE: "1" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let dashboardStdout = "";
+  let dashboardStderr = "";
+  dashboard.stdout.setEncoding("utf8");
+  dashboard.stderr.setEncoding("utf8");
+  dashboard.stdout.on("data", (chunk) => { dashboardStdout += chunk; });
+  dashboard.stderr.on("data", (chunk) => { dashboardStderr += chunk; });
+  const dashboardDeadline = Date.now() + 8_000;
+  let dashboardPort;
+  while (Date.now() < dashboardDeadline) {
+    const line = dashboardStdout.split(/\r?\n/u).find((value) => value.startsWith("WORKFORGE_CONTROL_TEST_READY "));
+    if (line) {
+      dashboardPort = JSON.parse(line.slice("WORKFORGE_CONTROL_TEST_READY ".length)).port;
+      break;
+    }
+    if (dashboard.exitCode !== null) throw new Error(`macOS Control exited early: ${dashboardStderr || dashboardStdout}`);
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
+  }
+  assert.equal(Number.isInteger(dashboardPort), true, `macOS Control did not become ready: ${dashboardStderr || dashboardStdout}`);
+  const origin = `http://127.0.0.1:${dashboardPort}`;
+  const rootResponse = await fetch(`${origin}/`);
+  assert.equal(rootResponse.status, 200);
+  const cookie = (rootResponse.headers.get("set-cookie") ?? "").split(";", 1)[0];
+  const headers = { Cookie: cookie, Origin: origin, "Content-Type": "application/json" };
+
+  const meta = await (await fetch(`${origin}/api/meta`, { headers: { Cookie: cookie } })).json();
+  assert.equal(meta.platform, "macos");
+  assert.equal(meta.capabilities.update, false);
+  assert.equal(meta.capabilities.removeEverything, false);
+
+  const startResponse = await fetch(`${origin}/api/start`, { method: "POST", headers, body: "{}" });
+  assert.equal(startResponse.status, 200, await startResponse.text());
   const running = JSON.parse(execFileSync(process.execPath, [resolve(root, "scripts", "macos", "tunnel-status.mjs"), "--profile", profileId], { env: environment, encoding: "utf8" }));
   assert.equal(running.running, true);
   assert.equal(running.healthy, true);
   assert.equal(running.localReady, true);
   assert.equal(running.controlPlaneHealthy, true);
   assert.equal(running.ready, true);
+  assert.equal(running.supervised, true);
+
+  const doctorResponse = await fetch(`${origin}/api/doctor`, { method: "POST", headers, body: "{}" });
+  assert.equal(doctorResponse.status, 200, await doctorResponse.text());
+  const update = await (await fetch(`${origin}/api/update`, { headers: { Cookie: cookie } })).json();
+  assert.equal(update.update.supported, false);
+  const previewResponse = await fetch(`${origin}/api/uninstall/preview`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ mode: "KeepWorkspace" }),
+  });
+  assert.equal(previewResponse.status, 200, await previewResponse.text());
+  const destructivePreview = await fetch(`${origin}/api/uninstall/preview`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ mode: "RemoveEverything" }),
+  });
+  assert.equal(destructivePreview.status, 500);
+
   const unauthenticated = JSON.parse(execFileSync(process.execPath, [resolve(root, "scripts", "macos", "tunnel-status.mjs"), "--profile", profileId], {
     env: { ...environment, FAKE_CONTROL_PLANE_OK: "0" }, encoding: "utf8",
   }));
   assert.equal(unauthenticated.localReady, true);
   assert.equal(unauthenticated.controlPlaneHealthy, false);
   assert.equal(unauthenticated.ready, false);
-  execFileSync(process.execPath, [resolve(root, "scripts", "macos", "stop-tunnel.mjs"), "--profile", profileId], { env: environment, stdio: "inherit" });
+  const stopResponse = await fetch(`${origin}/api/stop`, { method: "POST", headers, body: "{}" });
+  assert.equal(stopResponse.status, 200, await stopResponse.text());
   const stopped = JSON.parse(execFileSync(process.execPath, [resolve(root, "scripts", "macos", "tunnel-status.mjs"), "--profile", profileId], { env: environment, encoding: "utf8" }));
   assert.equal(stopped.running, false);
+  const shutdownResponse = await fetch(`${origin}/api/shutdown`, { method: "POST", headers, body: "{}" });
+  assert.equal(shutdownResponse.status, 200);
+  const dashboardExit = await new Promise((resolveExit, rejectExit) => {
+    const timer = setTimeout(() => rejectExit(new Error("macOS Control did not shut down.")), 5_000);
+    dashboard.once("exit", (code) => {
+      clearTimeout(timer);
+      resolveExit(code);
+    });
+  });
+  assert.equal(dashboardExit, 0, dashboardStderr);
   console.log("MACOS_KEYCHAIN_ROUNDTRIP_TEST_OK");
   console.log("MACOS_TUNNEL_LIFECYCLE_TEST_OK");
+  console.log("MACOS_CONTROL_DASHBOARD_TEST_OK");
 } finally {
+  if (dashboard?.exitCode === null) dashboard.kill("SIGTERM");
   try { execFileSync(process.execPath, [resolve(root, "scripts", "macos", "stop-tunnel.mjs"), "--profile", profileId], { env: environment, stdio: "ignore" }); } catch { /* best effort */ }
   if (originalStateRoot === undefined) delete process.env.WORKFORGE_MACOS_STATE_ROOT;
   else process.env.WORKFORGE_MACOS_STATE_ROOT = originalStateRoot;

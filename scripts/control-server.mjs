@@ -11,12 +11,20 @@ const toolRoot = path.resolve(scriptDirectory, '..');
 const uiRoot = path.join(toolRoot, 'control-ui');
 const packageJson = JSON.parse(await readFile(path.join(toolRoot, 'package.json'), 'utf8'));
 const version = String(packageJson.version);
+const isMacOS = process.platform === 'darwin';
 const systemRoot = process.env.SystemRoot || process.env.WINDIR || 'C:\\Windows';
 const system32Root = path.join(systemRoot, 'System32');
 const powershellPath = path.join(system32Root, 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 const cmdPath = path.join(system32Root, 'cmd.exe');
 const taskkillPath = path.join(system32Root, 'taskkill.exe');
-const profileRegistrySetupMessage = 'WorkForge profile registry is missing. Run Setup.cmd to create a WorkForge profile.';
+const profileRegistrySetupMessage = isMacOS
+  ? 'WorkForge macOS profile is missing. Run npm run setup:macos to create it.'
+  : 'WorkForge profile registry is missing. Run Setup.cmd to create a WorkForge profile.';
+const capabilities = {
+  update: !isMacOS,
+  uninstall: true,
+  removeEverything: !isMacOS,
+};
 
 function readArgument(name, fallback = null) {
   const index = process.argv.indexOf(name);
@@ -119,8 +127,8 @@ function replacePathIgnoreCase(text, value, replacement) {
 
 function sanitizeText(value) {
   let text = String(value ?? '');
-  const userProfile = process.env.USERPROFILE;
-  text = replacePathIgnoreCase(text, userProfile, '%USERPROFILE%');
+  const userProfile = process.env.USERPROFILE || os.homedir();
+  text = replacePathIgnoreCase(text, userProfile, isMacOS ? '$HOME' : '%USERPROFILE%');
   text = replacePathIgnoreCase(text, toolRoot, '%WORKFORGE_ROOT%');
   text = text.replace(/\btunnel_[a-f0-9]{32}\b/gi, 'tunnel_<redacted>');
   text = text.replace(/\b(?:sk|rk)-(?:proj-)?[A-Za-z0-9_-]{16,}\b/gi, '<redacted-key>');
@@ -229,6 +237,12 @@ function controlEnvironment() {
 
 function terminateProcessTree(child) {
   if (!child.pid) return;
+  if (isMacOS) {
+    try { process.kill(-child.pid, 'SIGTERM'); } catch {
+      try { child.kill('SIGTERM'); } catch { /* already stopped */ }
+    }
+    return;
+  }
   const killer = spawn(taskkillPath, ['/pid', String(child.pid), '/t', '/f'], {
     cwd: os.tmpdir(),
     env: controlEnvironment(),
@@ -237,6 +251,68 @@ function terminateProcessTree(child) {
     stdio: 'ignore',
   });
   killer.unref();
+}
+
+function runMacOSScript(scriptName, argumentsList = [], timeoutMs = 90_000, options = {}) {
+  return new Promise((resolve, reject) => {
+    const scriptPath = path.join(scriptDirectory, 'macos', scriptName);
+    const child = spawn(process.execPath, [scriptPath, ...argumentsList], {
+      cwd: os.tmpdir(),
+      detached: true,
+      env: controlEnvironment(),
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let stderrRemainder = '';
+    const maxOutput = 512 * 1024;
+    let overflow = false;
+    const append = (current, chunk) => {
+      if (current.length + chunk.length > maxOutput) {
+        overflow = true;
+        return current;
+      }
+      return current + chunk.toString('utf8');
+    };
+    child.stdout.on('data', chunk => { stdout = append(stdout, chunk); });
+    const handleStderrLine = line => {
+      if (typeof options.onStderrLine === 'function' && options.onStderrLine(line) === true) return;
+      stderr = append(stderr, `${line}\n`);
+    };
+    child.stderr.on('data', chunk => {
+      stderrRemainder += chunk.toString('utf8');
+      const lines = stderrRemainder.split(/\r?\n/);
+      stderrRemainder = lines.pop() || '';
+      for (const line of lines) handleStderrLine(line);
+    });
+
+    const timer = setTimeout(() => {
+      terminateProcessTree(child);
+      reject(new Error(`${scriptName} timed out.`));
+    }, timeoutMs);
+    child.once('error', error => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once('close', code => {
+      clearTimeout(timer);
+      if (stderrRemainder) handleStderrLine(stderrRemainder);
+      if (overflow) {
+        reject(new Error(`${scriptName} produced too much output.`));
+        return;
+      }
+      const cleanStdout = sanitizeText(stdout.trim());
+      const cleanStderr = sanitizeText(stderr.trim());
+      if (code !== 0) {
+        const detail = cleanStderr || cleanStdout || `${scriptName} failed with exit code ${code}.`;
+        reject(new Error(detail.slice(0, 12_000)));
+        return;
+      }
+      resolve({ stdout: cleanStdout, stderr: cleanStderr, code });
+    });
+  });
 }
 
 function runPowerShell(scriptName, argumentsList = [], timeoutMs = 90_000, options = {}) {
@@ -357,9 +433,14 @@ async function getStatus({ force = false } = {}) {
   const request = (async () => {
     let result;
     try {
-      result = await runPowerShell('tunnel-status.ps1', ['-ProfileId', profileId, '-Snapshot'], 15_000);
+      result = isMacOS
+        ? await runMacOSScript('tunnel-status.mjs', ['--profile', profileId], 15_000)
+        : await runPowerShell('tunnel-status.ps1', ['-ProfileId', profileId, '-Snapshot'], 15_000);
     } catch (error) {
-      if (error instanceof Error && error.message.includes(profileRegistrySetupMessage)) {
+      if (error instanceof Error && (
+        error.message.includes(profileRegistrySetupMessage)
+        || (isMacOS && /ENOENT|WorkForge macOS state|Unknown or invalid WorkForge profile/u.test(error.message))
+      )) {
         throw new Error(profileRegistrySetupMessage);
       }
       throw error;
@@ -386,6 +467,14 @@ async function getStatus({ force = false } = {}) {
 }
 
 async function getUpdateStatus({ force = false } = {}) {
+  if (isMacOS) {
+    return {
+      supported: false,
+      currentVersion: version,
+      latestVersion: null,
+      updateAvailable: false,
+    };
+  }
   const now = Date.now();
   if (!force && cachedUpdate && now - cachedUpdateAt < updateCacheMs) return cachedUpdate;
   const result = await runPowerShell('Update.ps1', ['-Action', 'Check', '-Json'], 30_000);
@@ -401,6 +490,7 @@ async function getUpdateStatus({ force = false } = {}) {
 }
 
 async function performUpdate() {
+  if (!capabilities.update) throw new Error('Automatic updates are not available in the macOS source preview. Download the new release and run setup again.');
   if (activeAction) throw new Error(`Another control action is already running: ${activeAction}.`);
   activeAction = 'update';
   updateProgress = {
@@ -455,15 +545,19 @@ async function performAction(action) {
   try {
     if (action === 'start') {
       recordActivity('info', 'Starting secure tunnel...');
-      await runPowerShell('start-tunnel.ps1', ['-ProfileId', profileId]);
+      if (isMacOS) await runMacOSScript('start-tunnel.mjs', ['--profile', profileId], 45_000);
+      else await runPowerShell('start-tunnel.ps1', ['-ProfileId', profileId]);
       recordActivity('success', 'Start command completed.');
     } else if (action === 'stop') {
       recordActivity('info', 'Stopping secure tunnel...');
-      await runPowerShell('stop-tunnel.ps1', ['-ProfileId', profileId]);
+      if (isMacOS) await runMacOSScript('stop-tunnel.mjs', ['--profile', profileId], 30_000);
+      else await runPowerShell('stop-tunnel.ps1', ['-ProfileId', profileId]);
       recordActivity('success', 'Stop command completed.');
     } else if (action === 'doctor') {
       recordActivity('info', 'Running Doctor...');
-      const result = await runPowerShell('Doctor.ps1', ['-ProfileId', profileId, '-Online']);
+      const result = isMacOS
+        ? await runMacOSScript('doctor.mjs', ['--profile', profileId, '--online'], 30_000)
+        : await runPowerShell('Doctor.ps1', ['-ProfileId', profileId, '-Online']);
       recordActivity('success', 'Doctor completed successfully.');
       return { detail: (result.stdout || 'Doctor completed successfully.').slice(-12_000) };
     } else {
@@ -480,12 +574,20 @@ async function performAction(action) {
 
 async function previewUninstall(mode) {
   if (!['KeepWorkspace', 'RemoveEverything'].includes(mode)) throw new Error('Invalid uninstall mode.');
+  if (isMacOS && mode === 'RemoveEverything') {
+    throw new Error('Remove Everything is not available in the macOS source preview.');
+  }
   if (activeAction) throw new Error(`Another control action is already running: ${activeAction}.`);
   activeAction = 'uninstall-preview';
   try {
-    const args = ['-Mode', mode, '-ProfileId', profileId, '-NonInteractive', '-WhatIf', '-Plain', '-NoLog'];
-    if (mode === 'RemoveEverything') args.push('-ConfirmFullRemoval');
-    const result = await runPowerShell('Uninstall.ps1', args, 60_000);
+    let result;
+    if (isMacOS) {
+      result = await runMacOSScript('uninstall.mjs', ['--profile', profileId, '--what-if'], 30_000);
+    } else {
+      const args = ['-Mode', mode, '-ProfileId', profileId, '-NonInteractive', '-WhatIf', '-Plain', '-NoLog'];
+      if (mode === 'RemoveEverything') args.push('-ConfirmFullRemoval');
+      result = await runPowerShell('Uninstall.ps1', args, 60_000);
+    }
     recordActivity('info', `Uninstall preview completed (${mode}).`);
     return (result.stdout || 'No changes would be made.').slice(-12_000);
   } finally {
@@ -495,6 +597,9 @@ async function previewUninstall(mode) {
 
 async function performUninstall(mode, body) {
   if (!['KeepWorkspace', 'RemoveEverything'].includes(mode)) throw new Error('Invalid uninstall mode.');
+  if (isMacOS && mode === 'RemoveEverything') {
+    throw new Error('Remove Everything is not available in the macOS source preview.');
+  }
   if (body.confirm !== true) throw new Error('Explicit uninstall confirmation is required.');
   if (mode === 'RemoveEverything' && body.phrase !== 'REMOVE WORKFORGE') {
     throw new Error('Type REMOVE WORKFORGE exactly to remove the workspace.');
@@ -502,9 +607,14 @@ async function performUninstall(mode, body) {
   if (activeAction) throw new Error(`Another control action is already running: ${activeAction}.`);
   activeAction = 'uninstall';
   try {
-    const args = ['-Mode', mode, '-ProfileId', profileId, '-NonInteractive', '-Plain'];
-    if (mode === 'RemoveEverything') args.push('-ConfirmFullRemoval');
-    await runPowerShell('Uninstall.ps1', args, 120_000);
+    if (isMacOS) {
+      await runMacOSScript('stop-tunnel.mjs', ['--profile', profileId], 30_000);
+      await runMacOSScript('uninstall.mjs', ['--profile', profileId], 30_000);
+    } else {
+      const args = ['-Mode', mode, '-ProfileId', profileId, '-NonInteractive', '-Plain'];
+      if (mode === 'RemoveEverything') args.push('-ConfirmFullRemoval');
+      await runPowerShell('Uninstall.ps1', args, 120_000);
+    }
     recordActivity('success', `Uninstall completed (${mode}).`);
   } finally {
     activeAction = null;
@@ -563,6 +673,8 @@ const server = http.createServer(async (request, response) => {
         ok: true,
         version,
         profileId,
+        platform: isMacOS ? 'macos' : 'windows',
+        capabilities,
         localOnly: true,
         activeAction,
       });
@@ -658,13 +770,20 @@ server.listen({ host: '127.0.0.1', port: requestedPort, exclusive: true }, () =>
     process.stdout.write(`WorkForge Control ready at ${url}\n`);
   }
   if (!noBrowser) {
-    const browser = spawn(cmdPath, ['/d', '/s', '/c', 'start', '', url], {
-      detached: true,
-      env: controlEnvironment(),
-      shell: false,
-      stdio: 'ignore',
-      windowsHide: true,
-    });
+    const browser = isMacOS
+      ? spawn('/usr/bin/open', [url], {
+          detached: true,
+          env: controlEnvironment(),
+          shell: false,
+          stdio: 'ignore',
+        })
+      : spawn(cmdPath, ['/d', '/s', '/c', 'start', '', url], {
+          detached: true,
+          env: controlEnvironment(),
+          shell: false,
+          stdio: 'ignore',
+          windowsHide: true,
+        });
     browser.unref();
   }
 });

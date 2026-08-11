@@ -51,6 +51,19 @@ npm run status:tunnel:macos
 npm run stop:tunnel:macos
 ```
 
+After setup, open the local dashboard by double-clicking `WorkForge Control.command` in Finder,
+or launch it from Terminal:
+
+```sh
+./WorkForge\ Control.command
+```
+
+The macOS dashboard supports tunnel start, status, stop, online Doctor, and safe profile
+unregistration while preserving the workspace. The source preview does not yet provide the
+Windows transactional updater or the destructive "Remove Everything" action, so those controls
+are disabled on macOS. Installing a newer source release still requires downloading it, running
+`npm ci`, `npm run build`, and rerunning `setup:macos` from that release.
+
 `start` and `status` require both local tunnel readiness and a successful control-plane
 Doctor check. A locally healthy process with a rejected or revoked Runtime API Key is not
 reported as ready. The supervisor has a bounded restart budget and exponential backoff.
