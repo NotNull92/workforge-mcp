@@ -227,14 +227,42 @@ function Read-WorkForgePortableInstalledVersion {
   return [pscustomobject]@{ EngineRoot = $ResolvedRoot; Version = $Version; ManifestPath = $Manifest.Path; ManifestSchemaVersion = $SchemaVersion }
 }
 
+function Assert-WorkForgePortableValidatedInstalled {
+  param([Parameter(Mandatory = $true)][object]$Installed, [Parameter(Mandatory = $true)][string]$Version)
+  $ExpectedRoot = [IO.Path]::GetFullPath((Join-Path (Get-WorkForgePortableRoots).ProgramsRoot ("versions\\" + $Version)))
+  if ([string]$Installed.Version -cne $Version -or [string]$Installed.EngineRoot -cne $ExpectedRoot) {
+    throw "Validated portable engine record does not match the requested version."
+  }
+  return $Installed
+}
+
+function New-WorkForgePortableRuntime {
+  param([Parameter(Mandatory = $true)][object]$Installed)
+  $Roots = Get-WorkForgePortableRoots
+  return [pscustomobject]@{
+    Version = $Installed.Version
+    EngineRoot = $Installed.EngineRoot
+    StateRoot = $Roots.StateRoot
+    NodePath = Join-Path $Installed.EngineRoot "runtimes\node\node.exe"
+    RipgrepPath = Join-Path $Installed.EngineRoot "runtimes\ripgrep\rg.exe"
+    TunnelClientPath = Join-Path $Installed.EngineRoot "runtimes\tunnel-client\tunnel-client.exe"
+    StdioPath = Join-Path $Installed.EngineRoot "dist\stdio.js"
+  }
+}
+
 function Set-WorkForgePortableCurrent {
   param(
     [Parameter(Mandatory = $true)][string]$Version,
-    [string]$PreviousVersion
+    [string]$PreviousVersion,
+    [object]$ValidatedInstalled
   )
   $Roots = Get-WorkForgePortableRoots
   $EngineRoot = Join-Path $Roots.ProgramsRoot ("versions\" + $Version)
-  $Installed = Read-WorkForgePortableInstalledVersion -EngineRoot $EngineRoot -Version $Version
+  $Installed = if ($null -ne $ValidatedInstalled) {
+    Assert-WorkForgePortableValidatedInstalled -Installed $ValidatedInstalled -Version $Version
+  } else {
+    Read-WorkForgePortableInstalledVersion -EngineRoot $EngineRoot -Version $Version
+  }
   $ManifestHash = (Get-WorkForgeFileSha256 -Path $Installed.ManifestPath).ToLowerInvariant()
   $Pointer = [ordered]@{
     schemaVersion = 1
@@ -285,19 +313,30 @@ function Stage-WorkForgePortableVersion {
 }
 
 function Sync-WorkForgePortableLaunchers {
-  param([Parameter(Mandatory = $true)][string]$Version)
+  param([Parameter(Mandatory = $true)][string]$Version, [object]$ValidatedInstalled)
   $Roots = Get-WorkForgePortableRoots
   $EngineRoot = Join-Path $Roots.ProgramsRoot ("versions\" + $Version)
-  $null = Read-WorkForgePortableInstalledVersion -EngineRoot $EngineRoot -Version $Version
+  $Installed = if ($null -ne $ValidatedInstalled) {
+    Assert-WorkForgePortableValidatedInstalled -Installed $ValidatedInstalled -Version $Version
+  } else {
+    Read-WorkForgePortableInstalledVersion -EngineRoot $EngineRoot -Version $Version
+  }
+  $EngineRoot = $Installed.EngineRoot
   Copy-Item -LiteralPath (Join-Path $EngineRoot "scripts\WorkForge.Portable.ps1") -Destination (Join-Path $Roots.ProgramsRoot "WorkForge.Portable.ps1") -Force
   Copy-Item -LiteralPath (Join-Path $EngineRoot "scripts\Portable-Control.ps1") -Destination (Join-Path $Roots.ProgramsRoot "Portable-Control.ps1") -Force
   Copy-Item -LiteralPath (Join-Path $EngineRoot "scripts\Portable-Control.cmd") -Destination (Join-Path $Roots.ProgramsRoot "WorkForge Control.cmd") -Force
 }
 
 function Activate-WorkForgePortableVersion {
-  param([Parameter(Mandatory = $true)][string]$Version, [string]$PreviousVersion)
-  $null = Set-WorkForgePortableCurrent -Version $Version -PreviousVersion $PreviousVersion
-  Sync-WorkForgePortableLaunchers -Version $Version
+  param([Parameter(Mandatory = $true)][string]$Version, [string]$PreviousVersion, [object]$ValidatedInstalled)
+  $Installed = if ($null -ne $ValidatedInstalled) {
+    Assert-WorkForgePortableValidatedInstalled -Installed $ValidatedInstalled -Version $Version
+  } else {
+    $null
+  }
+  $null = Set-WorkForgePortableCurrent -Version $Version -PreviousVersion $PreviousVersion -ValidatedInstalled $Installed
+  Sync-WorkForgePortableLaunchers -Version $Version -ValidatedInstalled $Installed
+  if ($null -ne $Installed) { return New-WorkForgePortableRuntime -Installed $Installed }
   return Resolve-WorkForgePortableEngine
 }
 
@@ -311,8 +350,8 @@ function Install-WorkForgePortableVersion {
     $PreviousVersion = [string](Read-WorkForgePortableJson -Path $CurrentPath -Description "Portable current pointer").Value.version
     if ($PreviousVersion -ceq $Release.Version) { $PreviousVersion = $null }
   }
-  $null = Stage-WorkForgePortableVersion -SourceRoot $SourceRoot
-  return Activate-WorkForgePortableVersion -Version $Release.Version -PreviousVersion $PreviousVersion
+  $Staged = Stage-WorkForgePortableVersion -SourceRoot $SourceRoot
+  return Activate-WorkForgePortableVersion -Version $Release.Version -PreviousVersion $PreviousVersion -ValidatedInstalled $Staged
 }
 function Resolve-WorkForgePortableEngine {
   $Roots = Get-WorkForgePortableRoots
@@ -332,15 +371,7 @@ function Resolve-WorkForgePortableEngine {
     -EngineRoot (Join-Path $Roots.ProgramsRoot ("versions\" + $Version)) `
     -Version $Version `
     -ExpectedManifestHash ([string]$Value.installManifestSha256)
-  return [pscustomobject]@{
-    Version = $Installed.Version
-    EngineRoot = $Installed.EngineRoot
-    StateRoot = $Roots.StateRoot
-    NodePath = Join-Path $Installed.EngineRoot "runtimes\node\node.exe"
-    RipgrepPath = Join-Path $Installed.EngineRoot "runtimes\ripgrep\rg.exe"
-    TunnelClientPath = Join-Path $Installed.EngineRoot "runtimes\tunnel-client\tunnel-client.exe"
-    StdioPath = Join-Path $Installed.EngineRoot "dist\stdio.js"
-  }
+  return New-WorkForgePortableRuntime -Installed $Installed
 }
 
 function Invoke-WorkForgePortableRollback {

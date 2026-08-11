@@ -162,7 +162,7 @@ try {
     Set-Item -LiteralPath Function:\Read-WorkForgePortableInstalledVersion -Value $OriginalReadInstalled
   }
 
-  [IO.File]::AppendAllText((Join-Path $RolledBack.EngineRoot "control-ui\app.js"), "tampered", $Utf8)
+  [IO.File]::AppendAllText((Join-Path $Activated.EngineRoot "control-ui\app.js"), "tampered", $Utf8)
   try {
     $null = Resolve-WorkForgePortableEngine
     throw "Tampered portable engine unexpectedly resolved."

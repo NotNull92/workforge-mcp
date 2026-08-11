@@ -217,7 +217,7 @@ function Invoke-WorkForgeTransactionalUpgrade {
 
   # Full immutable-engine hashing happens before any tunnel is stopped or current.json changes.
   Invoke-WorkForgeUpdateProgressCallback -ProgressCallback $ProgressCallback -Stage "staging" -Percent 50 -Message "Staging the new engine side-by-side..."
-  $null = Stage-WorkForgePortableVersion -SourceRoot $SourceRoot
+  $Staged = Stage-WorkForgePortableVersion -SourceRoot $SourceRoot
   Invoke-WorkForgeUpdateProgressCallback -ProgressCallback $ProgressCallback -Stage "staging" -Percent 57 -Message "Capturing existing tunnel state..."
   $Profiles = @(Get-WorkForgeUpdateProfileRecords -EngineRoot $CurrentRuntime.EngineRoot)
   $ProfileStates = @()
@@ -246,7 +246,7 @@ function Invoke-WorkForgeTransactionalUpgrade {
 
     Invoke-WorkForgeUpdateProgressCallback -ProgressCallback $ProgressCallback -Stage "activating" -Percent 70 -Message "Activating WorkForge $($Release.Version)..."
     $ActivationAttempted = $true
-    $NewRuntime = Activate-WorkForgePortableVersion -Version $Release.Version -PreviousVersion $CurrentRuntime.Version
+    $NewRuntime = Activate-WorkForgePortableVersion -Version $Release.Version -PreviousVersion $CurrentRuntime.Version -ValidatedInstalled $Staged
     $Activated = $true
 
     Invoke-WorkForgeUpdateProgressCallback -ProgressCallback $ProgressCallback -Stage "rebinding" -Percent 79 -Message "Rebinding tunnel profiles to the new runtime..."
