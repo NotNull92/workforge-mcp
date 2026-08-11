@@ -168,12 +168,15 @@ export function storeControlPlaneKey(profileId, key) {
   if (observed !== value) throw new Error("Runtime API Key Keychain verification did not match the supplied value.");
 }
 
-export function deleteStoredControlPlaneKey(profileId) {
+export function deleteStoredControlPlaneKey(profileId, runSecurity = spawnSync) {
   assertProfileId(profileId);
-  const deleted = spawnSync("/usr/bin/security", [
+  const deleted = runSecurity("/usr/bin/security", [
     "delete-generic-password", "-a", profileId, "-s", KEYCHAIN_SERVICE,
   ], { env: scrubControlPlaneEnvironment(), stdio: "ignore" });
-  return deleted.status === 0;
+  if (deleted.status === 0) return true;
+  // errSecItemNotFound (-25300) is truncated to the shell's 8-bit exit status.
+  if (deleted.status === 44) return false;
+  throw new Error("Runtime API Key was not removed from Keychain.");
 }
 
 export function tunnelDoctor(installation, key, stdio = "ignore") {

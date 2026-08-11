@@ -30,6 +30,21 @@ assert.match(startSource, /scrubControlPlaneEnvironment/u, "macOS supervisor lau
 assert.match(installSource, /resolveTunnelRuntimeDescriptor/u, "macOS runtime install must use runtime-lock metadata.");
 assert.match(installSource, /cpSync\(extractedPath, stagingRoot/u, "macOS runtime install must copy across filesystems before destination-local rename.");
 assert.match(installSource, /AbortSignal\.timeout/u, "macOS runtime download must be bounded.");
+assert.throws(
+  () => deleteStoredControlPlaneKey("workstation", () => ({ status: 1 })),
+  /Runtime API Key was not removed from Keychain/u,
+  "Keychain deletion failures must stop cleanup.",
+);
+assert.equal(
+  deleteStoredControlPlaneKey("workstation", () => ({ status: 44 })),
+  false,
+  "An already-absent Runtime API Key must remain an idempotent cleanup.",
+);
+assert.equal(
+  deleteStoredControlPlaneKey("workstation", () => ({ status: 0 })),
+  true,
+  "Successful Runtime API Key deletion must be reported.",
+);
 
 if (process.platform !== "darwin") {
   console.log("MACOS_TUNNEL_STATIC_TEST_OK");
