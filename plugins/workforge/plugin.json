@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "workforge",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Secure, profile-scoped access to a local Windows or macOS workstation through WorkForge.",
   "author": {
     "name": "NotNull92",
