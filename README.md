@@ -344,11 +344,11 @@ So **compatible software is not reinstalled, and missing Git does not block Setu
 
 ### Updating from v0.1.0
 
-The already-published v0.1.0 build does not contain the updater UI, so moving from v0.1.0 to v0.2.0 requires one manual bridge: download the v0.2.0 Release ZIP, extract it to a new folder, and run its `Setup.cmd`. Do **not** uninstall v0.1.0 first.
+The already-published v0.1.0 build does not contain the updater UI, so it needs one manual bridge into the v0.2.x line. Use **v0.2.1 or a newer stable Windows Release ZIP**, extract it to a new folder, and run its `Setup.cmd`. Do **not** uninstall v0.1.0 first. The original v0.2.0 ZIP has a post-upgrade Setup parameter-forwarding bug and should not be used for a new v0.1.0 bridge attempt.
 
 That Setup path performs a transactional side-by-side upgrade. It fully hashes the new engine before activation, preserves the old engine as the rollback target, stops only tunnels that were running, rebuilds existing tunnel profiles against the new Node/stdio paths without rewriting the protected credential, validates them, and restarts the tunnels that were running before the update. If validation fails, `current.json` and the original tunnel configuration are restored and the previous engine is reactivated.
 
-Starting with v0.2.0, normal future updates can be performed from **WorkForge Control → Update WorkForge** instead of downloading the ZIP manually.
+Starting with v0.2.0, normal future updates can be performed from **WorkForge Control → Update WorkForge** instead of downloading the ZIP manually. If v0.2.0 is already active after the known Setup error, no reinstall or rollback is required; update normally to v0.2.1 or newer.
 
 Portable releases do not use WinGet for Node.js or ripgrep. The source-checkout
 developer path retains the existing consent-gated prerequisite bootstrap. Git

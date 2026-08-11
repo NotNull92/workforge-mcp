@@ -39,9 +39,9 @@ install Git for Windows normally or rerun Setup and choose the optional Git inst
 
 ## Updating WorkForge
 
-The published v0.1.0 build predates the updater UI. To move from v0.1.0 to v0.2.0, download the v0.2.0 Windows Release ZIP and matching `.sha256`, verify/extract it to a new folder, and run that ZIP's `Setup.cmd`. Do not uninstall v0.1.0 first. A valid existing portable installation is used as the rollback target.
+The published v0.1.0 build predates the updater UI. To move from v0.1.0 into the v0.2.x line, download **v0.2.1 or a newer stable Windows Release ZIP** and matching `.sha256`, verify/extract it to a new folder, and run that ZIP's `Setup.cmd`. Do not uninstall v0.1.0 first. A valid existing portable installation is used as the rollback target. Do not use the original v0.2.0 ZIP for a new v0.1.0 bridge attempt because it contains a post-upgrade Setup parameter-forwarding bug.
 
-From v0.2.0 onward, open **WorkForge Control** and use **Check again** / **Update WorkForge**. Update discovery contacts the canonical stable GitHub Release for `NotNull92/workforge-mcp`; if GitHub is unavailable, the update card may show Unavailable but local tunnel controls continue to work.
+From v0.2.0 onward, open **WorkForge Control** and use **Check again** / **Update WorkForge**. If v0.2.0 is already active after that known Setup error, no reinstall or rollback is needed; update normally to v0.2.1 or newer. Update discovery contacts the canonical stable GitHub Release for `NotNull92/workforge-mcp`; if GitHub is unavailable, the update card may show Unavailable but local tunnel controls continue to work.
 
 A normal update stages and verifies the new engine before stopping any tunnel. Existing configured tunnel profiles are rebound to the new engine's absolute Node/stdio paths, validated with local Doctor, and only the tunnels that were running before the update are restarted. The protected Runtime API Key and user policy files are not rewritten.
 

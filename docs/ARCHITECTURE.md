@@ -179,7 +179,7 @@ On Windows, `scripts/profile-registry.ps1` remains the compatibility entry point
 
 ## Transactional updates
 
-v0.2.0 introduces a Windows portable update transaction. The already-published v0.1.0 build has no updater UI, so its one-time bridge is the v0.2.0 Release ZIP plus `Setup.cmd`. Once v0.2.0 is active, the same transaction is available from WorkForge Control.
+v0.2.0 introduced the Windows portable update transaction. The already-published v0.1.0 build has no updater UI, so it requires a one-time Release ZIP plus `Setup.cmd` bridge into the v0.2.x line. v0.2.1 fixes the post-upgrade Setup parameter forwarding in the original v0.2.0 bridge, so new v0.1.0 bridge attempts should use v0.2.1 or a newer stable release. Once any v0.2.x engine is active, the same transaction is available from WorkForge Control.
 
 ```text
 canonical stable GitHub Release
