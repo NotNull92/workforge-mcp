@@ -22,4 +22,34 @@ if (-not $Expired.RestartAllowed -or $Expired.FailureCount -ne 0 -or $Expired.De
   throw "Expired recovery failures were not discarded."
 }
 
+$EmptyOptions = @(Get-WorkForgeCommandLineOptionValues -CommandLine "" -OptionName "--profile-file")
+if ($EmptyOptions.Count -ne 0) {
+  throw "Empty process command lines must produce no parsed option values."
+}
+
+$RetryState = [pscustomobject]@{ Count = 0 }
+$RetryLookup = {
+  param([int]$LookupProcessId)
+  $RetryState.Count += 1
+  if ($RetryState.Count -eq 1) {
+    return [pscustomobject]@{ ProcessId = $LookupProcessId; ExecutablePath = "C:\\fake.exe"; CommandLine = $null }
+  }
+  return [pscustomobject]@{ ProcessId = $LookupProcessId; ExecutablePath = "C:\\fake.exe"; CommandLine = '"C:\\fake.exe" --profile-file "C:\\profile.yaml"' }
+}.GetNewClosure()
+$RecoveredProcess = Get-WorkForgeProcessForVerification -TargetProcessId 4242 -ProcessLookup $RetryLookup -Attempts 3 -DelayMilliseconds 0
+if ($RetryState.Count -ne 2 -or [string]::IsNullOrWhiteSpace([string]$RecoveredProcess.CommandLine)) {
+  throw "Transient empty process metadata was not retried."
+}
+
+$PersistentState = [pscustomobject]@{ Count = 0 }
+$PersistentLookup = {
+  param([int]$LookupProcessId)
+  $PersistentState.Count += 1
+  return [pscustomobject]@{ ProcessId = $LookupProcessId; ExecutablePath = "C:\\fake.exe"; CommandLine = "" }
+}.GetNewClosure()
+$PersistentProcess = Get-WorkForgeProcessForVerification -TargetProcessId 5252 -ProcessLookup $PersistentLookup -Attempts 3 -DelayMilliseconds 0
+if ($PersistentState.Count -ne 3 -or -not [string]::IsNullOrWhiteSpace([string]$PersistentProcess.CommandLine)) {
+  throw "Persistent empty process metadata did not exhaust the bounded retry window."
+}
+
 Write-Output "RECOVERY_POLICY_TEST_OK"

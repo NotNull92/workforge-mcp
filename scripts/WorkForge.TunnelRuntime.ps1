@@ -17,11 +17,14 @@ function Get-WorkForgeTunnelExecutablePath {
 function Get-WorkForgeCommandLineOptionValues {
   param(
     [Parameter(Mandatory = $true)]
+    [AllowEmptyString()]
     [string]$CommandLine,
 
     [Parameter(Mandatory = $true)]
     [string]$OptionName
   )
+
+  if ([string]::IsNullOrWhiteSpace($CommandLine)) { return @() }
 
   $Pattern = '(?:^|\s)' + [regex]::Escape($OptionName) + '(?:\s+|=)(?:"([^"]+)"|([^\s"]+))'
   return @(
@@ -33,6 +36,45 @@ function Get-WorkForgeCommandLineOptionValues {
       }
     }
   )
+}
+
+function Get-WorkForgeProcessForVerification {
+  param(
+    [Parameter(Mandatory = $true)]
+    [int]$TargetProcessId,
+
+    [scriptblock]$ProcessLookup,
+
+    [ValidateRange(1, 10)]
+    [int]$Attempts = 4,
+
+    [ValidateRange(0, 1000)]
+    [int]$DelayMilliseconds = 75
+  )
+
+  if ($null -eq $ProcessLookup) {
+    $ProcessLookup = {
+      param([int]$LookupProcessId)
+      Get-CimInstance Win32_Process -Filter "ProcessId = $LookupProcessId" -ErrorAction SilentlyContinue
+    }
+  }
+
+  $LastProcess = $null
+  for ($Attempt = 1; $Attempt -le $Attempts; $Attempt += 1) {
+    $LastProcess = & $ProcessLookup $TargetProcessId
+    if (-not $LastProcess) { return $null }
+
+    $Executable = [string]$LastProcess.ExecutablePath
+    $CommandLine = [string]$LastProcess.CommandLine
+    if (-not [string]::IsNullOrWhiteSpace($Executable) -and -not [string]::IsNullOrWhiteSpace($CommandLine)) {
+      return $LastProcess
+    }
+
+    if ($Attempt -lt $Attempts -and $DelayMilliseconds -gt 0) {
+      Start-Sleep -Milliseconds $DelayMilliseconds
+    }
+  }
+  return $LastProcess
 }
 
 function Get-WorkForgeTunnelRuntimePaths {
@@ -156,14 +198,20 @@ function Get-WorkForgeVerifiedTunnelProcess {
   }
 
   $TunnelPid = [int]$PidText
-  $Process = Get-CimInstance Win32_Process -Filter "ProcessId = $TunnelPid" -ErrorAction SilentlyContinue
+  $Process = Get-WorkForgeProcessForVerification -TargetProcessId $TunnelPid
   if (-not $Process) {
     return $null
   }
 
-  $ObservedExecutable = ([string]$Process.ExecutablePath).ToLowerInvariant()
+  $ObservedExecutableText = [string]$Process.ExecutablePath
+  $ObservedCommandLineText = [string]$Process.CommandLine
+  if ([string]::IsNullOrWhiteSpace($ObservedExecutableText) -or [string]::IsNullOrWhiteSpace($ObservedCommandLineText)) {
+    throw "PID $TunnelPid could not be verified because Windows did not expose complete process identity metadata."
+  }
+
+  $ObservedExecutable = $ObservedExecutableText.ToLowerInvariant()
   $ExpectedExecutable = $ExecutablePath.ToLowerInvariant()
-  $CommandLine = ([string]$Process.CommandLine).Replace("/", "\")
+  $CommandLine = $ObservedCommandLineText.Replace("/", "\")
   $ObservedProfileFiles = @(Get-WorkForgeCommandLineOptionValues -CommandLine $CommandLine -OptionName "--profile-file")
   $ObservedPidFiles = @(Get-WorkForgeCommandLineOptionValues -CommandLine $CommandLine -OptionName "--pid.file")
   if (
@@ -196,14 +244,20 @@ function Get-WorkForgeVerifiedTunnelSupervisorProcess {
   }
 
   $SupervisorPid = [int]$PidText
-  $Process = Get-CimInstance Win32_Process -Filter "ProcessId = $SupervisorPid" -ErrorAction SilentlyContinue
+  $Process = Get-WorkForgeProcessForVerification -TargetProcessId $SupervisorPid
   if (-not $Process) {
     return $null
   }
 
-  $ObservedExecutable = ([string]$Process.ExecutablePath).ToLowerInvariant()
+  $ObservedExecutableText = [string]$Process.ExecutablePath
+  $ObservedCommandLineText = [string]$Process.CommandLine
+  if ([string]::IsNullOrWhiteSpace($ObservedExecutableText) -or [string]::IsNullOrWhiteSpace($ObservedCommandLineText)) {
+    throw "PID $SupervisorPid could not be verified because Windows did not expose complete supervisor identity metadata."
+  }
+
+  $ObservedExecutable = $ObservedExecutableText.ToLowerInvariant()
   $ExpectedExecutable = (Get-WorkForgePowerShellExecutablePath).ToLowerInvariant()
-  $CommandLine = ([string]$Process.CommandLine).Replace("/", "\")
+  $CommandLine = $ObservedCommandLineText.Replace("/", "\")
   $ExpectedScript = (Get-WorkForgeTunnelSupervisorScriptPath)
   $ObservedScripts = @(Get-WorkForgeCommandLineOptionValues -CommandLine $CommandLine -OptionName "-File")
   $ObservedProfiles = @(Get-WorkForgeCommandLineOptionValues -CommandLine $CommandLine -OptionName "-ProfileId")
