@@ -1,10 +1,11 @@
-import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertSupportedNodeVersion } from "./node-runtime.mjs";
+import { registerProfile, validateDisplayName } from "./setup-support.mjs";
 
 if (process.platform !== "darwin") throw new Error("This setup entrypoint supports macOS only.");
 
@@ -22,7 +23,7 @@ if (!projectArgument) throw new Error("--project is required.");
 const profileId = argumentsMap.get("--profile") ?? "workstation";
 if (!/^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/u.test(profileId)) throw new Error("Invalid profile id.");
 const projectRoot = realpathSync(resolve(projectArgument));
-const displayName = argumentsMap.get("--display-name") ?? basename(projectRoot);
+const displayName = validateDisplayName(argumentsMap.get("--display-name") ?? basename(projectRoot));
 const configRoot = resolve(projectRoot, "tools", "workforge-mcp");
 const markerPath = resolve(configRoot, "project.identity");
 const profilePath = resolve(configRoot, "profile.json");
@@ -62,16 +63,12 @@ if (configuredRuntimeRoot && !isAbsolute(configuredRuntimeRoot)) throw new Error
 const runtimeRoot = resolve(configuredRuntimeRoot ?? resolve(engineRoot, "runtime"));
 const registryPath = resolve(runtimeRoot, "profile_registry.json");
 mkdirSync(runtimeRoot, { recursive: true, mode: 0o700 });
-let registry = { version: 1, profiles: [] };
-try { registry = JSON.parse(readFileSync(registryPath, "utf8")); } catch { /* first install */ }
-if (registry.version !== 1 || !Array.isArray(registry.profiles)) throw new Error("Existing profile registry is invalid.");
 const entry = {
   id: profileId,
   profilePath,
   profileSha256: createHash("sha256").update(profileBytes).digest("hex"),
 };
-registry.profiles = [...registry.profiles.filter((candidate) => candidate.id !== profileId), entry];
-writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`, { mode: 0o600 });
+registerProfile(registryPath, entry);
 
 const configuredSupportRoot = process.env.WORKFORGE_MACOS_STATE_ROOT;
 if (configuredSupportRoot && !isAbsolute(configuredSupportRoot)) throw new Error("WORKFORGE_MACOS_STATE_ROOT must be absolute.");
