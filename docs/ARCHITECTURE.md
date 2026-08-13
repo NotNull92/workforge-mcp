@@ -31,11 +31,13 @@ OpenAI tunnel-client archive from `runtime-lock.json`. The Runtime API Key is ke
 in macOS Keychain and is never passed in process command-line arguments. The
 long-running supervisor starts with that credential removed from its inherited
 environment and runs tunnel children inside the explicit lifecycle contract. Shell
-commands use `/bin/zsh -f` inside a dedicated POSIX process group. The Windows
-portable runtime and Control dashboard remain Windows-only; macOS uses explicit CLI
-install, configure, start, status, and stop commands.
+commands use `/bin/zsh -f` inside a dedicated POSIX process group. The portable
+runtime and automatic updater remain Windows-only. The shared Control dashboard is
+available on macOS, while source-preview setup and tunnel lifecycle also remain
+available through explicit CLI commands. The macOS dashboard does not expose update
+or Remove Everything actions.
 
-## Setup orchestration
+## Windows setup orchestration
 
 ```text
 Setup.cmd
@@ -57,7 +59,7 @@ scripts/Setup.ps1
 
 Setup is orchestration, not a new security boundary. The lower-level scripts remain the source of truth and can be invoked independently. Setup creates no startup persistence.
 
-## Local Control Dashboard
+## Windows Control dashboard launch
 
 ```text
 WorkForge Control.cmd
