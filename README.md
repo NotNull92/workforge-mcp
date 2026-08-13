@@ -431,7 +431,7 @@ Double-click:
 WorkForge Control.cmd
 ```
 
-Instead of a console menu, WorkForge now opens a **local browser dashboard** where you can see the important state at a glance and manage it with buttons.
+Instead of a console menu, WorkForge now opens a **local browser dashboard** where you can see the important state at a glance and manage it with buttons. This `WorkForge Control.cmd` section and its automatic-update flow apply to the Windows portable release. The macOS source preview also has a `WorkForge Control.command` dashboard for start, stop, status, online Doctor, and profile unregistration, but it does not provide automatic updates or **Remove Everything**.
 
 ![WorkForge Control dashboard in Korean, showing the language selector, ready tunnel state, and Doctor card](docs/images/workforge-control-dashboard-ko.jpg)
 

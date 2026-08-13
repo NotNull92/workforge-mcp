@@ -8,7 +8,9 @@
 
 > **ChatGPT는 머리는 좋지만 내 PC에 손이 없습니다. WorkForge는 그 손을 안전하게 연결해 줍니다.**
 
-WorkForge는 ChatGPT가 내 Windows PC의 파일과 프로젝트를 직접 살펴보고, 필요한 파일을 수정하고, 검색하고, PowerShell 명령을 실행할 수 있게 해주는 연결 도구입니다. Git이 설치되어 있다면 브랜치, 커밋, 변경내역 같은 프로젝트 역사도 추가로 확인할 수 있습니다.
+WorkForge는 ChatGPT가 내 Windows 또는 macOS 작업 환경의 파일과 프로젝트를 직접 살펴보고, 필요한 파일을 수정하고, 검색하고, 관리된 셸 명령을 실행할 수 있게 해주는 연결 도구입니다. Git이 설치되어 있다면 브랜치, 커밋, 변경내역 같은 프로젝트 역사도 추가로 확인할 수 있습니다.
+
+macOS는 Apple Silicon과 Intel Mac에서 사용할 수 있는 소스 기반 프리뷰입니다. Windows의 portable Release와 달리 macOS는 설치 ZIP이나 자동 업데이트를 제공하지 않습니다. 자세한 설정 방법은 [macOS 안내](docs/MACOS.md)를 확인하세요.
 
 쉽게 말하면 **ChatGPT와 내 컴퓨터 사이에 놓는 안전한 작업용 다리**입니다.
 
@@ -432,7 +434,7 @@ ChatGPT가 필요한 WorkForge 도구를 선택해서 사용합니다.
 WorkForge Control.cmd
 ```
 
-그러면 콘솔 메뉴 대신 **로컬 WorkForge Dashboard가 기본 브라우저에서 열립니다.** 여기서 현재 상태를 한눈에 확인하고 버튼으로 관리할 수 있습니다.
+그러면 콘솔 메뉴 대신 **로컬 WorkForge Dashboard가 기본 브라우저에서 열립니다.** 여기서 현재 상태를 한눈에 확인하고 버튼으로 관리할 수 있습니다. 이 절의 `WorkForge Control.cmd`와 자동 업데이트 설명은 Windows portable Release 기준입니다. macOS 소스 프리뷰도 `WorkForge Control.command` 대시보드에서 시작·중지·상태·온라인 Doctor·프로필 해제를 지원하지만, 자동 업데이트와 **모두 제거**는 제공하지 않습니다.
 
 ![언어 전환, 준비된 터널 상태, Doctor 카드가 보이는 한국어 WorkForge 제어판](docs/images/workforge-control-dashboard-ko.jpg)
 

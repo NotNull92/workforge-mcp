@@ -64,6 +64,9 @@ Windows transactional updater or the destructive "Remove Everything" action, so 
 are disabled on macOS. Installing a newer source release still requires downloading it, running
 `npm ci`, `npm run build`, and rerunning `setup:macos` from that release.
 
+Profile unregistration removes its Runtime API Key from Keychain before removing tunnel state or
+profile registration. If Keychain deletion fails, unregistration stops and reports the failure.
+
 `start` and `status` require both local tunnel readiness and a successful control-plane
 Doctor check. A locally healthy process with a rejected or revoked Runtime API Key is not
 reported as ready. The supervisor has a bounded restart budget and exponential backoff.
