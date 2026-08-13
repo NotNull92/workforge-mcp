@@ -1,7 +1,7 @@
-import http from 'node:http';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -704,7 +704,10 @@ server.listen({ host: '127.0.0.1', port: requestedPort, exclusive: true }, () =>
   if (!address || typeof address === 'string') throw new Error('Could not resolve control dashboard address.');
   const url = `http://127.0.0.1:${address.port}/`;
   if (testMode) {
-    process.stdout.write(`WORKFORGE_CONTROL_TEST_READY ${JSON.stringify({ port: address.port })}\n`);
+    process.stdout.write(`WORKFORGE_CONTROL_TEST_READY ${JSON.stringify({
+      address: address.address,
+      port: address.port,
+    })}\n`);
   } else {
     process.stdout.write(`WorkForge Control ready at ${url}\n`);
   }

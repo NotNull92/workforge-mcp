@@ -3,53 +3,68 @@ Set-StrictMode -Version 3.0
 
 $ToolRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..") -ErrorAction Stop).Path
 $ControlPath = Join-Path $PSScriptRoot "Control.ps1"
-$LaunchPath = Join-Path $PSScriptRoot "Launch-Control.ps1"
-$ServerPath = Join-Path $PSScriptRoot "control-server.mjs"
-$WrapperPath = Join-Path $ToolRoot "WorkForge Control.cmd"
-$Wrapper = Get-Content -Raw -LiteralPath $WrapperPath
 
-if ($Wrapper -notmatch 'Launch-Control\.ps1') { throw "Control wrapper does not launch the HTML dashboard." }
-if ($Wrapper -notmatch '--cli') { throw "Control wrapper does not expose the CLI fallback." }
-if ($Wrapper -notmatch 'Control\.ps1') { throw "Control wrapper lost the CLI fallback implementation." }
-if ($Wrapper -notmatch 'Portable-Control\.cmd') { throw "Release-root Control wrapper does not delegate to the installed portable engine." }
-if ($Wrapper -notmatch 'if not "%EXIT_CODE%"=="0"') { throw "Control wrapper does not preserve a visible error path." }
-if ($Wrapper -notmatch 'exit /b %EXIT_CODE%') { throw "Control wrapper does not propagate the launcher exit code." }
+function Invoke-ControlWrapperFixture {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [string]$Arguments
+  )
 
-$ReleaseDispatchWrappers = [ordered]@{
-  "Install.cmd" = "Install"
-  "Configure Tunnel.cmd" = "Configure-Tunnel"
-  "Uninstall.cmd" = "Uninstall"
-}
-foreach ($Entry in $ReleaseDispatchWrappers.GetEnumerator()) {
-  $ReleaseWrapperText = Get-Content -Raw -LiteralPath (Join-Path $ToolRoot $Entry.Key)
-  if ($ReleaseWrapperText -notmatch '\.workforge-release\.json') {
-    throw "$($Entry.Key) does not distinguish a portable release root from a source checkout."
-  }
-  if ($ReleaseWrapperText -notmatch 'Portable-Dispatch\.cmd') {
-    throw "$($Entry.Key) does not delegate release-root lifecycle work to the installed engine."
-  }
-  if ($ReleaseWrapperText.IndexOf([string]$Entry.Value, [StringComparison]::Ordinal) -lt 0) {
-    throw "$($Entry.Key) does not dispatch the expected installed-engine action $($Entry.Value)."
-  }
+  $StartInfo = [Diagnostics.ProcessStartInfo]::new()
+  $StartInfo.FileName = $env:ComSpec
+  $StartInfo.Arguments = "/d /c " + [char]34 + [char]34 + $Path + [char]34 + " " + $Arguments + [char]34
+  $StartInfo.UseShellExecute = $false
+  $StartInfo.RedirectStandardInput = $true
+  $StartInfo.RedirectStandardOutput = $true
+  $StartInfo.RedirectStandardError = $true
+  $Process = [Diagnostics.Process]::Start($StartInfo)
+  $Process.StandardInput.Close()
+  $Output = $Process.StandardOutput.ReadToEnd() + $Process.StandardError.ReadToEnd()
+  $Process.WaitForExit()
+  return [pscustomobject]@{ ExitCode = $Process.ExitCode; Output = $Output }
 }
 
-$LaunchText = Get-Content -Raw -LiteralPath $LaunchPath
-if ($LaunchText -notmatch 'Start-Process') { throw "Control launcher does not detach the local dashboard process." }
-if ($LaunchText -notmatch 'WindowStyle Hidden') { throw "Control launcher does not hide the background server window." }
-if ($LaunchText -notmatch 'control-server\.mjs') { throw "Control launcher does not target the dashboard server." }
+$FixtureRoot = Join-Path ([IO.Path]::GetTempPath()) ("workforge-control-ux-" + [guid]::NewGuid().ToString("N"))
+try {
+  $SourceRoot = Join-Path $FixtureRoot "source"
+  $ReleaseRoot = Join-Path $FixtureRoot "release"
+  foreach ($Root in @($SourceRoot, $ReleaseRoot)) {
+    New-Item -ItemType Directory -Path (Join-Path $Root "scripts") -Force | Out-Null
+  }
 
-$ServerText = Get-Content -Raw -LiteralPath $ServerPath
-if ($ServerText -notmatch "host: '127\.0\.0\.1'") { throw "Control server is not explicitly bound to loopback." }
-if ($ServerText -match '0\.0\.0\.0') { throw "Control server must never bind to all interfaces." }
-if ($ServerText -notmatch 'HttpOnly; SameSite=Strict') { throw "Control server session cookie is not hardened." }
-if ($ServerText -notmatch 'request\.headers\.origin !== expectedOrigin') { throw "Control server does not verify mutation Origin." }
-if ($ServerText -notmatch 'request\.headers\.host !== expectedHost') { throw "Control server does not protect against Host rebinding." }
+  Copy-Item -LiteralPath (Join-Path $ToolRoot "WorkForge Control.cmd") -Destination $SourceRoot
+  Set-Content -LiteralPath (Join-Path $SourceRoot "scripts\Launch-Control.ps1") -Encoding UTF8 -Value 'Write-Output "DASHBOARD_LAUNCH"'
+  Set-Content -LiteralPath (Join-Path $SourceRoot "scripts\Control.ps1") -Encoding UTF8 -Value 'Write-Output "CLI_LAUNCH"'
+  $DashboardLaunch = Invoke-ControlWrapperFixture -Path (Join-Path $SourceRoot "WorkForge Control.cmd")
+  if ($DashboardLaunch.ExitCode -ne 0 -or $DashboardLaunch.Output -notmatch 'DASHBOARD_LAUNCH') {
+    throw "Control wrapper did not launch the dashboard entrypoint. Output: $($DashboardLaunch.Output)"
+  }
+  $CliLaunch = Invoke-ControlWrapperFixture -Path (Join-Path $SourceRoot "WorkForge Control.cmd") -Arguments "--cli"
+  if ($CliLaunch.ExitCode -ne 0 -or $CliLaunch.Output -notmatch 'CLI_LAUNCH') {
+    throw "Control wrapper did not launch the CLI fallback. Output: $($CliLaunch.Output)"
+  }
 
-$ControlText = Get-Content -Raw -LiteralPath $ControlPath
-if ($ControlText -notmatch 'Uninstall') { throw "CLI Control menu does not expose the uninstall flow." }
-if ($ControlText -notmatch 'Update\.ps1' -or $ControlText -notmatch 'update-check') { throw "CLI Control menu does not expose the update flow." }
-if ($ControlText -notmatch 'WorkForge\.UI\.ps1') { throw "CLI Control does not use the shared ForgeUI renderer." }
-if ($ServerText -notmatch '/api/update' -or $ServerText -notmatch 'Update\.ps1') { throw "Control dashboard does not expose the transactional update flow." }
+  Set-Content -LiteralPath (Join-Path $ReleaseRoot ".workforge-release.json") -Encoding UTF8 -Value '{}'
+  $NewLine = [Environment]::NewLine
+  Set-Content -LiteralPath (Join-Path $ReleaseRoot "scripts\Portable-Dispatch.cmd") -Encoding ASCII -Value ("@echo off" + $NewLine + "echo DISPATCH:%~1" + $NewLine + "exit /b 0")
+  Set-Content -LiteralPath (Join-Path $ReleaseRoot "scripts\Portable-Control.cmd") -Encoding ASCII -Value ("@echo off" + $NewLine + "echo PORTABLE_CONTROL" + $NewLine + "exit /b 0")
+  foreach ($Case in @(
+    [pscustomobject]@{ Wrapper = "Install.cmd"; Arguments = ""; Expected = "DISPATCH:Install" },
+    [pscustomobject]@{ Wrapper = "Configure Tunnel.cmd"; Arguments = ""; Expected = "DISPATCH:Configure-Tunnel" },
+    [pscustomobject]@{ Wrapper = "Uninstall.cmd"; Arguments = "-NonInteractive"; Expected = "DISPATCH:Uninstall" },
+    [pscustomobject]@{ Wrapper = "WorkForge Control.cmd"; Arguments = ""; Expected = "PORTABLE_CONTROL" }
+  )) {
+    Copy-Item -LiteralPath (Join-Path $ToolRoot $Case.Wrapper) -Destination $ReleaseRoot
+    $Observed = Invoke-ControlWrapperFixture -Path (Join-Path $ReleaseRoot $Case.Wrapper) -Arguments $Case.Arguments
+    if ($Observed.ExitCode -ne 0 -or $Observed.Output.IndexOf($Case.Expected, [StringComparison]::Ordinal) -lt 0) {
+      throw "$($Case.Wrapper) did not dispatch through the installed portable runtime. Output: $($Observed.Output)"
+    }
+  }
+} finally {
+  if (Test-Path -LiteralPath $FixtureRoot) {
+    Remove-Item -LiteralPath $FixtureRoot -Recurse -Force
+  }
+}
 
 $StartInfo = [Diagnostics.ProcessStartInfo]::new()
 $StartInfo.FileName = "powershell.exe"

@@ -19,6 +19,8 @@ const commonSource = readFileSync(resolve(root, "scripts", "macos", "tunnel-comm
 const configureSource = readFileSync(resolve(root, "scripts", "macos", "configure-tunnel.mjs"), "utf8");
 const startSource = readFileSync(resolve(root, "scripts", "macos", "start-tunnel.mjs"), "utf8");
 const installSource = readFileSync(resolve(root, "scripts", "macos", "install-tunnel-runtime.mjs"), "utf8");
+const launcherSource = readFileSync(resolve(root, "scripts", "macos", "launch-control.mjs"), "utf8");
+const commandSource = readFileSync(resolve(root, "WorkForge Control.command"), "utf8");
 assert.equal(configureSource.includes("keychainPasswordHex"), false, "Runtime API Key encoding helper must not return to macOS configure flow.");
 assert.equal(configureSource.includes('"-X"'), false, "Runtime API Key must never be passed through configure-process argv.");
 assert.match(commonSource, /spawnSync\("\/usr\/bin\/security", \["-i"\]/u, "Keychain storage must use security interactive stdin mode.");
@@ -30,6 +32,9 @@ assert.match(startSource, /scrubControlPlaneEnvironment/u, "macOS supervisor lau
 assert.match(installSource, /resolveTunnelRuntimeDescriptor/u, "macOS runtime install must use runtime-lock metadata.");
 assert.match(installSource, /cpSync\(extractedPath, stagingRoot/u, "macOS runtime install must copy across filesystems before destination-local rename.");
 assert.match(installSource, /AbortSignal\.timeout/u, "macOS runtime download must be bounded.");
+assert.match(launcherSource, /scrubControlPlaneEnvironment/u, "macOS Control launcher must scrub the tunnel credential.");
+assert.match(launcherSource, /installation\.engineRoot !== toolRoot/u, "macOS Control launcher must reject a stale engine root.");
+assert.match(commandSource, /\/usr\/bin\/plutil/u, "macOS Control command must resolve the recorded Node.js runtime without shell JSON parsing.");
 assert.throws(
   () => deleteStoredControlPlaneKey("workstation", () => ({ status: 1 })),
   /Runtime API Key was not removed from Keychain/u,

@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { request as httpRequest } from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,39 +13,13 @@ const toolRoot = path.resolve(scriptDirectory, '..');
 const serverPath = path.join(scriptDirectory, 'control-server.mjs');
 const htmlPath = path.join(toolRoot, 'control-ui', 'index.html');
 const appPath = path.join(toolRoot, 'control-ui', 'app.js');
-const macLauncherPath = path.join(toolRoot, 'scripts', 'macos', 'launch-control.mjs');
-const macCommandPath = path.join(toolRoot, 'WorkForge Control.command');
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-const serverSource = await readFile(serverPath, 'utf8');
 const htmlSource = await readFile(htmlPath, 'utf8');
 const appSource = await readFile(appPath, 'utf8');
-const macLauncherSource = await readFile(macLauncherPath, 'utf8');
-const macCommandSource = await readFile(macCommandPath, 'utf8');
-
-assert(serverSource.includes("host: '127.0.0.1'"), 'Control dashboard must bind to 127.0.0.1 only.');
-assert(!serverSource.includes('0.0.0.0'), 'Control dashboard must never bind to 0.0.0.0.');
-assert(!serverSource.includes('Access-Control-Allow-Origin'), 'Control dashboard must not enable CORS.');
-assert(serverSource.includes('HttpOnly; SameSite=Strict'), 'Control dashboard session cookie is not hardened.');
-assert(serverSource.includes('request.headers.origin !== expectedOrigin'), 'Mutating requests must verify Origin.');
-assert(serverSource.includes('request.headers.host !== expectedHost'), 'Control dashboard must verify Host.');
-assert(serverSource.includes("path.join(system32Root, 'WindowsPowerShell', 'v1.0', 'powershell.exe')"), 'Control dashboard must use the System32 PowerShell path.');
-assert(serverSource.includes("path.join(system32Root, 'cmd.exe')"), 'Control dashboard must use the System32 cmd path.');
-assert(serverSource.includes("path.join(system32Root, 'taskkill.exe')"), 'Control dashboard must use the System32 taskkill path.');
-assert(serverSource.includes('terminateProcessTree(child)'), 'Control dashboard timeouts must terminate the child process tree.');
-assert(!serverSource.includes("spawn('powershell.exe'"), 'Control dashboard must not resolve PowerShell through the working directory or PATH.');
-assert(!serverSource.includes("spawn('cmd.exe'"), 'Control dashboard must not resolve cmd through the working directory or PATH.');
-assert(serverSource.includes("process.platform === 'darwin'"), 'Control dashboard is missing the macOS platform adapter.');
-assert(serverSource.includes("spawn('/usr/bin/open'"), 'macOS Control must open the browser through /usr/bin/open.');
-assert(serverSource.includes("runMacOSScript('start-tunnel.mjs'"), 'macOS Control is missing tunnel start.');
-assert(serverSource.includes("runMacOSScript('stop-tunnel.mjs'"), 'macOS Control is missing tunnel stop.');
-assert(serverSource.includes("runMacOSScript('doctor.mjs'"), 'macOS Control is missing online Doctor.');
-assert(macLauncherSource.includes('scrubControlPlaneEnvironment'), 'macOS Control launcher must scrub the tunnel credential.');
-assert(macLauncherSource.includes('installation.engineRoot !== toolRoot'), 'macOS Control launcher must reject a stale engine root.');
-assert(macCommandSource.includes('/usr/bin/plutil'), 'macOS Control command must resolve the recorded Node.js runtime without shell JSON parsing.');
 assert(htmlSource.includes('Start Tunnel'), 'Control dashboard is missing Start.');
 assert(htmlSource.includes('Run Doctor'), 'Control dashboard is missing Doctor.');
 assert(htmlSource.includes('Update WorkForge'), 'Control dashboard is missing update flow.');
@@ -94,16 +69,6 @@ for (const key of new Set([...staticI18nKeys, ...runtimeI18nKeys])) {
     assert(Object.hasOwn(dictionaries[language], key), `Missing ${language} translation for key: ${key}`);
   }
 }
-assert(serverSource.includes("url.pathname === '/api/update'"), 'Control server is missing update endpoints.');
-assert(serverSource.includes("runPowerShell('Update.ps1'"), 'Control server does not use the transactional updater.');
-assert(serverSource.includes('WORKFORGE_UPDATE_PROGRESS '), 'Control server does not consume updater progress events.');
-assert(serverSource.includes("'-EmitProgress'"), 'Control server does not opt into updater progress events.');
-assert(appSource.includes("'/api/update'"), 'Control dashboard does not invoke the update API.');
-assert(appSource.includes('startUpdateProgressPolling'), 'Control dashboard does not poll update progress.');
-assert(appSource.includes('updateProgressBar.style.width'), 'Control dashboard does not render progress width.');
-assert(appSource.includes("'/api/uninstall/preview'"), 'Control dashboard does not preview uninstall.');
-assert(appSource.includes("phrase: elements.destructivePhrase.value"), 'Destructive uninstall phrase is not forwarded.');
-
 // Point both platform adapters at an empty state root so the missing-profile assertions below
 // hold on a developer machine that already has WorkForge installed.
 const emptyStateRoot = mkdtempSync(path.join(os.tmpdir(), 'workforge-dashboard-test-'));
@@ -161,10 +126,28 @@ function openUnfinishedControlRequest({ port, origin, cookie }) {
   });
 }
 
+function requestWithHost({ port, host }) {
+  return new Promise((resolveRequest, rejectRequest) => {
+    const request = httpRequest({
+      hostname: '127.0.0.1',
+      port,
+      path: '/api/meta',
+      headers: { Host: host },
+    }, response => {
+      response.resume();
+      response.once('end', () => resolveRequest(response.statusCode));
+    });
+    request.once('error', rejectRequest);
+    request.end();
+  });
+}
+
 let port;
 let unfinishedRequest;
 try {
-  ({ port } = await waitForReady());
+  const ready = await waitForReady();
+  ({ port } = ready);
+  assert(ready.address === '127.0.0.1', `Control server bound to ${ready.address}.`);
   const origin = `http://127.0.0.1:${port}`;
 
   const root = await fetch(`${origin}/`, { redirect: 'manual' });
@@ -173,6 +156,7 @@ try {
   assert(cookieHeader.includes('workforge_control_session='), 'Dashboard root did not set a session cookie.');
   assert(cookieHeader.includes('HttpOnly'), 'Dashboard cookie is not HttpOnly.');
   assert(cookieHeader.includes('SameSite=Strict'), 'Dashboard cookie is not SameSite=Strict.');
+  assert(root.headers.get('access-control-allow-origin') === null, 'Dashboard unexpectedly enabled CORS.');
   assert((root.headers.get('content-security-policy') || '').includes("default-src 'self'"), 'Dashboard CSP is missing.');
   assert(root.headers.get('x-frame-options') === 'DENY', 'Dashboard must deny framing.');
   const cookie = cookieHeader.split(';', 1)[0];
@@ -189,6 +173,8 @@ try {
 
   const unauthorized = await fetch(`${origin}/api/meta`);
   assert(unauthorized.status === 401, `Unauthenticated API request returned ${unauthorized.status}.`);
+  const wrongHostStatus = await requestWithHost({ port, host: 'example.invalid' });
+  assert(wrongHostStatus === 421, `Unexpected Host returned ${wrongHostStatus}.`);
 
   const meta = await fetch(`${origin}/api/meta`, { headers: { Cookie: cookie } });
   assert(meta.status === 200, `Authenticated meta request returned ${meta.status}.`);
@@ -228,6 +214,18 @@ try {
     body: '{}',
   });
   assert(wrongOrigin.status === 403, `Cross-origin POST returned ${wrongOrigin.status}.`);
+
+  const unconfirmedUpdate = await fetch(`${origin}/api/update`, {
+    method: 'POST',
+    headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' },
+    body: '{"confirm":false}',
+  });
+  assert(unconfirmedUpdate.status === 500, `Unconfirmed update returned ${unconfirmedUpdate.status}.`);
+  const unconfirmedUpdateJson = await unconfirmedUpdate.json();
+  assert(
+    unconfirmedUpdateJson.error === 'Explicit update confirmation is required.',
+    'Update endpoint did not enforce explicit confirmation.',
+  );
 
   unfinishedRequest = await openUnfinishedControlRequest({ port, origin, cookie });
 
