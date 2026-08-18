@@ -31,6 +31,8 @@ const MAX_ACTIVE_JOBS_PER_PROFILE = 1;
 const MAX_LOG_BYTES_PER_STREAM = 16 * 1024 * 1024;
 const MAX_STATUS_MANIFEST_BYTES = 64 * 1024;
 const PROFILE_SHELL_BUSY_EXIT_CODE = 75;
+const SETTLE_POLL_MS = 100;
+const SETTLE_SEAL_GRACE_MS = 2_000;
 const CONTAINMENT_KIND = process.platform === "win32"
   ? "windows_job_object_kill_on_close"
   : "posix_process_group";
@@ -826,6 +828,33 @@ async function startReservedShellJob(input: {
 
   child.stdin.end(command, "utf8");
   return publicStatus(job);
+}
+
+// Poll the in-memory map because `complete` only becomes true after terminal
+// evidence is sealed and the job is removed. Request cancellation ends the wait promptly.
+export async function waitForShellSettled(
+  context: ProjectContext,
+  id: string,
+  waitMs: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  assertJobId(id);
+  if (waitMs <= 0 || signal?.aborted) return;
+  const job = jobs.get(id);
+  if (!job) return;
+  if (job.profileId !== context.profile.id) throw new Error("Unknown shell job id for this profile.");
+  const deadline = Date.now() + waitMs;
+  let settledAt: number | undefined;
+  while (Date.now() < deadline) {
+    if (signal?.aborted) return;
+    const current = jobs.get(id);
+    if (!current) return;
+    if (current.status !== "running") {
+      settledAt ??= Date.now();
+      if (Date.now() - settledAt >= SETTLE_SEAL_GRACE_MS) return;
+    }
+    await new Promise((sleep) => setTimeout(sleep, SETTLE_POLL_MS));
+  }
 }
 
 export function getShellStatus(context: ProjectContext, id: string) {

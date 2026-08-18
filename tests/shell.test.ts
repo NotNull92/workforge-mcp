@@ -2,9 +2,12 @@ import { randomBytes } from "node:crypto";
 import { access, appendFile, link, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ProjectContext, ProjectProfile } from "../src/profile.js";
-import { cancelActiveShellJobs, cancelShellJob, getShellOutput, getShellStatus, startShellJob } from "../src/shell.js";
+import { createServer } from "../src/server.js";
+import { cancelActiveShellJobs, cancelShellJob, getShellOutput, getShellStatus, startShellJob, waitForShellSettled } from "../src/shell.js";
 
 const temporaryRoots: string[] = [];
 const shellCommand = (powerShell: string, zsh: string): string => process.platform === "win32" ? powerShell : zsh;
@@ -97,6 +100,85 @@ describe("workstation shell", { timeout: 30_000 }, () => {
     await appendFile(join(jobRoot, "stdout.log"), "tampered", "utf8");
     await expect(getShellOutput({ context, id: started.id, stdoutOffset: 0, stderrOffset: 0, maxCharacters: 20_000 }))
       .rejects.toThrow("evidence is incomplete or has changed");
+  });
+
+  it("publishes a 30 second maximum shell wait", async () => {
+    const { context } = await fixture();
+    const server = createServer(context);
+    const client = new Client({ name: "shell-schema-test", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    try {
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+      const listed = await client.listTools();
+      const shellStatus = listed.tools.find((tool) => tool.name === "shell_status");
+      const shellOutput = listed.tools.find((tool) => tool.name === "shell_output");
+      expect(shellStatus?.inputSchema).toMatchObject({ properties: { waitMs: { maximum: 30_000 } } });
+      expect(shellOutput?.inputSchema).toMatchObject({ properties: { waitMs: { maximum: 30_000 } } });
+    } finally {
+      await client.close().catch(() => undefined);
+      await server.close().catch(() => undefined);
+    }
+  });
+
+  it("stops waiting promptly when the request is aborted", async () => {
+    const { context } = await fixture();
+    const started = await startShellJob({
+      context,
+      cwd: ".",
+      command: shellCommand("Start-Sleep -Seconds 20", "sleep 20"),
+      timeoutMs: 30_000,
+    });
+    const controller = new AbortController();
+    const waitedFrom = Date.now();
+    const waiting = waitForShellSettled(context, started.id, 5_000, controller.signal);
+    setTimeout(() => controller.abort(), 100);
+    try {
+      await waiting;
+      expect(Date.now() - waitedFrom).toBeLessThan(1_000);
+      expect(getShellStatus(context, started.id).status).toBe("running");
+    } finally {
+      cancelShellJob(context, started.id);
+      await waitForTerminal(context, started.id);
+    }
+  });
+
+  it("waits server-side for a slow job instead of forcing the caller to poll", async () => {
+    const { context } = await fixture();
+    const started = await startShellJob({
+      context,
+      cwd: ".",
+      command: shellCommand(
+        "Start-Sleep -Milliseconds 1500\nWrite-Output 'slow-done'",
+        "sleep 1.5\nprintf '%s\\n' 'slow-done'",
+      ),
+      timeoutMs: 20_000,
+    });
+    expect(getShellStatus(context, started.id).status).toBe("running");
+    await waitForShellSettled(context, started.id, 20_000);
+    const output = await getShellOutput({ context, id: started.id, stdoutOffset: 0, stderrOffset: 0, maxCharacters: 20_000 });
+    expect(output.complete).toBe(true);
+    expect(output.status).toBe("completed");
+    expect(output.stdout.text).toContain("slow-done");
+  });
+
+  it("returns while the job is still running when waitMs expires first", async () => {
+    const { context } = await fixture();
+    const started = await startShellJob({
+      context,
+      cwd: ".",
+      command: shellCommand("Start-Sleep -Seconds 20", "sleep 20"),
+      timeoutMs: 30_000,
+    });
+    const waitedFrom = Date.now();
+    try {
+      await waitForShellSettled(context, started.id, 300);
+      expect(Date.now() - waitedFrom).toBeLessThan(5_000);
+      expect(getShellStatus(context, started.id).status).toBe("running");
+    } finally {
+      cancelShellJob(context, started.id);
+      await waitForTerminal(context, started.id);
+    }
   });
 
   it("does not inherit the tunnel control-plane credential", async () => {
