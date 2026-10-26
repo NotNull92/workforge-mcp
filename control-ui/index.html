@@ -23,6 +23,7 @@
       <div class="topbar-actions">
         <span id="profileChip" class="chip">profile: …</span>
         <span id="connectionChip" class="chip chip-neutral"><span class="dot"></span> Checking</span>
+        <span id="modeChip" class="chip chip-mode chip-mode-unknown" data-i18n="mode.unknown">MCP mode unverified</span>
         <div id="languageSwitch" class="language-switch" role="group" aria-label="Language" data-i18n-aria-label="language.label">
           <button class="language-button" type="button" data-language="en" aria-pressed="false">EN</button>
           <button class="language-button" type="button" data-language="ko" aria-pressed="false">한국어</button>
@@ -34,15 +35,24 @@
     </header>
 
     <section class="hero-grid">
-      <article class="panel panel-hero">
+      <article id="tunnelPanel" class="panel panel-hero">
         <div class="panel-heading">
           <div>
             <p class="eyebrow" data-i18n="tunnel.eyebrow">SECURE TUNNEL</p>
             <h2 id="tunnelTitle" data-i18n="tunnel.checkingTitle">Checking your connection…</h2>
           </div>
-          <div id="heroStatus" class="status-orb status-neutral" aria-label="Tunnel status" data-i18n-aria-label="aria.tunnelStatus"></div>
+          <div class="reactor">
+            <span class="reactor-ring" aria-hidden="true"></span>
+            <div id="heroStatus" class="status-orb status-neutral" aria-label="Tunnel status" data-i18n-aria-label="aria.tunnelStatus"></div>
+          </div>
         </div>
         <p id="tunnelSummary" class="panel-copy" data-i18n="tunnel.checkingSummary">WorkForge is asking the local supervisor for the current state.</p>
+
+        <div id="systemsMeter" class="systems-meter systems-unknown">
+          <span class="systems-label" data-i18n="hud.systems">SYSTEMS</span>
+          <span class="systems-segments" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <strong id="systemsValue" class="systems-value">—</strong>
+        </div>
 
         <div class="metric-row">
           <div class="metric">
@@ -64,9 +74,9 @@
         </div>
 
         <div class="button-row">
-          <button id="startButton" class="button button-primary" type="button" data-i18n="button.startTunnel">▶ Start Tunnel</button>
-          <button id="stopButton" class="button button-secondary" type="button" data-i18n="button.stopTunnel">■ Stop Tunnel</button>
-          <button id="refreshButton" class="button button-ghost" type="button" data-i18n="button.refresh">↻ Refresh</button>
+          <button id="startButton" class="button button-primary" type="button" aria-keyshortcuts="Alt+Shift+S" data-hotkey="S" data-i18n="button.startTunnel">▶ Start Tunnel</button>
+          <button id="stopButton" class="button button-secondary" type="button" aria-keyshortcuts="Alt+Shift+X" data-hotkey="X" data-i18n="button.stopTunnel">■ Stop Tunnel</button>
+          <button id="refreshButton" class="button button-ghost" type="button" aria-keyshortcuts="Alt+Shift+R" data-hotkey="R" data-i18n="button.refresh">↻ Refresh</button>
         </div>
       </article>
 
@@ -87,12 +97,33 @@
           <div class="check-row"><span data-i18n="doctor.item.readiness">MCP readiness</span><span id="readyCheck" class="check-state">…</span></div>
         </div>
 
-        <button id="doctorButton" class="button button-primary button-full" type="button" data-i18n="doctor.run">Run Doctor</button>
+        <button id="doctorButton" class="button button-primary button-full" type="button" aria-keyshortcuts="Alt+Shift+D" data-hotkey="D" data-i18n="doctor.run">Run Doctor</button>
         <details id="doctorDetails" class="details-box">
           <summary data-i18n="doctor.details">View technical details</summary>
           <pre id="doctorOutput">Doctor has not been run in this dashboard session.</pre>
         </details>
       </article>
+    </section>
+
+    <section class="panel work-panel" aria-labelledby="workTitle">
+      <div class="panel-heading compact">
+        <div>
+          <p class="eyebrow" data-i18n="work.eyebrow">WORK RECORDS</p>
+          <h2 id="workTitle" data-i18n="work.title">Pick up where you left off.</h2>
+        </div>
+      </div>
+      <p id="workSummary" class="panel-copy" role="status" aria-live="polite" data-i18n="work.loading">Checking work records…</p>
+      <div class="work-columns">
+        <section aria-labelledby="taskRecordsTitle">
+          <h3 id="taskRecordsTitle" data-i18n="work.tasks">Task checkpoints · reported state</h3>
+          <ul id="taskRecords" class="work-records"></ul>
+        </section>
+        <section aria-labelledby="shellRecordsTitle">
+          <h3 id="shellRecordsTitle" data-i18n="work.jobs">Recent executions · saved evidence</h3>
+          <ul id="shellRecords" class="work-records"></ul>
+        </section>
+      </div>
+      <p class="work-note" data-i18n="work.mode">MCP mode is not verified here. Check toolMode in ChatGPT before relying on read-only protection.</p>
     </section>
 
     <section class="content-grid">
@@ -116,6 +147,16 @@
           <span><i class="legend-dot legend-amber"></i><span data-i18n="guide.working">Working / attention</span></span>
           <span><i class="legend-dot legend-red"></i><span data-i18n="guide.needsHelp">Needs help</span></span>
         </div>
+        <section class="hotkey-list" aria-labelledby="hotkeysTitle">
+          <h3 id="hotkeysTitle" data-i18n="hud.hotkeysTitle">Hotkeys</h3>
+          <dl>
+            <div><dt><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd></dt><dd data-i18n="hud.hotkey.start">Start tunnel</dd></div>
+            <div><dt><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd></dt><dd data-i18n="hud.hotkey.stop">Stop tunnel</dd></div>
+            <div><dt><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd></dt><dd data-i18n="hud.hotkey.refresh">Refresh status and records</dd></div>
+            <div><dt><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd></dt><dd data-i18n="hud.hotkey.doctor">Run Doctor</dd></div>
+          </dl>
+          <p class="hotkey-hint" data-i18n="hud.hotkeysHint">Hold Alt+Shift to show key prompts on the buttons.</p>
+        </section>
       </article>
     </section>
 
@@ -237,6 +278,23 @@
       <div class="modal-actions">
         <button class="button button-ghost" value="cancel" data-i18n="uninstall.cancel">Cancel</button>
         <button id="confirmUninstallButton" class="button button-danger" type="button" data-i18n="uninstall.removeButton">Remove WorkForge</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="taskDialog" class="modal task-modal" aria-labelledby="taskDialogTitle">
+    <form method="dialog" class="modal-card task-card">
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow" data-i18n="work.detail.eyebrow">REPORTED CHECKPOINT</p>
+          <h2 id="taskDialogTitle">—</h2>
+        </div>
+        <button class="icon-button" value="cancel" aria-label="Close" data-i18n-aria-label="aria.close">×</button>
+      </div>
+      <p id="taskDialogStatus" class="task-status" role="status" aria-live="polite"></p>
+      <div id="taskDialogBody" class="task-body"></div>
+      <div class="modal-actions">
+        <button class="button button-ghost" value="cancel" data-i18n="work.detail.close">Close</button>
       </div>
     </form>
   </dialog>

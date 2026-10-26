@@ -1,7 +1,11 @@
 const elements = {
   profileChip: document.querySelector('#profileChip'),
   connectionChip: document.querySelector('#connectionChip'),
+  modeChip: document.querySelector('#modeChip'),
   heroStatus: document.querySelector('#heroStatus'),
+  tunnelPanel: document.querySelector('#tunnelPanel'),
+  systemsMeter: document.querySelector('#systemsMeter'),
+  systemsValue: document.querySelector('#systemsValue'),
   tunnelTitle: document.querySelector('#tunnelTitle'),
   tunnelSummary: document.querySelector('#tunnelSummary'),
   healthMetric: document.querySelector('#healthMetric'),
@@ -18,6 +22,13 @@ const elements = {
   processCheck: document.querySelector('#processCheck'),
   supervisorCheck: document.querySelector('#supervisorCheck'),
   readyCheck: document.querySelector('#readyCheck'),
+  workSummary: document.querySelector('#workSummary'),
+  taskRecords: document.querySelector('#taskRecords'),
+  shellRecords: document.querySelector('#shellRecords'),
+  taskDialog: document.querySelector('#taskDialog'),
+  taskDialogTitle: document.querySelector('#taskDialogTitle'),
+  taskDialogStatus: document.querySelector('#taskDialogStatus'),
+  taskDialogBody: document.querySelector('#taskDialogBody'),
   activityList: document.querySelector('#activityList'),
   busyBadge: document.querySelector('#busyBadge'),
   versionText: document.querySelector('#versionText'),
@@ -51,6 +62,35 @@ const elements = {
 const languageStorageKey = 'workforge-control-language';
 const strings = {
   en: {
+    "work.eyebrow": "WORK RECORDS",
+    "work.title": "Pick up where you left off.",
+    "work.loading": "Checking work records…",
+    "work.tasks": "Task checkpoints · reported state",
+    "work.jobs": "Recent executions · saved evidence",
+    "work.emptyTasks": "No task checkpoints yet.",
+    "work.emptyJobs": "No execution records yet.",
+    "work.updated": "Updated {time}.",
+    "work.partial": "Showing a limited selection · updated {time}.",
+    "work.unavailable": "Work records are unavailable. Connection controls still work.",
+    "work.stale": "Refresh failed. Showing records last observed at {time}.",
+    "work.mode": "The MCP mode badge appears only with tunnel-log evidence from the running session. Check toolMode in ChatGPT before relying on read-only protection.",
+    "mode.log.read_only": "MCP: read-only · log {time}",
+    "mode.log.read_write": "MCP: read-write · log {time}",
+    "mode.stale": "MCP mode unverified · earlier record {time}",
+    "mode.unknown": "MCP mode unverified",
+    "mode.hint": "Shown only when the tunnel log proves the mode of the running session. Confirm workstation_context.toolMode in ChatGPT.",
+    "work.copy": "Copy resume",
+    "work.copied": "Resume instruction copied.",
+    "work.copyFailed": "Could not copy. Select the task ID below.",
+    "work.reported.active": "Reported active",
+    "work.reported.blocked": "Reported blocked",
+    "work.reported.completed": "Reported complete",
+    "work.unsealed": "No terminal record (running or interrupted)",
+    "work.shell.completed": "Completed record",
+    "work.shell.failed": "Failed record",
+    "work.shell.cancelled": "Cancelled record",
+    "work.shell.running": "Running",
+    "work.output": "Exit {code} · {bytes} output bytes",
     'app.title': 'WorkForge Control',
     'brand.eyebrow': 'LOCAL CONTROL DASHBOARD',
     'brand.title': 'WorkForge Control',
@@ -116,6 +156,44 @@ const strings = {
     'guide.ready': 'Ready',
     'guide.working': 'Working / attention',
     'guide.needsHelp': 'Needs help',
+    'hud.systems': 'SYSTEMS',
+    'hud.systemsValue': '{count}/4 green',
+    'hud.hotkeysTitle': 'Hotkeys',
+    'hud.hotkeysHint': 'Hold Alt+Shift to show key prompts on the buttons.',
+    'hud.hotkey.start': 'Start tunnel',
+    'hud.hotkey.stop': 'Stop tunnel',
+    'hud.hotkey.refresh': 'Refresh status and records',
+    'hud.hotkey.doctor': 'Run Doctor',
+    'work.detail': 'Details',
+    'work.detail.eyebrow': 'REPORTED CHECKPOINT',
+    'work.detail.loading': 'Loading the checkpoint…',
+    'work.detail.observed': 'Saved {saved} · read {time}. This is the reported state, not verified execution.',
+    'work.detail.objective': 'Objective',
+    'work.detail.plan': 'Plan',
+    'work.detail.completedSteps': 'Reported completed steps',
+    'work.detail.blockers': 'Blockers',
+    'work.detail.nextAction': 'Next action',
+    'work.detail.paths': 'Paths',
+    'work.detail.evidence': 'Saved execution evidence',
+    'work.detail.evidenceSummary': '{total} linked · {completed} completed · {failed} failed · {cancelled} cancelled · {unsealed} without terminal record · {unavailable} unavailable',
+    'work.detail.noEvidence': 'No execution records are linked to this checkpoint.',
+    'work.detail.evidenceUnavailable': 'Record unavailable',
+    'work.detail.none': 'None recorded.',
+    'work.detail.claim': 'Claimed by {owner} until {time}.',
+    'work.detail.claimExpired': 'Claim by {owner} expired at {time}.',
+    'work.detail.close': 'Close',
+    'work.detail.exit': 'Exit {code}',
+    'work.claim.active': 'Claimed by {owner} · until {time}',
+    'work.claim.expired': 'Claim by {owner} expired · {time}',
+    'work.claim.hint': 'Advisory claim: it tells other agents who is working on this task. It does not lock the checkpoint.',
+    'work.detail.error.invalid_id': 'This task ID is not valid.',
+    'work.detail.error.not_found': 'This checkpoint no longer exists.',
+    'work.detail.error.busy': 'Another read is in progress. Try again in a moment.',
+    'work.detail.error.engine_missing': 'The WorkForge engine build is missing, so details cannot be read.',
+    'work.detail.error.registry_invalid': 'The WorkForge profile registry is unavailable.',
+    'work.detail.error.profile_unavailable': 'The checkpoint could not be read safely.',
+    'work.detail.error.timeout': 'Reading the checkpoint took too long. Try again.',
+    'work.detail.error.generic': 'The checkpoint could not be loaded.',
     'update.eyebrow': 'WORKFORGE UPDATE',
     'update.checkingTitle': 'Checking for updates…',
     'update.checkingSummary': 'WorkForge checks the canonical GitHub release and verifies the release checksum before installing anything.',
@@ -246,6 +324,35 @@ const strings = {
     'terminal.closedCopy': 'The local dashboard server has stopped. You can close this tab.',
   },
   ko: {
+    "work.eyebrow": "작업 기록",
+    "work.title": "이어서 할 일을 확인하세요.",
+    "work.loading": "작업 기록을 확인하고 있습니다…",
+    "work.tasks": "체크포인트 · 보고된 상태",
+    "work.jobs": "최근 실행 · 저장된 근거",
+    "work.emptyTasks": "저장된 체크포인트가 없습니다.",
+    "work.emptyJobs": "저장된 실행 기록이 없습니다.",
+    "work.updated": "{time}에 갱신했습니다.",
+    "work.partial": "일부 기록만 표시합니다 · {time} 갱신",
+    "work.unavailable": "작업 기록을 조회할 수 없습니다. 연결 제어는 계속 사용할 수 있습니다.",
+    "work.stale": "갱신에 실패했습니다. 마지막 확인 시각 {time}의 기록입니다.",
+    "work.mode": "MCP 모드 배지는 실행 중인 세션의 터널 로그 증거가 있을 때만 표시됩니다. 읽기 전용 보호에 의존하기 전에 ChatGPT에서 toolMode를 확인하세요.",
+    "mode.log.read_only": "MCP: 읽기 전용 · 로그 {time}",
+    "mode.log.read_write": "MCP: 읽기·쓰기 · 로그 {time}",
+    "mode.stale": "MCP 모드 확인 불가 · 이전 기록 {time}",
+    "mode.unknown": "MCP 모드 확인 불가",
+    "mode.hint": "터널 로그가 실행 중인 세션의 모드를 증명할 때만 표시합니다. ChatGPT에서 workstation_context.toolMode를 확인하세요.",
+    "work.copy": "재개 문구 복사",
+    "work.copied": "재개 문구를 복사했습니다.",
+    "work.copyFailed": "복사하지 못했습니다. 아래 작업 ID를 선택하세요.",
+    "work.reported.active": "진행 중으로 보고됨",
+    "work.reported.blocked": "차단됨으로 보고됨",
+    "work.reported.completed": "완료로 보고됨",
+    "work.unsealed": "종료 기록 없음 (진행 중이거나 비정상 종료)",
+    "work.shell.completed": "완료 기록",
+    "work.shell.failed": "실패 기록",
+    "work.shell.cancelled": "취소 기록",
+    "work.shell.running": "실행 중",
+    "work.output": "종료 코드 {code} · 출력 {bytes}바이트",
     'app.title': 'WorkForge 제어판',
     'brand.eyebrow': '로컬 제어 대시보드',
     'brand.title': 'WorkForge 제어판',
@@ -311,6 +418,44 @@ const strings = {
     'guide.ready': '준비됨',
     'guide.working': '작업 중 / 확인 필요',
     'guide.needsHelp': '문제 확인 필요',
+    'hud.systems': '시스템',
+    'hud.systemsValue': '{count}/4 정상',
+    'hud.hotkeysTitle': '단축키',
+    'hud.hotkeysHint': 'Alt+Shift를 누르고 있으면 버튼 위에 키가 표시됩니다.',
+    'hud.hotkey.start': '터널 시작',
+    'hud.hotkey.stop': '터널 정지',
+    'hud.hotkey.refresh': '상태와 기록 새로고침',
+    'hud.hotkey.doctor': 'Doctor 실행',
+    'work.detail': '상세',
+    'work.detail.eyebrow': '보고된 체크포인트',
+    'work.detail.loading': '체크포인트를 불러오는 중…',
+    'work.detail.observed': '{saved} 저장 · {time} 조회. 보고된 상태이며 실행이 검증된 것은 아닙니다.',
+    'work.detail.objective': '목표',
+    'work.detail.plan': '계획',
+    'work.detail.completedSteps': '완료했다고 보고된 단계',
+    'work.detail.blockers': '막힌 점',
+    'work.detail.nextAction': '다음 할 일',
+    'work.detail.paths': '경로',
+    'work.detail.evidence': '저장된 실행 근거',
+    'work.detail.evidenceSummary': '연결 {total}개 · 완료 {completed} · 실패 {failed} · 취소 {cancelled} · 종료 기록 없음 {unsealed} · 조회 불가 {unavailable}',
+    'work.detail.noEvidence': '이 체크포인트에 연결된 실행 기록이 없습니다.',
+    'work.detail.evidenceUnavailable': '기록을 조회할 수 없음',
+    'work.detail.none': '기록 없음.',
+    'work.detail.claim': '{owner}이(가) {time}까지 맡고 있습니다.',
+    'work.detail.claimExpired': '{owner}의 담당 표시는 {time}에 만료되었습니다.',
+    'work.detail.close': '닫기',
+    'work.detail.exit': '종료 코드 {code}',
+    'work.claim.active': '담당 {owner} · {time}까지',
+    'work.claim.expired': '{owner} 담당 만료 · {time}',
+    'work.claim.hint': '알림용 담당 표시입니다. 다른 에이전트에게 누가 작업 중인지 알려 줄 뿐 체크포인트를 잠그지 않습니다.',
+    'work.detail.error.invalid_id': '올바르지 않은 작업 ID입니다.',
+    'work.detail.error.not_found': '이 체크포인트는 더 이상 없습니다.',
+    'work.detail.error.busy': '다른 조회가 진행 중입니다. 잠시 후 다시 시도하세요.',
+    'work.detail.error.engine_missing': 'WorkForge 엔진 빌드가 없어 상세 정보를 읽을 수 없습니다.',
+    'work.detail.error.registry_invalid': 'WorkForge 프로필 레지스트리를 사용할 수 없습니다.',
+    'work.detail.error.profile_unavailable': '체크포인트를 안전하게 읽을 수 없습니다.',
+    'work.detail.error.timeout': '체크포인트를 읽는 데 시간이 너무 오래 걸렸습니다. 다시 시도하세요.',
+    'work.detail.error.generic': '체크포인트를 불러오지 못했습니다.',
     'update.eyebrow': 'WORKFORGE 업데이트',
     'update.checkingTitle': '업데이트를 확인하는 중…',
     'update.checkingSummary': 'WorkForge는 공식 GitHub Release를 확인하고 설치 전에 Release checksum을 검증합니다.',
@@ -441,6 +586,35 @@ const strings = {
     'terminal.closedCopy': '로컬 대시보드 서버가 중지되었습니다. 이 탭을 닫아도 됩니다.',
   },
   ja: {
+    "work.eyebrow": "作業記録",
+    "work.title": "続きの作業を確認しましょう。",
+    "work.loading": "作業記録を確認中…",
+    "work.tasks": "チェックポイント · 報告された状態",
+    "work.jobs": "最近の実行 · 保存された証拠",
+    "work.emptyTasks": "チェックポイントはまだありません。",
+    "work.emptyJobs": "実行記録はまだありません。",
+    "work.updated": "{time}に更新しました。",
+    "work.partial": "一部の記録を表示 · {time}更新",
+    "work.unavailable": "作業記録を取得できません。接続操作は引き続き利用できます。",
+    "work.stale": "更新に失敗しました。{time}に確認した記録を表示しています。",
+    "work.mode": "MCPモードのバッジは、実行中のセッションのトンネルログに証拠がある場合にのみ表示されます。読み取り専用の保護に頼る前にChatGPTでtoolModeを確認してください。",
+    "mode.log.read_only": "MCP: 読み取り専用 · ログ {time}",
+    "mode.log.read_write": "MCP: 読み書き · ログ {time}",
+    "mode.stale": "MCPモード未確認 · 以前の記録 {time}",
+    "mode.unknown": "MCPモード未確認",
+    "mode.hint": "トンネルログが実行中のセッションのモードを証明する場合にのみ表示します。ChatGPTでworkstation_context.toolModeを確認してください。",
+    "work.copy": "再開文をコピー",
+    "work.copied": "再開文をコピーしました。",
+    "work.copyFailed": "コピーできませんでした。下のタスクIDを選択してください。",
+    "work.reported.active": "進行中との報告",
+    "work.reported.blocked": "ブロック中との報告",
+    "work.reported.completed": "完了との報告",
+    "work.unsealed": "終了記録なし（実行中または異常終了）",
+    "work.shell.completed": "完了記録",
+    "work.shell.failed": "失敗記録",
+    "work.shell.cancelled": "キャンセル記録",
+    "work.shell.running": "実行中",
+    "work.output": "終了コード {code} · 出力 {bytes}バイト",
     'app.title': 'WorkForge コントロール',
     'brand.eyebrow': 'ローカル コントロール ダッシュボード',
     'brand.title': 'WorkForge コントロール',
@@ -506,6 +680,44 @@ const strings = {
     'guide.ready': '準備完了',
     'guide.working': '処理中 / 確認が必要',
     'guide.needsHelp': '対応が必要',
+    'hud.systems': 'システム',
+    'hud.systemsValue': '{count}/4 正常',
+    'hud.hotkeysTitle': 'ショートカット',
+    'hud.hotkeysHint': 'Alt+Shift を押している間、ボタンにキーが表示されます。',
+    'hud.hotkey.start': 'トンネル開始',
+    'hud.hotkey.stop': 'トンネル停止',
+    'hud.hotkey.refresh': '状態と記録を再読み込み',
+    'hud.hotkey.doctor': 'Doctor を実行',
+    'work.detail': '詳細',
+    'work.detail.eyebrow': '報告されたチェックポイント',
+    'work.detail.loading': 'チェックポイントを読み込み中…',
+    'work.detail.observed': '{saved} 保存 · {time} 取得。報告された状態であり、実行が検証されたものではありません。',
+    'work.detail.objective': '目標',
+    'work.detail.plan': '計画',
+    'work.detail.completedSteps': '完了と報告されたステップ',
+    'work.detail.blockers': 'ブロッカー',
+    'work.detail.nextAction': '次の作業',
+    'work.detail.paths': 'パス',
+    'work.detail.evidence': '保存された実行の証拠',
+    'work.detail.evidenceSummary': '関連 {total} 件 · 完了 {completed} · 失敗 {failed} · 取消 {cancelled} · 終了記録なし {unsealed} · 取得不可 {unavailable}',
+    'work.detail.noEvidence': 'このチェックポイントに関連付けられた実行記録はありません。',
+    'work.detail.evidenceUnavailable': '記録を取得できません',
+    'work.detail.none': '記録なし。',
+    'work.detail.claim': '{owner} が {time} まで担当しています。',
+    'work.detail.claimExpired': '{owner} の担当表示は {time} に期限切れになりました。',
+    'work.detail.close': '閉じる',
+    'work.detail.exit': '終了コード {code}',
+    'work.claim.active': '担当 {owner} · {time} まで',
+    'work.claim.expired': '{owner} の担当は期限切れ · {time}',
+    'work.claim.hint': '通知用の担当表示です。他のエージェントに作業者を知らせるだけで、チェックポイントはロックされません。',
+    'work.detail.error.invalid_id': 'このタスク ID は無効です。',
+    'work.detail.error.not_found': 'このチェックポイントはもう存在しません。',
+    'work.detail.error.busy': '別の読み込みが進行中です。しばらくしてから再試行してください。',
+    'work.detail.error.engine_missing': 'WorkForge エンジンのビルドがないため、詳細を読み込めません。',
+    'work.detail.error.registry_invalid': 'WorkForge プロファイルレジストリを利用できません。',
+    'work.detail.error.profile_unavailable': 'チェックポイントを安全に読み込めませんでした。',
+    'work.detail.error.timeout': 'チェックポイントの読み込みに時間がかかりすぎました。再試行してください。',
+    'work.detail.error.generic': 'チェックポイントを読み込めませんでした。',
     'update.eyebrow': 'WORKFORGE アップデート',
     'update.checkingTitle': 'アップデートを確認中…',
     'update.checkingSummary': 'WorkForge は公式 GitHub Release を確認し、インストール前に Release checksum を検証します。',
@@ -636,6 +848,35 @@ const strings = {
     'terminal.closedCopy': 'ローカルダッシュボードサーバーは停止しました。このタブを閉じても構いません。',
   },
   zh: {
+    "work.eyebrow": "工作记录",
+    "work.title": "从上次的进度继续。",
+    "work.loading": "正在检查工作记录…",
+    "work.tasks": "检查点 · 已报告的状态",
+    "work.jobs": "最近执行 · 已保存的证据",
+    "work.emptyTasks": "暂无任务检查点。",
+    "work.emptyJobs": "暂无执行记录。",
+    "work.updated": "更新于 {time}。",
+    "work.partial": "仅显示部分记录 · 更新于 {time}",
+    "work.unavailable": "无法获取工作记录。连接控制仍然可用。",
+    "work.stale": "刷新失败。显示最后于 {time} 观察到的记录。",
+    "work.mode": "仅当运行中会话的隧道日志提供证据时才显示MCP模式徽章。依赖只读保护之前，请在ChatGPT中检查toolMode。",
+    "mode.log.read_only": "MCP：只读 · 日志 {time}",
+    "mode.log.read_write": "MCP：读写 · 日志 {time}",
+    "mode.stale": "MCP模式未验证 · 早前记录 {time}",
+    "mode.unknown": "MCP模式未验证",
+    "mode.hint": "仅当隧道日志能证明运行中会话的模式时显示。请在ChatGPT中确认workstation_context.toolMode。",
+    "work.copy": "复制恢复指令",
+    "work.copied": "已复制恢复指令。",
+    "work.copyFailed": "复制失败。请选中下方任务ID。",
+    "work.reported.active": "报告为进行中",
+    "work.reported.blocked": "报告为受阻",
+    "work.reported.completed": "报告为完成",
+    "work.unsealed": "无结束记录（运行中或异常退出）",
+    "work.shell.completed": "完成记录",
+    "work.shell.failed": "失败记录",
+    "work.shell.cancelled": "取消记录",
+    "work.shell.running": "运行中",
+    "work.output": "退出代码 {code} · 输出 {bytes}字节",
     'app.title': 'WorkForge 控制台',
     'brand.eyebrow': '本地控制面板',
     'brand.title': 'WorkForge 控制台',
@@ -701,6 +942,44 @@ const strings = {
     'guide.ready': '已就绪',
     'guide.working': '处理中 / 需要关注',
     'guide.needsHelp': '需要处理',
+    'hud.systems': '系统',
+    'hud.systemsValue': '{count}/4 正常',
+    'hud.hotkeysTitle': '快捷键',
+    'hud.hotkeysHint': '按住 Alt+Shift 时，按钮上会显示对应按键。',
+    'hud.hotkey.start': '启动隧道',
+    'hud.hotkey.stop': '停止隧道',
+    'hud.hotkey.refresh': '刷新状态和记录',
+    'hud.hotkey.doctor': '运行 Doctor',
+    'work.detail': '详情',
+    'work.detail.eyebrow': '已报告的检查点',
+    'work.detail.loading': '正在加载检查点…',
+    'work.detail.observed': '{saved} 保存 · {time} 读取。这是报告的状态，并非已验证的执行结果。',
+    'work.detail.objective': '目标',
+    'work.detail.plan': '计划',
+    'work.detail.completedSteps': '报告已完成的步骤',
+    'work.detail.blockers': '阻碍',
+    'work.detail.nextAction': '下一步',
+    'work.detail.paths': '路径',
+    'work.detail.evidence': '已保存的执行证据',
+    'work.detail.evidenceSummary': '关联 {total} 条 · 完成 {completed} · 失败 {failed} · 取消 {cancelled} · 无结束记录 {unsealed} · 无法读取 {unavailable}',
+    'work.detail.noEvidence': '此检查点没有关联的执行记录。',
+    'work.detail.evidenceUnavailable': '无法读取记录',
+    'work.detail.none': '无记录。',
+    'work.detail.claim': '{owner} 负责至 {time}。',
+    'work.detail.claimExpired': '{owner} 的负责标记已于 {time} 过期。',
+    'work.detail.close': '关闭',
+    'work.detail.exit': '退出代码 {code}',
+    'work.claim.active': '负责人 {owner} · 至 {time}',
+    'work.claim.expired': '{owner} 的负责标记已过期 · {time}',
+    'work.claim.hint': '这是提示性的负责标记，仅告知其他代理谁在处理此任务，不会锁定检查点。',
+    'work.detail.error.invalid_id': '此任务 ID 无效。',
+    'work.detail.error.not_found': '此检查点已不存在。',
+    'work.detail.error.busy': '另一项读取正在进行。请稍后重试。',
+    'work.detail.error.engine_missing': '缺少 WorkForge 引擎构建，无法读取详情。',
+    'work.detail.error.registry_invalid': 'WorkForge 配置文件注册表不可用。',
+    'work.detail.error.profile_unavailable': '无法安全读取此检查点。',
+    'work.detail.error.timeout': '读取检查点耗时过长。请重试。',
+    'work.detail.error.generic': '无法加载检查点。',
     'update.eyebrow': 'WORKFORGE 更新',
     'update.checkingTitle': '正在检查更新…',
     'update.checkingSummary': 'WorkForge 会检查官方 GitHub Release，并在安装前验证 Release checksum。',
@@ -857,6 +1136,11 @@ function resolveInitialLanguage() {
 
 let currentLanguage = resolveInitialLanguage();
 let currentStatus = null;
+let workSnapshot = null;
+let workUnavailable = false;
+let workDataKey = '';
+let workRequest = null;
+let workPollTimer = null;
 let statusFailureMessage = null;
 let currentUpdate = null;
 let updateFailureMessage = null;
@@ -998,6 +1282,29 @@ function setCheck(element, state, text) {
   element.className = `check-state ${state}`;
 }
 
+let lastHeroKind = null;
+
+function setHeroKind(kind) {
+  elements.heroStatus.className = `status-orb status-${kind}`;
+  if (lastHeroKind && lastHeroKind !== kind) {
+    // Restart the one-shot border flash only when the tunnel state category changes.
+    elements.tunnelPanel.classList.remove('hud-flash');
+    void elements.tunnelPanel.offsetWidth;
+    elements.tunnelPanel.classList.add('hud-flash');
+  }
+  lastHeroKind = kind;
+}
+
+// The gauge mirrors the four Doctor checklist verdicts; it is never a synthetic score.
+function renderSystems(count) {
+  const level = count === null ? 'unknown' : count === 4 ? 'good' : count === 0 ? 'bad' : 'warn';
+  elements.systemsMeter.className = `systems-meter systems-${level}`;
+  elements.systemsMeter.querySelectorAll('.systems-segments i').forEach((segment, index) => {
+    segment.classList.toggle('on', count !== null && index < count);
+  });
+  elements.systemsValue.textContent = count === null ? '—' : t('hud.systemsValue', { count });
+}
+
 function renderDoctorState() {
   if (doctorState === 'healthy') {
     elements.doctorBadge.textContent = t('doctor.healthy');
@@ -1019,17 +1326,17 @@ function renderStatus(status) {
 
   if (!status.running) {
     setChip('offline', t('state.offline'));
-    elements.heroStatus.className = 'status-orb status-offline';
+    setHeroKind('offline');
     elements.tunnelTitle.textContent = t('tunnel.stoppedTitle');
     elements.tunnelSummary.textContent = t('tunnel.stoppedSummary');
   } else if (status.readyState === 'ready' && status.healthState === 'healthy') {
     setChip('online', t('state.online'));
-    elements.heroStatus.className = 'status-orb status-online';
+    setHeroKind('online');
     elements.tunnelTitle.textContent = t('tunnel.readyTitle');
     elements.tunnelSummary.textContent = t('tunnel.readySummary');
   } else {
     setChip('warning', t('state.attention'));
-    elements.heroStatus.className = 'status-orb status-warning';
+    setHeroKind('warning');
     elements.tunnelTitle.textContent = t('tunnel.attentionTitle');
     elements.tunnelSummary.textContent = status.error || t('tunnel.attentionSummary');
   }
@@ -1055,6 +1362,7 @@ function renderStatus(status) {
     status.readyState === 'ready' ? 'check-good' : status.running ? 'check-warn' : 'check-bad',
     status.readyState === 'ready' ? t('check.ready') : status.running ? t('check.waiting') : t('check.offline'),
   );
+  renderSystems(1 + Number(Boolean(status.running)) + Number(Boolean(status.supervised)) + Number(status.readyState === 'ready'));
 
   updateButtons();
 }
@@ -1063,7 +1371,8 @@ function renderStatusFailure(message) {
   currentStatus = null;
   statusFailureMessage = message;
   setChip('offline', t('state.unavailable'));
-  elements.heroStatus.className = 'status-orb status-offline';
+  setHeroKind('offline');
+  renderSystems(0);
   elements.tunnelTitle.textContent = t('tunnel.unavailableTitle');
   elements.tunnelSummary.textContent = message;
   elements.healthMetric.textContent = t('state.unknown');
@@ -1109,6 +1418,281 @@ function renderActivity(items = []) {
     elements.activityList.append(row);
   }
 }
+
+function workTime(value) {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat(currentLanguage, {
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  }).format(date) : '—';
+}
+
+function renderWork({ force = false } = {}) {
+  const payload = workSnapshot;
+  elements.workSummary.textContent = workUnavailable
+    ? payload ? t('work.stale', { time: workTime(payload.observedAt) }) : t('work.unavailable')
+    : payload ? t(payload.partial ? 'work.partial' : 'work.updated', { time: workTime(payload.observedAt) }) : t('work.loading');
+  const key = JSON.stringify([currentLanguage, payload?.tasks, payload?.jobs]);
+  if (!force && key === workDataKey) return;
+  workDataKey = key;
+  const fill = (container, records, kind) => {
+    container.replaceChildren();
+    if (!records.length) {
+      const empty = document.createElement('li');
+      empty.className = 'work-note';
+      empty.textContent = t(kind === 'task' ? 'work.emptyTasks' : 'work.emptyJobs');
+      if (!payload) empty.textContent = '—';
+      container.append(empty);
+    }
+    for (const record of records) {
+      const row = document.createElement('li');
+      // Card styling follows the recorded state only; unsealed executions never look like running work.
+      row.className = kind === 'task'
+        ? `work-record quest quest-${record.reportedStatus}`
+        : `work-record mission mission-${record.trackingState === 'ownership_lost' ? 'unsealed' : record.status}`;
+      const heading = document.createElement('div');
+      heading.className = 'work-record-heading';
+      const title = document.createElement('strong');
+      title.textContent = kind === 'task' ? record.title : record.cwd;
+      heading.append(title);
+      if (kind === 'task') {
+        const copy = document.createElement('button');
+        copy.type = 'button'; copy.className = 'work-copy'; copy.textContent = t('work.copy');
+        copy.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(`task_resume ${JSON.stringify({ taskId: record.taskId })}`);
+            toast(t('work.copied'));
+          } catch { toast(t('work.copyFailed'), 'error'); }
+        });
+        const detail = document.createElement('button');
+        detail.type = 'button'; detail.className = 'work-copy work-detail'; detail.textContent = t('work.detail');
+        detail.addEventListener('click', () => openTaskDetail(record.taskId, detail));
+        heading.append(copy, detail);
+      }
+      const state = document.createElement('p');
+      state.className = 'work-state';
+      state.textContent = kind === 'task' ? t(`work.reported.${record.reportedStatus}`)
+        : record.trackingState === 'ownership_lost' ? t('work.unsealed') : t(`work.shell.${record.status}`);
+      const id = document.createElement('code');
+      id.textContent = kind === 'task' ? record.taskId : record.id;
+      const time = document.createElement('time');
+      time.dateTime = kind === 'task' ? record.savedAt : record.updatedAt;
+      time.textContent = workTime(time.dateTime);
+      row.append(heading, state, time, id);
+      if (kind === 'task' && record.claim) {
+        // Claims are advisory; the chip names the owner but never implies the checkpoint is locked.
+        const expired = record.claim.expired || Date.parse(record.claim.expiresAt) <= Date.now();
+        const claim = document.createElement('p');
+        claim.className = `work-claim${expired ? ' work-claim-expired' : ''}`;
+        claim.textContent = t(expired ? 'work.claim.expired' : 'work.claim.active',
+          { owner: record.claim.owner, time: workTime(record.claim.expiresAt) });
+        claim.title = t('work.claim.hint');
+        row.append(claim);
+      }
+      if (kind !== 'task') {
+        const output = document.createElement('p');
+        output.textContent = t('work.output', { code: record.exitCode ?? '—',
+          bytes: new Intl.NumberFormat(currentLanguage).format(record.stdoutBytes + record.stderrBytes) });
+        row.append(output);
+      }
+      container.append(row);
+    }
+  };
+  fill(elements.taskRecords, payload?.tasks || [], 'task');
+  fill(elements.shellRecords, payload?.jobs || [], 'shell');
+}
+
+async function refreshWork({ force = false } = {}) {
+  if (workRequest) return workRequest;
+  workRequest = (async () => {
+    try {
+      const payload = await api(force ? '/api/work?refresh=1' : '/api/work');
+      workUnavailable = !payload.available;
+      if (payload.available) workSnapshot = payload;
+    } catch { workUnavailable = true; }
+    renderWork();
+  })();
+  try { await workRequest; } finally { workRequest = null; }
+}
+
+let modeEvidence = null;
+let modeRequest = null;
+
+// Only `log` evidence (tied to the running session) may show a mode. A stale record hides the value:
+// an unverified "read-only" label would look like protection that might not exist.
+function renderModeEvidence() {
+  const evidence = modeEvidence;
+  const time = evidence?.observedAt ? workTime(evidence.observedAt) : '';
+  let kind = 'unknown';
+  let text = t('mode.unknown');
+  if (evidence?.evidence === 'log' && (evidence.toolMode === 'read_only' || evidence.toolMode === 'read_write')) {
+    kind = evidence.toolMode === 'read_only' ? 'ro' : 'rw';
+    text = t(`mode.log.${evidence.toolMode}`, { time });
+  } else if (evidence?.evidence === 'stale' && evidence.observedAt) {
+    kind = 'stale';
+    text = t('mode.stale', { time });
+  }
+  elements.modeChip.className = `chip chip-mode chip-mode-${kind}`;
+  elements.modeChip.textContent = text;
+  elements.modeChip.title = t('mode.hint');
+}
+
+async function refreshModeEvidence() {
+  if (modeRequest) return modeRequest;
+  modeRequest = (async () => {
+    try { modeEvidence = await api('/api/mode-evidence'); } catch { modeEvidence = null; }
+    renderModeEvidence();
+  })();
+  try { await modeRequest; } finally { modeRequest = null; }
+}
+
+let taskDetail = { id: null, payload: null, code: null };
+let taskDetailToken = 0;
+let taskDetailOpener = null;
+
+function detailSection(titleKey, content) {
+  const section = document.createElement('section');
+  section.className = 'task-section';
+  const heading = document.createElement('h3');
+  heading.textContent = t(titleKey);
+  section.append(heading, content);
+  return section;
+}
+
+function detailList(items, ordered = false) {
+  if (!items.length) {
+    const none = document.createElement('p');
+    none.className = 'task-none';
+    none.textContent = t('work.detail.none');
+    return none;
+  }
+  const list = document.createElement(ordered ? 'ol' : 'ul');
+  for (const item of items) {
+    const entry = document.createElement('li');
+    entry.textContent = item;
+    list.append(entry);
+  }
+  return list;
+}
+
+function detailText(value) {
+  const paragraph = document.createElement('p');
+  paragraph.textContent = value || t('work.detail.none');
+  return paragraph;
+}
+
+// Detail content is reported text from the checkpoint; it is rendered as literal text only.
+function renderTaskDetail() {
+  const { payload, code } = taskDetail;
+  elements.taskDialogBody.replaceChildren();
+  if (!payload && !code) {
+    elements.taskDialogTitle.textContent = taskDetail.id || '—';
+    elements.taskDialogStatus.textContent = t('work.detail.loading');
+    return;
+  }
+  if (code) {
+    elements.taskDialogTitle.textContent = taskDetail.id || '—';
+    elements.taskDialogStatus.textContent = strings.en[`work.detail.error.${code}`] ? t(`work.detail.error.${code}`) : t('work.detail.error.generic');
+    return;
+  }
+  const { task, evidence, evidenceSummary: summary, claim } = payload;
+  elements.taskDialogTitle.textContent = task.title;
+  elements.taskDialogStatus.textContent = t('work.detail.observed', { saved: workTime(task.savedAt), time: workTime(payload.observedAt) });
+
+  const badge = document.createElement('p');
+  badge.className = `task-badge quest-${task.reportedStatus}`;
+  badge.textContent = t(`work.reported.${task.reportedStatus}`);
+  const id = document.createElement('code');
+  id.className = 'task-id';
+  id.textContent = task.taskId;
+  const meta = document.createElement('div');
+  meta.className = 'task-meta';
+  meta.append(badge, id);
+  elements.taskDialogBody.append(meta);
+  if (claim) {
+    const claimLine = document.createElement('p');
+    claimLine.className = 'task-claim';
+    claimLine.textContent = t(claim.expired ? 'work.detail.claimExpired' : 'work.detail.claim', { owner: claim.owner, time: workTime(claim.expiresAt) });
+    elements.taskDialogBody.append(claimLine);
+  }
+
+  const paths = document.createElement('ul');
+  paths.className = 'task-paths';
+  for (const value of [task.projectPath, ...task.relatedPaths]) {
+    const entry = document.createElement('li');
+    const path = document.createElement('code');
+    path.textContent = value;
+    entry.append(path);
+    paths.append(entry);
+  }
+
+  const evidenceBlock = document.createElement('div');
+  const totals = document.createElement('p');
+  totals.className = 'task-summary';
+  totals.textContent = summary.total ? t('work.detail.evidenceSummary', summary) : t('work.detail.noEvidence');
+  evidenceBlock.append(totals);
+  if (evidence.length) {
+    const list = document.createElement('ul');
+    list.className = 'work-records task-evidence';
+    for (const record of evidence) {
+      const row = document.createElement('li');
+      const unsealed = record.available && record.trackingState === 'ownership_lost';
+      row.className = `work-record mission mission-${!record.available ? 'cancelled' : unsealed ? 'unsealed' : record.status}`;
+      const state = document.createElement('p');
+      state.className = 'work-state';
+      state.textContent = !record.available ? t('work.detail.evidenceUnavailable')
+        : unsealed ? t('work.unsealed') : t(`work.shell.${record.status}`);
+      const time = document.createElement('time');
+      time.dateTime = record.updatedAt || '';
+      time.textContent = record.available ? workTime(record.updatedAt) : '—';
+      const recordId = document.createElement('code');
+      recordId.textContent = record.id;
+      row.append(state, time, recordId);
+      if (record.available) {
+        const exit = document.createElement('p');
+        exit.textContent = t('work.detail.exit', { code: record.exitCode ?? '—' });
+        row.append(exit);
+      }
+      list.append(row);
+    }
+    evidenceBlock.append(list);
+  }
+
+  elements.taskDialogBody.append(
+    detailSection('work.detail.objective', detailText(task.objective)),
+    detailSection('work.detail.nextAction', detailText(task.nextAction)),
+    detailSection('work.detail.plan', detailList(task.plan, true)),
+    detailSection('work.detail.completedSteps', detailList(task.completedSteps)),
+    detailSection('work.detail.blockers', detailList(task.blockers)),
+    detailSection('work.detail.evidence', evidenceBlock),
+    detailSection('work.detail.paths', paths),
+  );
+}
+
+async function openTaskDetail(id, opener) {
+  const token = ++taskDetailToken;
+  taskDetail = { id, payload: null, code: null };
+  taskDetailOpener = opener;
+  renderTaskDetail();
+  if (!elements.taskDialog.open) elements.taskDialog.showModal();
+  let next;
+  try {
+    const payload = await api(`/api/work/task?id=${encodeURIComponent(id)}`);
+    next = payload.available ? { id, payload, code: null } : { id, payload: null, code: String(payload.code || 'generic') };
+  } catch {
+    next = { id, payload: null, code: 'generic' };
+  }
+  // A newer request (or a closed dialog) owns the dialog; drop late responses.
+  if (token !== taskDetailToken || !elements.taskDialog.open) return;
+  taskDetail = next;
+  renderTaskDetail();
+}
+
+elements.taskDialog.addEventListener('close', () => {
+  taskDetailToken += 1;
+  // The opener can be rebuilt by a language switch; fall back to the task list heading.
+  (taskDetailOpener?.isConnected ? taskDetailOpener : document.querySelector('#taskRecordsTitle'))?.focus();
+  taskDetailOpener = null;
+});
 
 async function refreshStatus({ quiet = false } = {}) {
   try {
@@ -1326,6 +1910,7 @@ async function applyUpdate() {
     });
     stopUpdateProgressPolling();
     clearInterval(pollTimer);
+    clearInterval(workPollTimer);
     renderUpdateProgress(payload.updateProgress || {
       status: 'completed',
       stage: 'completed',
@@ -1412,6 +1997,7 @@ async function confirmUninstall() {
     elements.uninstallDialog.close();
     toast(t('uninstall.completedToast'), 'success');
     clearInterval(pollTimer);
+    clearInterval(workPollTimer);
     setTimeout(() => {
       renderTerminalScreen('uninstall.eyebrow', 'terminal.uninstallTitle', 'terminal.uninstallCopy');
     }, 800);
@@ -1430,6 +2016,7 @@ async function closeControl() {
     // The server may close before the response reaches the browser.
   }
   clearInterval(pollTimer);
+    clearInterval(workPollTimer);
   window.close();
   setTimeout(() => {
     renderTerminalScreen('brand.eyebrow', 'terminal.closedTitle', 'terminal.closedCopy');
@@ -1475,6 +2062,9 @@ function setLanguage(language, { persist = true } = {}) {
   else setChip('neutral', t('state.checking'));
   renderDoctorState();
   renderActivity(currentActivity);
+  renderWork({ force: true });
+  if (elements.taskDialog.open) renderTaskDetail();
+  renderModeEvidence();
   if (currentUpdate) renderUpdate(currentUpdate);
   else if (updateFailureMessage) renderUpdateFailure(updateFailureMessage);
   if (currentUpdateProgress && currentUpdateProgress.status !== 'idle') renderUpdateProgress(currentUpdateProgress);
@@ -1498,16 +2088,19 @@ async function initialize() {
   } catch (error) {
     toast(error.message, 'error');
   }
-  await refreshStatus({ quiet: true });
+  await Promise.all([refreshStatus({ quiet: true }), refreshWork(), refreshModeEvidence()]);
   await refreshUpdate({ quiet: true });
   pollTimer = setInterval(() => {
     if (!actionInFlight && !document.hidden) refreshStatus({ quiet: true });
   }, 5000);
+  workPollTimer = setInterval(() => {
+    if (!actionInFlight && !document.hidden) { refreshWork(); refreshModeEvidence(); }
+  }, 30_000);
 }
 
 elements.startButton.addEventListener('click', () => runAction('start'));
 elements.stopButton.addEventListener('click', () => runAction('stop'));
-elements.refreshButton.addEventListener('click', () => refreshStatus());
+elements.refreshButton.addEventListener('click', () => { refreshStatus(); refreshWork({ force: true }); refreshModeEvidence(); });
 elements.doctorButton.addEventListener('click', () => runAction('doctor'));
 elements.checkUpdateButton.addEventListener('click', () => refreshUpdate({ force: true }));
 elements.updateButton.addEventListener('click', applyUpdate);
@@ -1527,7 +2120,22 @@ for (const radio of document.querySelectorAll('input[name="uninstallMode"]')) {
 }
 
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && !actionInFlight) refreshStatus({ quiet: true });
+  if (!document.hidden && !actionInFlight) { refreshStatus({ quiet: true }); refreshWork(); refreshModeEvidence(); }
 });
+
+// Alt+Shift chords avoid single-key shortcuts (WCAG 2.1.4) and browser Alt+letter bindings.
+const hotkeyButtons = { KeyS: 'startButton', KeyX: 'stopButton', KeyR: 'refreshButton', KeyD: 'doctorButton' };
+const hideHotkeys = () => document.body.classList.remove('hotkeys-visible');
+document.addEventListener('keydown', (event) => {
+  if (!event.altKey || !event.shiftKey || event.ctrlKey || event.metaKey) return;
+  document.body.classList.add('hotkeys-visible');
+  const button = elements[hotkeyButtons[event.code]];
+  if (!button || event.repeat || document.querySelector('dialog[open]')) return;
+  if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+  event.preventDefault();
+  if (!button.disabled) button.click();
+});
+document.addEventListener('keyup', (event) => { if (!event.altKey || !event.shiftKey) hideHotkeys(); });
+window.addEventListener('blur', hideHotkeys);
 
 initialize();

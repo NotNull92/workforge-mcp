@@ -46,6 +46,7 @@ const noBrowser = process.argv.includes('--no-browser');
 const testMode = process.env.WORKFORGE_CONTROL_TEST_MODE === '1';
 
 // The control server never needs to retain the tunnel credential in its own process.
+const controlKnownSecrets = [process.env.CONTROL_PLANE_API_KEY].filter(value => typeof value === 'string' && value.length >= 8);
 delete process.env.CONTROL_PLANE_API_KEY;
 process.chdir(os.tmpdir());
 
@@ -60,6 +61,10 @@ let activeAction = null;
 let cachedStatus = null;
 let cachedStatusAt = 0;
 let statusPromise = null;
+let workModulesPromise = null;
+let workPromise = null;
+let cachedWork = null;
+let cachedWorkAt = 0;
 let cachedUpdate = null;
 let cachedUpdateAt = 0;
 let updateProgress = {
@@ -405,6 +410,123 @@ async function getStatus({ force = false } = {}) {
   }
 }
 
+async function getWork({ force = false } = {}) {
+  const unavailable = code => ({ available: false, code, toolMode: 'unknown' });
+  if (activeAction === 'update' || activeAction === 'uninstall') return unavailable('busy');
+  if (workPromise) return workPromise;
+  if (!force && cachedWork && Date.now() - cachedWorkAt < 20_000) return cachedWork;
+  workPromise = (async () => {
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 5000);
+    let failureCode = 'engine_missing';
+    try {
+      workModulesPromise ??= Promise.all([
+        import('../dist/profile.js'), import('../dist/shell.js'), import('../dist/tasks.js'), import('../dist/redaction.js'),
+      ]).catch(error => { workModulesPromise = null; throw error; });
+      const [profiles, shell, tasks, redaction] = await workModulesPromise;
+      failureCode = 'registry_invalid';
+      const registryPath = isMacOS
+        ? (await import('./macos/tunnel-common.mjs')).loadInstallation(profileId).registryPath
+        : process.env.WORKFORGE_MCP_PROFILE_REGISTRY;
+      if (!registryPath || !path.isAbsolute(registryPath)) return unavailable(failureCode);
+      const context = await profiles.loadProjectProfile(profileId, { registryPath });
+      failureCode = 'profile_unavailable';
+      const [history, checkpoints] = await Promise.all([
+        shell.listShellJobs({ context, limit: 5, signal: abort.signal }), tasks.listTasks(context, 5, abort.signal),
+      ]);
+      abort.signal.throwIfAborted();
+      const jobs = history.jobs.map(({ id, cwd, status, trackingState, exitCode, createdAt, updatedAt, stdoutBytes, stderrBytes }) =>
+        ({ id, cwd: sanitizeText(cwd), status, trackingState, exitCode, createdAt, updatedAt, stdoutBytes, stderrBytes }));
+      return redaction.createRedactor(controlKnownSecrets)({ available: true, observedAt: new Date().toISOString(),
+        tasks: checkpoints.tasks, jobs, toolMode: 'unknown',
+        partial: history.truncated || checkpoints.truncated || history.errors.length > 0 || checkpoints.errors.length > 0,
+        diagnosticCount: history.errors.length + checkpoints.errors.length,
+      }).value;
+    } catch {
+      return unavailable(abort.signal.aborted ? 'timeout' : failureCode);
+    } finally { clearTimeout(timer); }
+  })();
+  try {
+    cachedWork = await workPromise;
+    cachedWorkAt = Date.now();
+    return cachedWork;
+  } finally { workPromise = null; }
+}
+
+let taskDetailRequest = null;
+let modeEvidenceCache = null;
+let modeEvidencePromise = null;
+async function getModeEvidence() {
+  const empty = { evidence: 'none', toolMode: 'unknown', redaction: 'unknown', tools: null, observedAt: null, source: 'tunnel_log' };
+  if (activeAction === 'update' || activeAction === 'uninstall') return { ...empty, code: 'busy' };
+  if (modeEvidencePromise) return modeEvidencePromise;
+  if (modeEvidenceCache && Date.now() - modeEvidenceCache.at < 20_000) return modeEvidenceCache.value;
+  modeEvidencePromise = (async () => {
+    try {
+      const { readModeEvidence } = await import('../dist/mode-evidence.js');
+      let logPath;
+      if (isMacOS) {
+        const { loadInstallation, runtimePaths } = await import('./macos/tunnel-common.mjs');
+        logPath = runtimePaths(loadInstallation(profileId)).tunnelStderrPath;
+      } else {
+        const registryPath = process.env.WORKFORGE_MCP_PROFILE_REGISTRY;
+        if (!registryPath || !path.isAbsolute(registryPath)) return { ...empty, code: 'registry_invalid' };
+        const { loadProjectProfile } = await import('../dist/profile.js');
+        const context = await loadProjectProfile(profileId, { registryPath });
+        // Derived from Get-WorkForgeTunnelRuntimePaths; current snapshots do not attest process start time.
+        logPath = path.join(context.primaryRoot, 'artifacts', 'workforge-mcp', 'tunnel', 'tunnel.stderr.log');
+      }
+      return await readModeEvidence(logPath);
+    } catch (error) { return { ...empty, ...(error?.code === 'ENOENT' ? {} : { code: 'evidence_unavailable' }) }; }
+  })();
+  try {
+    const value = await modeEvidencePromise;
+    modeEvidenceCache = { at: Date.now(), value };
+    return value;
+  } finally { modeEvidencePromise = null; }
+}
+
+async function getWorkTask(id) {
+  const unavailable = code => ({ available: false, code });
+  if (activeAction === 'update' || activeAction === 'uninstall') return unavailable('busy');
+  if (taskDetailRequest) return taskDetailRequest.id === id ? taskDetailRequest.promise : unavailable('busy');
+  const promise = (async () => {
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 5000);
+    let failureCode = 'engine_missing';
+    try {
+      workModulesPromise ??= Promise.all([
+        import('../dist/profile.js'), import('../dist/shell.js'), import('../dist/tasks.js'), import('../dist/redaction.js'),
+      ]).catch(error => { workModulesPromise = null; throw error; });
+      const [profiles, , tasks, redaction] = await workModulesPromise;
+      if (!tasks.taskIdSchema.safeParse(id).success) return unavailable('invalid_id');
+      failureCode = 'registry_invalid';
+      const registryPath = isMacOS
+        ? (await import('./macos/tunnel-common.mjs')).loadInstallation(profileId).registryPath
+        : process.env.WORKFORGE_MCP_PROFILE_REGISTRY;
+      if (!registryPath || !path.isAbsolute(registryPath)) return unavailable(failureCode);
+      const context = await profiles.loadProjectProfile(profileId, { registryPath });
+      failureCode = 'profile_unavailable';
+      abort.signal.throwIfAborted();
+      const resumed = tasks.resumeTask(context, id);
+      abort.signal.throwIfAborted();
+      if (!resumed.found) return unavailable('not_found');
+      const { taskId, savedAt, state } = resumed.checkpoint;
+      const { title, objective, reportedStatus, plan, completedSteps, blockers, nextAction, projectPath, relatedPaths } = state;
+      return redaction.createRedactor(controlKnownSecrets)({ available: true, observedAt: new Date().toISOString(),
+        task: { taskId, savedAt, title, objective, reportedStatus, plan, completedSteps, blockers, nextAction,
+          projectPath: sanitizeText(projectPath), relatedPaths: relatedPaths.map(value => sanitizeText(value)) },
+        evidence: resumed.shellEvidence.map(({ id, status, trackingState, exitCode, updatedAt, available }) =>
+          ({ id, status, trackingState, exitCode, updatedAt, available })),
+        evidenceSummary: resumed.evidenceSummary, claim: resumed.claim ?? null,
+      }).value;
+    } catch { return unavailable(abort.signal.aborted ? 'timeout' : failureCode); }
+    finally { clearTimeout(timer); }
+  })();
+  taskDetailRequest = { id, promise };
+  try { return await promise; } finally { taskDetailRequest = null; }
+}
+
 async function getUpdateStatus({ force = false } = {}) {
   if (isMacOS) {
     return {
@@ -623,6 +745,21 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'GET' && url.pathname === '/api/status') {
       const status = await getStatus();
       sendJson(response, 200, { ok: true, status, activity, activeAction });
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/work') {
+      sendJson(response, 200, { ok: true, ...await getWork({ force: url.searchParams.get('refresh') === '1' }) });
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/work/task') {
+      sendJson(response, 200, { ok: true, ...await getWorkTask(url.searchParams.get('id')) });
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/mode-evidence') {
+      sendJson(response, 200, { ok: true, ...await getModeEvidence() });
       return;
     }
 

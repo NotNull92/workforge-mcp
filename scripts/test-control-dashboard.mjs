@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
@@ -27,6 +28,8 @@ assert(htmlSource.includes('updateProgressTrack'), 'Control dashboard is missing
 assert(htmlSource.includes('data-update-stage="downloading"'), 'Control dashboard is missing update stage indicators.');
 assert(htmlSource.includes('Remove WorkForge'), 'Control dashboard is missing uninstall flow.');
 assert(htmlSource.includes('id="languageSwitch"'), 'Control dashboard is missing the language switch.');
+assert(htmlSource.includes('id="taskRecords"') && htmlSource.includes('id="shellRecords"'), 'Work record lists are missing.');
+assert(!/id="(?:taskRecords|shellRecords)"[^>]*aria-live/u.test(htmlSource), 'Entire work lists must not be live regions.');
 for (const language of ['en', 'ko', 'ja', 'zh']) {
   assert(htmlSource.includes(`data-language="${language}"`), `Control dashboard is missing language option: ${language}`);
 }
@@ -69,6 +72,87 @@ for (const key of new Set([...staticI18nKeys, ...runtimeI18nKeys])) {
     assert(Object.hasOwn(dictionaries[language], key), `Missing ${language} translation for key: ${key}`);
   }
 }
+
+// Exercise the real renderer with hostile text and stale data, without executing app startup actions.
+function element() {
+  return { children: [], textContent: '', append(...children) { this.children.push(...children); },
+    replaceChildren() { this.children = []; }, addEventListener() {},
+    set innerHTML(_value) { throw new Error('Work renderer must not use HTML injection.'); } };
+}
+const renderElements = { workSummary: element(), taskRecords: element(), shellRecords: element() };
+const renderContext = vm.createContext({ elements: renderElements, document: { createElement: element },
+  Intl, Date, JSON, currentLanguage: 'en', workDataKey: '', workUnavailable: false,
+  t: (key, values = {}) => String(dictionaries.en[key] || key).replace(/\{(\w+)\}/g, (_, name) => values[name] ?? ''),
+  workSnapshot: { observedAt: '2026-01-01T00:00:00.000Z', partial: false,
+    tasks: [{ taskId: 'example', title: '<img src=x onerror=alert(1)>', reportedStatus: 'completed', savedAt: '2026-01-01T00:00:00.000Z' }],
+    jobs: [{ id: 'shell_example', cwd: '<script>unsafe</script>', status: 'ownership_lost', trackingState: 'ownership_lost',
+      exitCode: null, updatedAt: '2026-01-01T00:00:00.000Z', stdoutBytes: 0, stderrBytes: 0 }] } });
+vm.runInContext(appSource.slice(appSource.indexOf('function workTime('), appSource.indexOf('async function refreshWork(')), renderContext);
+vm.runInContext('renderWork()', renderContext);
+assert(renderElements.taskRecords.children[0].children[0].children[0].textContent === '<img src=x onerror=alert(1)>', 'Task title was not rendered as literal text.');
+assert(renderElements.shellRecords.children[0].children[1].textContent.includes('No terminal record'), 'Unsealed execution was presented as running or complete.');
+assert(renderElements.shellRecords.children[0].className.includes('mission-unsealed')
+  && !/mission-(?:running|completed)/u.test(renderElements.shellRecords.children[0].className), 'Unsealed execution card used a running/completed style.');
+assert(renderElements.taskRecords.children[0].className.includes('quest-completed')
+  && renderElements.taskRecords.children[0].children[1].textContent.startsWith('Reported'), 'Reported completion lost its reported-state label.');
+for (const key of ['S', 'X', 'R', 'D']) {
+  assert(htmlSource.includes(`aria-keyshortcuts="Alt+Shift+${key}"`), `Hotkey Alt+Shift+${key} is not announced.`);
+}
+assert(appSource.includes("document.querySelector('dialog[open]')") && appSource.includes("closest('input, textarea, select"), 'Hotkeys can fire inside dialogs or text inputs.');
+assert(/prefers-reduced-motion: reduce\)\s*\{[^}]*animation: none !important/u.test(await readFile(path.join(toolRoot, 'control-ui', 'style.css'), 'utf8')),
+  'HUD motion is not disabled under prefers-reduced-motion.');
+// Checkpoint detail dialog: literal rendering, reported-state framing, honest evidence, fixed error codes.
+Object.assign(renderElements, { taskDialogTitle: element(), taskDialogStatus: element(), taskDialogBody: element() });
+renderContext.strings = dictionaries;
+vm.runInContext(appSource.slice(appSource.indexOf('let taskDetail = '), appSource.indexOf('async function openTaskDetail(')), renderContext);
+const flatText = node => [node.textContent, ...(node.children || []).map(flatText)].join(' ');
+// `taskDetail` is a script-level `let`, so assign it inside the context rather than as a global property.
+const setTaskDetail = value => vm.runInContext(`taskDetail = ${JSON.stringify(value)}; renderTaskDetail()`, renderContext);
+setTaskDetail({ id: 'example', code: null, payload: { observedAt: '2026-01-01T00:00:00.000Z',
+  task: { taskId: 'example', savedAt: '2026-01-01T00:00:00.000Z', title: '<b>bold</b>', objective: '<script>x</script>',
+    reportedStatus: 'completed', plan: ['step <i>one</i>'], completedSteps: [], blockers: [], nextAction: '',
+    projectPath: '%USERPROFILE%\\work', relatedPaths: [] },
+  evidence: [{ id: 'shell_a', available: true, status: 'ownership_lost', trackingState: 'ownership_lost', exitCode: null, updatedAt: '2026-01-01T00:00:00.000Z' },
+    { id: 'shell_b', available: false }],
+  evidenceSummary: { total: 2, completed: 0, failed: 0, cancelled: 0, unsealed: 1, unavailable: 1, latestUpdatedAt: null, latestStatus: null }, claim: null } });
+const detailText = flatText(renderElements.taskDialogBody);
+assert(renderElements.taskDialogTitle.textContent === '<b>bold</b>' && detailText.includes('<script>x</script>'), 'Checkpoint detail was not rendered as literal text.');
+assert(renderElements.taskDialogStatus.textContent.includes('not verified execution') && detailText.includes('Reported complete'), 'Checkpoint detail lost its reported-state framing.');
+assert(detailText.includes('No terminal record') && detailText.includes('Record unavailable') && !detailText.includes('Running'), 'Checkpoint evidence overstated execution state.');
+setTaskDetail({ id: 'example', payload: null, code: 'not_found' });
+assert(renderElements.taskDialogStatus.textContent === dictionaries.en['work.detail.error.not_found'], 'Detail error code was not localized.');
+setTaskDetail({ id: 'example', payload: null, code: '<img>' });
+// MCP mode badge: only running-session log evidence may name a mode.
+renderElements.modeChip = element();
+vm.runInContext(appSource.slice(appSource.indexOf('let modeEvidence = '), appSource.indexOf('async function refreshModeEvidence(')), renderContext);
+const setMode = value => vm.runInContext(`modeEvidence = ${JSON.stringify(value)}; renderModeEvidence()`, renderContext);
+setMode({ evidence: 'stale', toolMode: 'read_only', redaction: 'on', tools: 12, observedAt: '2026-01-01T00:00:00.000Z' });
+assert(!/read-only|read_only/iu.test(renderElements.modeChip.textContent) && renderElements.modeChip.className.includes('chip-mode-stale'),
+  'A stale mode record was presented as the current MCP mode.');
+setMode({ evidence: 'log', toolMode: 'read_only', redaction: 'on', tools: 12, observedAt: '2026-01-01T00:00:00.000Z' });
+assert(renderElements.modeChip.textContent.includes('read-only') && renderElements.modeChip.className.includes('chip-mode-ro'), 'Log evidence did not show the mode.');
+setMode({ evidence: 'log', toolMode: '<img>', observedAt: '2026-01-01T00:00:00.000Z' });
+assert(renderElements.modeChip.textContent === dictionaries.en['mode.unknown'], 'Unexpected mode values must fall back to unverified.');
+setMode(null);
+assert(renderElements.modeChip.textContent === dictionaries.en['mode.unknown'], 'Missing mode evidence must read as unverified.');
+assert(renderElements.taskDialogStatus.textContent === dictionaries.en['work.detail.error.generic'], 'Unknown detail error codes must fall back to a fixed message.');
+const retainedRow = renderElements.taskRecords.children[0];
+vm.runInContext('workUnavailable = true; renderWork()', renderContext);
+assert(renderElements.workSummary.textContent.includes('Refresh failed'), 'Stale records lack an explicit warning.');
+assert(renderElements.taskRecords.children[0] === retainedRow, 'Unchanged records were unnecessarily rebuilt.');
+// Claim chip: advisory owner label rendered literally, appended after the existing card structure.
+const claimTask = owner => ({ taskId: 'claimed', title: 'Claimed task', reportedStatus: 'active', savedAt: '2026-01-01T00:00:00.000Z',
+  claim: { owner, expiresAt: '2999-01-01T00:00:00.000Z', expired: false } });
+vm.runInContext(`workUnavailable = false; workSnapshot = ${JSON.stringify({ observedAt: '2026-01-01T00:00:00.000Z', partial: false,
+  tasks: [claimTask('<b>codex</b>'), { ...claimTask('old'), taskId: 'expired', claim: { owner: 'old', expiresAt: '2000-01-01T00:00:00.000Z', expired: false } },
+    { ...claimTask('x'), taskId: 'free', claim: null }], jobs: [] })}; renderWork()`, renderContext);
+const [claimedRow, expiredRow, freeRow] = renderElements.taskRecords.children;
+const claimChip = claimedRow.children.at(-1);
+assert(claimChip.className === 'work-claim' && claimChip.textContent.includes('<b>codex</b>') && claimChip.title.includes('does not lock'),
+  'Active claim chip is missing, not literal, or implies a lock.');
+assert(claimedRow.children[1].textContent.startsWith('Reported'), 'Claim chip displaced the reported-state label.');
+assert(expiredRow.children.at(-1).className.includes('work-claim-expired'), 'A claim past expiresAt was shown as active.');
+assert(!freeRow.children.some(child => String(child.className).includes('work-claim')), 'Unclaimed task showed a claim chip.');
 // Point both platform adapters at an empty state root so the missing-profile assertions below
 // hold on a developer machine that already has WorkForge installed.
 const emptyStateRoot = mkdtempSync(path.join(os.tmpdir(), 'workforge-dashboard-test-'));
@@ -173,6 +257,7 @@ try {
 
   const unauthorized = await fetch(`${origin}/api/meta`);
   assert(unauthorized.status === 401, `Unauthenticated API request returned ${unauthorized.status}.`);
+  assert((await fetch(`${origin}/api/work`)).status === 401, 'Work records bypassed session authentication.');
   const wrongHostStatus = await requestWithHost({ port, host: 'example.invalid' });
   assert(wrongHostStatus === 421, `Unexpected Host returned ${wrongHostStatus}.`);
 
@@ -200,6 +285,54 @@ try {
     assert(!statusFailureText.toLowerCase().includes(process.env.USERPROFILE.toLowerCase()), 'Dashboard error leaked the literal user profile path.');
   }
   assert(!statusFailureText.includes('CONTROL_PLANE_API_KEY='), 'Dashboard error leaked credential-shaped content.');
+
+  const unavailableWork = await fetch(`${origin}/api/work`, { headers: { Cookie: cookie } });
+  assert(unavailableWork.status === 200, 'Unavailable work must not enter the common 500/log path.');
+  assert((await unavailableWork.json()).available === false, 'Missing profile unexpectedly returned work records.');
+  const profileRoot = path.join(emptyStateRoot, 'workspace');
+  const configRoot = path.join(profileRoot, 'tools', 'workforge-mcp');
+  await mkdir(configRoot, { recursive: true });
+  await writeFile(path.join(profileRoot, 'marker'), 'dashboard-fixture');
+  const profile = { id: 'missing-dashboard-test', displayName: 'Dashboard Fixture', appName: 'Dashboard Fixture',
+    serverName: 'dashboard-fixture', defaultWorkingDirectoryRelative: '.', bootstrapFiles: [],
+    identityMarkers: [{ relativePath: 'marker', expectedLiteral: 'dashboard-fixture' }] };
+  const rawProfile = JSON.stringify(profile);
+  const profilePath = path.join(configRoot, 'profile.json');
+  await writeFile(profilePath, rawProfile);
+  const registryPath = path.join(emptyStateRoot, 'profile_registry.json');
+  await writeFile(registryPath, JSON.stringify({ version: 1, profiles: [{ id: profile.id, profilePath,
+    profileSha256: createHash('sha256').update(rawProfile).digest('hex') }] }));
+  if (process.platform === 'darwin') {
+    await writeFile(path.join(emptyStateRoot, 'current.json'), JSON.stringify({ engineRoot: toolRoot, registryPath, nodePath: process.execPath }));
+  }
+  const { loadProjectProfile } = await import('../dist/profile.js');
+  const { saveTaskCheckpoint } = await import('../dist/tasks.js');
+  const fixtureContext = await loadProjectProfile(profile.id, { registryPath });
+  await saveTaskCheckpoint({ context: fixtureContext, taskId: 'example', expectedSha256: 'absent',
+    state: { title: '<img src=x onerror=alert(1)>', objective: 'Fixture only', reportedStatus: 'completed',
+      plan: [], completedSteps: [], blockers: [], nextAction: '', projectPath: profileRoot, relatedPaths: [], shellJobIds: [] } });
+  const taskPath = path.join(profileRoot, 'artifacts', 'workforge-mcp', 'tasks', 'example.json');
+  const edited = JSON.parse(await readFile(taskPath, 'utf8'));
+  const syntheticToken = 'ghp_' + 'x'.repeat(36);
+  edited.state.title = syntheticToken;
+  await writeFile(taskPath, JSON.stringify(edited));
+  const shellId = 'shell_' + 'a'.repeat(32);
+  const shellRoot = path.join(profileRoot, 'artifacts', 'workforge-mcp', 'shell', shellId);
+  await mkdir(shellRoot, { recursive: true });
+  await writeFile(path.join(shellRoot, 'started.json'), JSON.stringify({ version: 1, kind: 'connection_owned_shell',
+    executionMode: 'connection_owned', id: shellId, profileId: profile.id, status: 'running', cwd: profileRoot,
+    leaseScope: `profile:${profile.id}:shell`, processId: null, leaseAcquired: false, containmentEnforced: false,
+    createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', exitCode: null, signal: null,
+    timedOut: false, cancelRequested: false, timeoutMs: 1000, commandUtf8Bytes: 0, stdoutBytes: 0, stderrBytes: 0,
+    stdoutTruncated: false, stderrTruncated: false, inputSha256: 'a'.repeat(64), stdoutSha256: null, stderrSha256: null,
+    replayAllowed: false }));
+  const workResponse = await fetch(`${origin}/api/work?refresh=1`, { headers: { Cookie: cookie } });
+  const work = await workResponse.json();
+  assert(work.available === true && work.toolMode === 'unknown', 'Work snapshot availability/mode is incorrect.');
+  assert(work.tasks[0]?.reportedStatus === 'completed', 'Reported completion was lost.');
+  assert(work.jobs[0]?.status === 'ownership_lost', 'Unsealed execution was inferred to be running.');
+  assert(!JSON.stringify(work).includes(syntheticToken), 'Work endpoint leaked a synthetic token.');
+  assert(!('objective' in work.tasks[0]) && !('command' in work.jobs[0]), 'Work endpoint exposed full task/command content.');
 
   const missingOrigin = await fetch(`${origin}/api/shutdown`, {
     method: 'POST',
