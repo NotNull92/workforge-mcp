@@ -8,9 +8,9 @@
 
 > **ChatGPT는 머리는 좋지만 내 PC에 손이 없습니다. WorkForge는 그 손을 안전하게 연결해 줍니다.**
 
-WorkForge는 ChatGPT가 내 Windows 또는 macOS 작업 환경의 파일과 프로젝트를 직접 살펴보고, 필요한 파일을 수정하고, 검색하고, 관리된 셸 명령을 실행할 수 있게 해주는 연결 도구입니다. Git이 설치되어 있다면 브랜치, 커밋, 변경내역 같은 프로젝트 역사도 추가로 확인할 수 있습니다.
+WorkForge는 Windows와 macOS를 위한 범용 워크스테이션 MCP 서버입니다. ChatGPT에서 로컬 파일 읽기, 범위와 예산이 제한된 검색, 충돌 방지 편집, 이미지 확인, 관리된 셸 실행을 사용할 수 있습니다. 저장된 작업 체크포인트와 실행 기록을 확인하며 작업을 이어갈 수 있고, Git이 설치되어 있으면 브랜치·커밋·작업 트리 변경도 살펴볼 수 있습니다.
 
-macOS는 Apple Silicon과 Intel Mac에서 사용할 수 있는 소스 기반 프리뷰입니다. Windows의 portable Release와 달리 macOS는 설치 ZIP이나 자동 업데이트를 제공하지 않습니다. 자세한 설정 방법은 [macOS 안내](docs/MACOS.md)를 확인하세요.
+Windows는 portable Release로 배포하며, macOS는 Apple Silicon과 Intel Mac용 소스 기반 프리뷰입니다. macOS는 설치 ZIP이나 자동 업데이트를 제공하지 않습니다. 두 플랫폼 모두 수동 시작이 기본입니다. 자세한 macOS 설정은 [macOS 안내](docs/MACOS.md)를 확인하세요.
 
 쉽게 말하면 **ChatGPT와 내 컴퓨터 사이에 놓는 안전한 작업용 다리**입니다.
 
