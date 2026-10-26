@@ -348,6 +348,7 @@ function simplifyStatus(snapshot) {
     recoveryState: snapshot.recoveryState == null ? null : String(snapshot.recoveryState),
     recoveryFailureCount: snapshot.recoveryFailureCount == null ? null : Number(snapshot.recoveryFailureCount),
     pid: snapshot.pid == null ? null : Number(snapshot.pid),
+    startedAt: typeof snapshot.startedAt === 'string' ? snapshot.startedAt : null,
     supervisorPid: snapshot.supervisorPid == null ? null : Number(snapshot.supervisorPid),
     error: snapshot.error ? sanitizeText(snapshot.error) : null,
   };
@@ -473,10 +474,14 @@ async function getModeEvidence() {
         if (!registryPath || !path.isAbsolute(registryPath)) return { ...empty, code: 'registry_invalid' };
         const { loadProjectProfile } = await import('../dist/profile.js');
         const context = await loadProjectProfile(profileId, { registryPath });
-        // Derived from Get-WorkForgeTunnelRuntimePaths; current snapshots do not attest process start time.
+        // Derived from Get-WorkForgeTunnelRuntimePaths.
         logPath = path.join(context.primaryRoot, 'artifacts', 'workforge-mcp', 'tunnel', 'tunnel.stderr.log');
       }
-      return await readModeEvidence(logPath);
+      // The supervisor recreates this log per launch and the MCP server is the tunnel's child,
+      // so a posture line newer than the verified tunnel start is current. macOS snapshots
+      // carry no startedAt (its log is appended), so it stays stale there.
+      const status = await getStatus().catch(() => null);
+      return await readModeEvidence(logPath, Boolean(status?.running), status?.startedAt ?? undefined);
     } catch (error) { return { ...empty, ...(error?.code === 'ENOENT' ? {} : { code: 'evidence_unavailable' }) }; }
   })();
   try {

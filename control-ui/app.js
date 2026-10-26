@@ -76,6 +76,7 @@ const strings = {
     "work.mode": "The MCP mode badge appears only with tunnel-log evidence from the running session. Check toolMode in ChatGPT before relying on read-only protection.",
     "mode.log.read_only": "MCP: read-only · log {time}",
     "mode.log.read_write": "MCP: read-write · log {time}",
+    "mode.tools": "{count} tools",
     "mode.stale": "MCP mode unverified · earlier record {time}",
     "mode.unknown": "MCP mode unverified",
     "mode.hint": "Shown only when the tunnel log proves the mode of the running session. Confirm workstation_context.toolMode in ChatGPT.",
@@ -338,6 +339,7 @@ const strings = {
     "work.mode": "MCP 모드 배지는 실행 중인 세션의 터널 로그 증거가 있을 때만 표시됩니다. 읽기 전용 보호에 의존하기 전에 ChatGPT에서 toolMode를 확인하세요.",
     "mode.log.read_only": "MCP: 읽기 전용 · 로그 {time}",
     "mode.log.read_write": "MCP: 읽기·쓰기 · 로그 {time}",
+    "mode.tools": "도구 {count}개",
     "mode.stale": "MCP 모드 확인 불가 · 이전 기록 {time}",
     "mode.unknown": "MCP 모드 확인 불가",
     "mode.hint": "터널 로그가 실행 중인 세션의 모드를 증명할 때만 표시합니다. ChatGPT에서 workstation_context.toolMode를 확인하세요.",
@@ -600,6 +602,7 @@ const strings = {
     "work.mode": "MCPモードのバッジは、実行中のセッションのトンネルログに証拠がある場合にのみ表示されます。読み取り専用の保護に頼る前にChatGPTでtoolModeを確認してください。",
     "mode.log.read_only": "MCP: 読み取り専用 · ログ {time}",
     "mode.log.read_write": "MCP: 読み書き · ログ {time}",
+    "mode.tools": "ツール {count} 個",
     "mode.stale": "MCPモード未確認 · 以前の記録 {time}",
     "mode.unknown": "MCPモード未確認",
     "mode.hint": "トンネルログが実行中のセッションのモードを証明する場合にのみ表示します。ChatGPTでworkstation_context.toolModeを確認してください。",
@@ -862,6 +865,7 @@ const strings = {
     "work.mode": "仅当运行中会话的隧道日志提供证据时才显示MCP模式徽章。依赖只读保护之前，请在ChatGPT中检查toolMode。",
     "mode.log.read_only": "MCP：只读 · 日志 {time}",
     "mode.log.read_write": "MCP：读写 · 日志 {time}",
+    "mode.tools": "{count} 个工具",
     "mode.stale": "MCP模式未验证 · 早前记录 {time}",
     "mode.unknown": "MCP模式未验证",
     "mode.hint": "仅当隧道日志能证明运行中会话的模式时显示。请在ChatGPT中确认workstation_context.toolMode。",
@@ -1527,6 +1531,7 @@ function renderModeEvidence() {
   if (evidence?.evidence === 'log' && (evidence.toolMode === 'read_only' || evidence.toolMode === 'read_write')) {
     kind = evidence.toolMode === 'read_only' ? 'ro' : 'rw';
     text = t(`mode.log.${evidence.toolMode}`, { time });
+    if (Number.isInteger(evidence.tools)) text += ` · ${t('mode.tools', { count: evidence.tools })}`;
   } else if (evidence?.evidence === 'stale' && evidence.observedAt) {
     kind = 'stale';
     text = t('mode.stale', { time });

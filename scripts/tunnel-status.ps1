@@ -93,6 +93,7 @@ if ($Snapshot) {
     profileId = $Profile.Id
     running = $null -ne $TunnelProcess
     pid = if ($TunnelProcess) { [int]$TunnelProcess.ProcessId } else { $null }
+    startedAt = if ($TunnelProcess -and $TunnelProcess.CreationDate) { $TunnelProcess.CreationDate.ToUniversalTime().ToString("o") } else { $null }
     processState = $ProcessState
     desiredRunning = $DesiredRunning
     stopRequested = $StopRequested

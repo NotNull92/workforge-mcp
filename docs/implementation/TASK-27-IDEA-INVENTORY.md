@@ -72,7 +72,7 @@
 | I-35 | multi-agent claim | TASK-24 거절 | 완료: advisory `task_claim`/`task_release`, UI 담당자 칩 | P4 | I-31 | TASK-31 | Codex |
 | I-36 | Control env snapshot 마스킹 | TASK-25 보류 | 완료 | P1 | — | TASK-31 | Codex |
 | I-37 | checkpoint 상세보기 | TASK-25 보류 | 완료: `/api/work/task` + 상세 dialog | P2 | — | TASK-31 | Codex(API)+Claude(UI) |
-| I-38 | tunnel 로그 기반 모드 증거 | TASK-25 보류 | 완료(한계: 검증된 tunnel 시작 시각이 없어 production은 stale/none만 반환) | P3 | — | TASK-31 | Codex |
+| I-38 | tunnel 로그 기반 모드 증거 | TASK-25 보류 | 완료(Windows는 검증된 tunnel 시작 시각으로 `log` 판정, macOS는 stale/none) | P3 | — | TASK-31 | Codex |
 | I-39 | 모드 파일·heartbeat | TASK-25 거절 | 대체 완료: I-38 (read-only 무쓰기 계약 유지) | — | I-38 | TASK-31 | — |
 | U-01~ | 게임 스타일 HUD·연출·단축키 | 2026-10-26 UI 조사 | 완료(TASK-26) | P2 | — | TASK-26 | Claude |
 
@@ -100,7 +100,7 @@
 - `npm run build` 후 `node scripts/test-isolated-stdio.mjs`(Codex 추가, 임시 state·programs·registry env와 합성 manifest로 실제 설치 불변): stdio 14/16/27 + plugin 25, `ISOLATED_STDIO_TEST_OK`. Claude가 별도로 다시 실행해 같은 결과를 확인. 기본 25는 같은 스크립트의 기본 모드와 plugin 결과로 확인된다.
 - **plugin smoke 경계**: 기본 `npm run smoke:plugin-stdio`는 플러그인 launcher가 `Resolve-WorkForgePortableEngine`으로 이 PC의 **실제 설치 엔진**(구버전, 도구 12개)을 찾으므로 소스 기대값 25와 불일치해 실패한다. 이는 예상된 환경 차이다. 실제 설치 갱신은 승인되지 않았으므로 건드리지 않았다. 소스 기준 플러그인 adapter 검증은 Codex가 새 dist와 현재 node_modules를 임시 portable v1 manifest·registry·profile에 연결한 격리 환경에서 25개 통과로 확인했다(설치 변경 없음).
 
-미검증으로 남는 것: macOS 실기, 실제 ChatGPT 클라이언트에서의 새 스키마 호환, 터널을 거친 read-only env 전달과 모드 증거의 `log` 판정(현재 production은 stale/none만 반환), 스크린리더 실기 낭독.
+미검증으로 남는 것: macOS 실기, 실제 ChatGPT 클라이언트에서의 새 스키마 호환, 터널을 거친 read-only env 전달, macOS 모드 증거의 `log` 판정, 스크린리더 실기 낭독.
 
 ## 유지 원칙
 

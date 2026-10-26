@@ -131,6 +131,9 @@ assert(!/read-only|read_only/iu.test(renderElements.modeChip.textContent) && ren
   'A stale mode record was presented as the current MCP mode.');
 setMode({ evidence: 'log', toolMode: 'read_only', redaction: 'on', tools: 12, observedAt: '2026-01-01T00:00:00.000Z' });
 assert(renderElements.modeChip.textContent.includes('read-only') && renderElements.modeChip.className.includes('chip-mode-ro'), 'Log evidence did not show the mode.');
+assert(renderElements.modeChip.textContent.includes('12 tools'), 'Log evidence did not show the tool count.');
+setMode({ evidence: 'log', toolMode: 'read_write', redaction: 'on', tools: null, observedAt: '2026-01-01T00:00:00.000Z' });
+assert(!renderElements.modeChip.textContent.includes('tools'), 'A legacy record without a count must not invent one.');
 setMode({ evidence: 'log', toolMode: '<img>', observedAt: '2026-01-01T00:00:00.000Z' });
 assert(renderElements.modeChip.textContent === dictionaries.en['mode.unknown'], 'Unexpected mode values must fall back to unverified.');
 setMode(null);
