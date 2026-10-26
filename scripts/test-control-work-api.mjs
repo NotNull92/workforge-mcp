@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
 
-const root = await mkdtemp(join(tmpdir(), 'workforge-work-api-'));
+// Mode evidence rejects symlinked ancestors; macOS tmpdir sits under /var -> /private/var.
+const root = await realpath(await mkdtemp(join(tmpdir(), 'workforge-work-api-')));
 const engineRoot = fileURLToPath(new URL('..', import.meta.url));
 const secret = 'opaque-control-fixture-892791';
 let child;
