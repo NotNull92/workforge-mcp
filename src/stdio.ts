@@ -1,10 +1,14 @@
+import { snapshotSecrets, loadRedactionRules } from "./redaction.js";
+
+const secretSnapshot = snapshotSecrets(process.env);
+if (secretSnapshot.skipped > 0) console.error(`WorkForge redaction snapshot: ${secretSnapshot.skipped} values exceeded collection limits.`);
 // tunnel-client needs its control-plane key, but the MCP server does not.
 // Remove that one connector secret before importing server or project code.
 for (const key of Object.keys(process.env)) {
   if (key.toLowerCase() === "control_plane_api_key") delete process.env[key];
 }
 
-const [{ StdioServerTransport }, { createServer }, { loadProjectContextFromArgv }, { cancelActiveShellJobs }] = await Promise.all([
+const [{ StdioServerTransport }, { createServer, parseReadOnlyMode, enabledToolNames }, { loadProjectContextFromArgv, parseBridgeArguments }, { cancelActiveShellJobs }] = await Promise.all([
   import("@modelcontextprotocol/sdk/server/stdio.js"),
   import("./server.js"),
   import("./profile.js"),
@@ -12,7 +16,31 @@ const [{ StdioServerTransport }, { createServer }, { loadProjectContextFromArgv 
 ]);
 
 const context = await loadProjectContextFromArgv();
-const server = createServer(context);
+const { readOnlyFlag } = parseBridgeArguments(process.argv.slice(2));
+const envReadOnly = parseReadOnlyMode(process.env.WORKFORGE_MCP_READ_ONLY);
+const readOnly = readOnlyFlag || envReadOnly;
+const toolModeSource = readOnlyFlag ? "argv" : envReadOnly ? "env" : "default";
+const tools = process.env.WORKFORGE_MCP_TOOLS;
+const rules = loadRedactionRules(process.env.WORKFORGE_MCP_REDACTION_RULES, secretSnapshot.values);
+const entropyValue = process.env.WORKFORGE_MCP_REDACT_ENTROPY;
+if (entropyValue !== undefined && entropyValue !== "0" && entropyValue !== "1") throw new Error("WORKFORGE_MCP_REDACT_ENTROPY must be unset, 0, or 1.");
+const redactLogsValue = process.env.WORKFORGE_MCP_REDACT_SHELL_LOGS;
+if (redactLogsValue !== undefined && redactLogsValue !== "0" && redactLogsValue !== "1") throw new Error("WORKFORGE_MCP_REDACT_SHELL_LOGS must be unset, 0, or 1.");
+const redaction = process.env.WORKFORGE_MCP_REDACTION ?? "on";
+const readOnlyExtrasValue = process.env.WORKFORGE_MCP_READ_ONLY_EXTRAS;
+if (readOnlyExtrasValue !== undefined && readOnlyExtrasValue !== "0" && readOnlyExtrasValue !== "1") throw new Error("WORKFORGE_MCP_READ_ONLY_EXTRAS must be unset, 0, or 1.");
+const readOnlyExtras = readOnlyExtrasValue === "1";
+const multiFileEditValue = process.env.WORKFORGE_MCP_ENABLE_MULTI_FILE_EDIT;
+if (multiFileEditValue !== undefined && multiFileEditValue !== "0" && multiFileEditValue !== "1") throw new Error("WORKFORGE_MCP_ENABLE_MULTI_FILE_EDIT must be unset, 0, or 1.");
+const multiFileEdit = multiFileEditValue === "1";
+if (redaction !== "on" && redaction !== "off") throw new Error("WORKFORGE_MCP_REDACTION must be unset, on, or off.");
+if (redaction === "off") console.error("WorkForge MCP redaction: off");
+if (readOnlyFlag && process.env.WORKFORGE_MCP_READ_ONLY === "0") console.error("WorkForge --read-only overrides WORKFORGE_MCP_READ_ONLY=0.");
+console.error(`WorkForge MCP tool mode: ${readOnly ? "read_only" : "read_write"}`);
+const server = createServer(context, { readOnly, toolModeSource, tools, knownSecrets: rules.knownSecrets,
+  redaction, redactLogs: redactLogsValue === "1", readOnlyExtras, multiFileEdit,
+  customLiterals: rules.customLiterals, redactionOptions: { extraKeyNames: rules.extraKeyNames, entropy: entropyValue === "1" } });
+console.error(`WorkForge MCP posture: ${JSON.stringify({ toolMode: readOnly ? "read_only" : "read_write", toolModeSource, redaction, tools: enabledToolNames(readOnly, tools, { readOnlyExtras, multiFileEdit }).length })}`);
 const transport = new StdioServerTransport();
 
 await server.connect(transport);

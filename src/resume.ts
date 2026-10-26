@@ -1,5 +1,6 @@
 import { realpath, stat } from "node:fs/promises";
 import { resolve } from "node:path";
+import { readTextFile } from "./filesystem.js";
 import { isPathWithinOrEqual } from "./path-policy.js";
 import type { ProjectContext } from "./profile.js";
 import { makeSafeEnvironment, resolveToolExecutable, runProcess, type ProcessResult } from "./process.js";
@@ -28,6 +29,7 @@ export interface ResumeStatus {
 }
 
 export interface ProjectResume {
+  readonly resumeDocuments: readonly Awaited<ReturnType<typeof readTextFile>>[];
   readonly generatedAt: string;
   readonly profileId: string;
   readonly primaryRoot: string;
@@ -70,8 +72,8 @@ function firstDiagnostic(result: ProcessResult, fallback: string): string {
   return (stderr || stdout || fallback).split(/\r?\n/u, 1)[0]?.slice(0, 1000) ?? fallback;
 }
 
-async function runGit(cwd: string, args: readonly string[], maxStdoutBytes = MAX_GIT_STDOUT_BYTES): Promise<ProcessResult> {
-  return await runProcess(GIT_EXECUTABLE, ["-c", "core.fsmonitor=false", ...args], {
+async function runGit(cwd: string, args: readonly string[], maxStdoutBytes = MAX_GIT_STDOUT_BYTES, configuration: readonly string[] = []): Promise<ProcessResult> {
+  return await runProcess(GIT_EXECUTABLE, ["--no-pager", "-c", "core.fsmonitor=false", ...configuration, ...args], {
     cwd,
     timeoutMs: GIT_TIMEOUT_MS,
     maxStdoutBytes,
@@ -193,8 +195,10 @@ function parseCommits(output: string): readonly ResumeCommit[] {
 function baseResult(
   context: ProjectContext,
   workingDirectory: string,
+  resumeDocuments: ProjectResume["resumeDocuments"],
 ): Omit<ProjectResume, "gitAvailable" | "isGitRepository" | "repositoryRoot" | "branch" | "detachedHead" | "head" | "upstream" | "ahead" | "behind" | "status" | "recentCommits" | "stagedDiffStat" | "unstagedDiffStat" | "statusTruncated" | "diffStatTruncated" | "truncated" | "error"> {
   return {
+    resumeDocuments,
     generatedAt: new Date().toISOString(),
     profileId: context.profile.id,
     primaryRoot: context.primaryRoot,
@@ -209,9 +213,10 @@ function unavailableResult(
   workingDirectory: string,
   gitAvailable: boolean,
   error: string,
+  resumeDocuments: ProjectResume["resumeDocuments"],
 ): ProjectResume {
   return {
-    ...baseResult(context, workingDirectory),
+    ...baseResult(context, workingDirectory, resumeDocuments),
     gitAvailable,
     isGitRepository: false,
     repositoryRoot: null,
@@ -227,7 +232,7 @@ function unavailableResult(
     unstagedDiffStat: "",
     statusTruncated: false,
     diffStatTruncated: false,
-    truncated: false,
+    truncated: resumeDocuments.some((document) => document.truncated),
     error,
   };
 }
@@ -237,11 +242,24 @@ export async function getProjectResume(
   recentCommitLimit = 8,
   maxChangedPaths = 200,
   rawPath = ".",
+  resumePaths: readonly string[] = [],
+  neutralizeFilters = false,
 ): Promise<ProjectResume> {
+  if (resumePaths.length > 8) throw new Error("At most 8 resume documents may be selected.");
   const workingDirectory = await resolveAuthorizedWorkstationPath(context, rawPath, "tree");
   const workingInfo = await stat(workingDirectory);
   if (!workingInfo.isDirectory()) {
     throw new Error(`Project resume path is not a directory: ${workingDirectory}`);
+  }
+  const resumeDocuments: Awaited<ReturnType<typeof readTextFile>>[] = [];
+  for (const path of resumePaths) {
+    resumeDocuments.push(await readTextFile({
+      context,
+      path: resolve(workingDirectory, path),
+      startLine: 1,
+      maxLines: 400,
+      maxCharacters: 12_000,
+    }));
   }
 
   let rootResult: ProcessResult;
@@ -249,7 +267,7 @@ export async function getProjectResume(
     rootResult = await runGit(workingDirectory, ["rev-parse", "--show-toplevel"], 32 * 1024);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return unavailableResult(context, workingDirectory, false, `Git is unavailable: ${message}`);
+    return unavailableResult(context, workingDirectory, false, `Git is unavailable: ${message}`, resumeDocuments);
   }
 
   if (rootResult.exitCode !== 0 || rootResult.timedOut || rootResult.truncated) {
@@ -258,30 +276,49 @@ export async function getProjectResume(
       workingDirectory,
       true,
       firstDiagnostic(rootResult, "The requested working directory is not inside a Git worktree."),
+      resumeDocuments,
     );
   }
 
   const reportedRoot = rootResult.stdout.trim();
   if (reportedRoot.length === 0) {
-    return unavailableResult(context, workingDirectory, true, "Git returned an empty worktree root.");
+    return unavailableResult(context, workingDirectory, true, "Git returned an empty worktree root.", resumeDocuments);
   }
   const repositoryRoot = await realpath(resolve(reportedRoot));
   await resolveAuthorizedWorkstationPath(context, repositoryRoot, "tree");
   const canonicalWorkingDirectory = await realpath(workingDirectory);
   if (!isPathWithinOrEqual(repositoryRoot, canonicalWorkingDirectory)) {
-    return unavailableResult(context, workingDirectory, true, "Git worktree root does not contain the requested working directory.");
+    return unavailableResult(context, workingDirectory, true, "Git worktree root does not contain the requested working directory.", resumeDocuments);
   }
 
+  const configuration: string[] = [];
+  if (neutralizeFilters) {
+    const filters = await runGit(repositoryRoot, ["config", "--includes", "--null", "--name-only", "--get-regexp", "^filter\\..+\\.(clean|smudge|process)$"]);
+    if ((filters.exitCode !== 0 && filters.exitCode !== 1) || filters.timedOut || filters.truncated) {
+      return unavailableResult(context, workingDirectory, true, "Filter configuration unavailable; Git inspection was not executed.", resumeDocuments);
+    }
+    const drivers = new Set<string>();
+    for (const key of filters.stdout.split("\0").filter(Boolean)) {
+      const match = /^filter\.(.+)\.(?:clean|smudge|process)$/u.exec(key);
+      if (!match || /[\x00-\x1f\x7f]/u.test(match[1]!)) return unavailableResult(context, workingDirectory, true, "Unsafe filter configuration.", resumeDocuments);
+      drivers.add(match[1]!);
+    }
+    if (drivers.size > 64) return unavailableResult(context, workingDirectory, true, "Too many filter drivers; Git inspection was not executed.", resumeDocuments);
+    for (const driver of drivers) for (const name of ["clean", "smudge", "process", "required"]) configuration.push("-c", `filter.${driver}.${name}=${name === "required" ? "false" : ""}`);
+    configuration.push("-c", "diff.ignoreSubmodules=all", "-c", "status.submoduleSummary=false");
+  }
+  const inspect = (args: readonly string[]) => runGit(repositoryRoot, args, MAX_GIT_STDOUT_BYTES, configuration);
   const [statusResult, logResult, stagedStatResult, unstagedStatResult] = await Promise.all([
-    runGit(repositoryRoot, ["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"]),
-    runGit(repositoryRoot, [
+    inspect(["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all", ...(neutralizeFilters ? ["--ignore-submodules=all"] : [])]),
+    inspect([
       "log",
+      "--no-show-signature",
       `-${recentCommitLimit}`,
       "--date=iso-strict",
       "--pretty=format:%H%x1f%h%x1f%aI%x1f%s%x1e",
     ]),
-    runGit(repositoryRoot, ["diff", "--cached", "--stat", "--no-color", "--no-ext-diff", "--no-textconv", "--"]),
-    runGit(repositoryRoot, ["diff", "--stat", "--no-color", "--no-ext-diff", "--no-textconv", "--"]),
+    inspect(["diff", "--cached", "--stat", "--no-color", "--no-ext-diff", "--no-textconv", "--"]),
+    inspect(["diff", "--stat", "--no-color", "--no-ext-diff", "--no-textconv", "--"]),
   ]);
 
   if (statusResult.exitCode !== 0 || statusResult.timedOut) {
@@ -301,7 +338,7 @@ export async function getProjectResume(
   const parsed = parseStatus(statusResult.stdout, statusResult.truncated, maxChangedPaths);
   const diffStatTruncated = stagedStatResult.truncated || unstagedStatResult.truncated;
   return {
-    ...baseResult(context, workingDirectory),
+    ...baseResult(context, workingDirectory, resumeDocuments),
     gitAvailable: true,
     isGitRepository: true,
     repositoryRoot,
@@ -317,7 +354,7 @@ export async function getProjectResume(
     unstagedDiffStat: unstagedStatResult.exitCode === 0 ? unstagedStatResult.stdout.trimEnd() : "",
     statusTruncated: parsed.truncated,
     diffStatTruncated,
-    truncated: parsed.truncated || logResult.truncated || diffStatTruncated,
+    truncated: parsed.truncated || logResult.truncated || diffStatTruncated || resumeDocuments.some((document) => document.truncated),
     error: null,
   };
 }

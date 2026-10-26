@@ -94,6 +94,8 @@ export interface ProcessResult {
   stderr: string;
   timedOut: boolean;
   truncated: boolean;
+  stopReason: "callback" | "timeout" | "output_limit" | "aborted" | "callback_error" | null;
+  killConfirmed: boolean;
 }
 
 export interface RunProcessOptions {
@@ -103,6 +105,9 @@ export interface RunProcessOptions {
   maxStdoutBytes?: number;
   maxStderrBytes?: number;
   env?: NodeJS.ProcessEnv;
+  onStdoutChunk?: (chunk: Buffer) => boolean;
+  stopOnOutputLimit?: boolean;
+  signal?: AbortSignal;
 }
 
 function appendBounded(
@@ -130,6 +135,7 @@ function terminateProcessTree(child: ChildProcessWithoutNullStreams): void {
       ["/pid", String(child.pid), "/t", "/f"],
       { windowsHide: true, shell: false, stdio: "ignore", env: makeSafeEnvironment() },
     );
+    killer.once("error", () => { child.kill(); });
     killer.unref();
   } else {
     try {
@@ -162,6 +168,7 @@ export async function runProcess(
   const timeoutMs = options.timeoutMs ?? 60_000;
   const maxStdoutBytes = options.maxStdoutBytes ?? 1024 * 1024;
   const maxStderrBytes = options.maxStderrBytes ?? 512 * 1024;
+  options.signal?.throwIfAborted();
 
   return await new Promise<ProcessResult>((resolve, reject) => {
     const child = spawn(executable, [...args], {
@@ -176,36 +183,74 @@ export async function runProcess(
     let stderr: Buffer<ArrayBufferLike> = Buffer.alloc(0);
     let truncated = false;
     let timedOut = false;
+    let stdoutBytes = 0;
+    let stopReason: ProcessResult["stopReason"] = null;
+    let failure: unknown;
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let forceTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const finish = (exitCode: number | null, signal: NodeJS.Signals | null, killConfirmed = true) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      clearTimeout(forceTimer);
+      options.signal?.removeEventListener("abort", abort);
+      if (failure !== undefined) { reject(failure); return; }
+      resolve({ command: [executable, ...args].join(" "), exitCode, signal,
+        stdout: stdout.toString("utf8"), stderr: stderr.toString("utf8"), timedOut, truncated, stopReason, killConfirmed });
+    };
+    const stop = (reason: NonNullable<ProcessResult["stopReason"]>) => {
+      if (stopReason !== null || settled) return;
+      stopReason = reason;
+      timedOut = reason === "timeout";
+      terminateProcessTree(child);
+      forceTimer = setTimeout(() => {
+        if (process.platform !== "win32" && child.pid) {
+          try { process.kill(-child.pid, "SIGKILL"); } catch { child.kill("SIGKILL"); }
+        } else { child.kill("SIGKILL"); }
+        child.stdin.destroy(); child.stdout.destroy(); child.stderr.destroy();
+        finish(null, "SIGKILL", false);
+      }, 2_000);
+    };
+    const abort = () => {
+      failure = options.signal?.reason ?? new Error("Process request aborted.");
+      stop("aborted");
+    };
 
     child.stdout.on("data", (raw: Buffer | string) => {
-      const appended = appendBounded(stdout, Buffer.from(raw), maxStdoutBytes);
-      stdout = appended.buffer;
-      truncated ||= appended.truncated;
+      if (stopReason !== null || settled) return;
+      const chunk = Buffer.from(raw);
+      const accepted = chunk.subarray(0, Math.max(0, maxStdoutBytes - stdoutBytes));
+      stdoutBytes += accepted.length;
+      truncated ||= accepted.length < chunk.length;
+      if (options.onStdoutChunk) {
+        try {
+          if (accepted.length && options.onStdoutChunk(accepted)) { stop("callback"); return; }
+        } catch (error) { failure = error ?? new Error("Process output callback failed."); stop("callback_error"); return; }
+      } else { stdout = Buffer.concat([stdout, accepted]); }
+      if (options.stopOnOutputLimit && stdoutBytes >= maxStdoutBytes) { truncated = true; stop("output_limit"); }
     });
     child.stderr.on("data", (raw: Buffer | string) => {
+      if (stopReason !== null || settled) return;
       const appended = appendBounded(stderr, Buffer.from(raw), maxStderrBytes);
       stderr = appended.buffer;
       truncated ||= appended.truncated;
+      if (options.stopOnOutputLimit && stderr.length >= maxStderrBytes) { truncated = true; stop("output_limit"); }
     });
 
-    child.once("error", reject);
-    const timer = setTimeout(() => {
-      timedOut = true;
-      terminateProcessTree(child);
-    }, timeoutMs);
-
-    child.once("close", (exitCode, signal) => {
-      clearTimeout(timer);
-      resolve({
-        command: [executable, ...args].join(" "),
-        exitCode,
-        signal,
-        stdout: stdout.toString("utf8"),
-        stderr: stderr.toString("utf8"),
-        timedOut,
-        truncated,
-      });
+    child.once("error", (error) => {
+      failure = error;
+      if (child.pid) stop("callback_error");
+      else finish(null, null, false);
     });
+    child.once("close", (exitCode, signal) => finish(exitCode, signal));
+    child.stdin.on("error", (error: NodeJS.ErrnoException) => {
+      if (error.code !== "EPIPE" && !settled) { failure = error; stop("callback_error"); }
+    });
+    timer = setTimeout(() => stop("timeout"), timeoutMs);
+    options.signal?.addEventListener("abort", abort, { once: true });
+    if (options.signal?.aborted) abort();
 
     if (options.stdin === undefined) {
       child.stdin.end();

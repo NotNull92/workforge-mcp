@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { access, appendFile, link, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { access, appendFile, link, mkdir, mkdtemp, readFile, realpath, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -7,7 +7,8 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ProjectContext, ProjectProfile } from "../src/profile.js";
 import { createServer } from "../src/server.js";
-import { cancelActiveShellJobs, cancelShellJob, getShellOutput, getShellStatus, startShellJob, waitForShellSettled } from "../src/shell.js";
+import { cancelActiveShellJobs, cancelShellJob, getShellOutput, getShellStatus, listShellJobs, pruneShellJobs, startShellJob, waitForShellSettled } from "../src/shell.js";
+import { saveTaskCheckpoint } from "../src/tasks.js";
 
 const temporaryRoots: string[] = [];
 const shellCommand = (powerShell: string, zsh: string): string => process.platform === "win32" ? powerShell : zsh;
@@ -57,11 +58,183 @@ async function waitForTerminal(context: ProjectContext, id: string, timeoutMs = 
   throw new Error(`Shell job did not finish: ${id}`);
 }
 
+async function archivedStart(context: ProjectContext, id: string, overrides: Record<string, unknown> = {}) {
+  const root = join(context.primaryRoot, "artifacts", "workforge-mcp", "shell", id);
+  await mkdir(root, { recursive: true });
+  const timestamp = new Date().toISOString();
+  await writeFile(join(root, "started.json"), JSON.stringify({
+    version: 1, kind: "connection_owned_shell", executionMode: "connection_owned", id,
+    profileId: context.profile.id, status: "running", cwd: context.primaryRoot,
+    leaseScope: `profile:${context.profile.id}:shell`, processId: null, leaseAcquired: false,
+    containmentEnforced: false, createdAt: timestamp, updatedAt: timestamp, exitCode: null,
+    signal: null, timedOut: false, cancelRequested: false, timeoutMs: 60_000, commandUtf8Bytes: 10,
+    stdoutBytes: 0, stderrBytes: 0, stdoutTruncated: false, stderrTruncated: false,
+    inputSha256: "a".repeat(64), stdoutSha256: null, stderrSha256: null, replayAllowed: false,
+    ...overrides,
+  }));
+  return root;
+}
+
 afterEach(async () => {
   await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 describe("workstation shell", { timeout: 30_000 }, () => {
+  it("previews old records and protects checkpoint references during confirmed pruning", async () => {
+    const { context, primary } = await fixture();
+    const ids = ["a", "b", "c"].map(char => `shell_${char.repeat(32)}`);
+    for (const id of ids) await archivedStart(context, id, { createdAt: "2020-01-01T00:00:00.000Z", updatedAt: "2020-01-01T00:00:00.000Z" });
+    await saveTaskCheckpoint({ context, taskId: "references", expectedSha256: "absent", state: { title: "Reference", objective: "Keep evidence",
+      reportedStatus: "active", plan: [], completedSteps: [], blockers: [], nextAction: "", projectPath: primary, relatedPaths: [], shellJobIds: [ids[0]!] } });
+    const input = { context, olderThanDays: 1, keepLatest: 0 };
+    const preview = await pruneShellJobs(input);
+    expect(preview.candidates.map(item => item.id).sort()).toEqual(ids.slice(1));
+    expect(preview.deleted).toEqual([]);
+    await expect(pruneShellJobs({ ...input, dryRun: false })).rejects.toThrow("confirmation");
+    expect((await pruneShellJobs({ ...input, dryRun: false, confirm: "DELETE_SHELL_RECORDS" })).deleted.sort()).toEqual(ids.slice(1));
+    expect(getShellStatus(context, ids[0]!).status).toBe("ownership_lost");
+  });
+
+  it("redacts disk log streams and seals hashes of stored bytes including a final partial line", async () => {
+    const { context, primary } = await fixture();
+    const secret = "opaque-disk-fixture-123456";
+    const command = shellCommand(`[Console]::Out.Write('${secret}')`, `printf '%s' '${secret}'`);
+    const job = await startShellJob({ context, cwd: primary, command, timeoutMs: 10000, redactLogs: true, knownSecrets: [secret] });
+    await waitForShellSettled(context, job.id, 10000);
+    expect(getShellStatus(context, job.id).logRedaction).toBe("line");
+    const output = await getShellOutput({ context, id: job.id, stdoutOffset: 0, stderrOffset: 0, maxCharacters: 1000 });
+    expect(JSON.stringify(output)).not.toContain(secret);
+    const stored = await readFile(join(primary, "artifacts", "workforge-mcp", "shell", job.id, "stdout.log"), "utf8");
+    expect(stored).toBe("[WORKFORGE_REDACTED]");
+  });
+  it("persists v2 labels and command fingerprints while reading v1 archives", async () => {
+    const { context, primary } = await fixture();
+    const secret = "opaque-shell-label-fixture-1234";
+    await expect(startShellJob({ context, cwd: primary, command: "exit 0", timeoutMs: 10000,
+      label: secret, knownSecrets: [secret] })).rejects.toThrow("SHELL_LABEL_SECRET");
+    await expect(access(join(primary, "artifacts"))).rejects.toThrow();
+    const ids = [];
+    for (let i = 0; i < 2; i++) {
+      const job = await startShellJob({ context, cwd: primary, command: "exit 0", label: "Build", timeoutMs: 10000 });
+      await waitForShellSettled(context, job.id, 10000);
+      ids.push(job.id);
+      expect(getShellStatus(context, job.id)).toMatchObject({ label: "Build", commandSha256: job.commandSha256 });
+    }
+    expect((await listShellJobs({ context, command: "exit 0", labelContains: "BUILD" })).jobs.map(job => job.id).sort()).toEqual(ids.sort());
+    expect((await listShellJobs({ context, command: "exit 1" })).jobs).toEqual([]);
+    const v1 = `shell_${"e".repeat(32)}`;
+    await archivedStart(context, v1);
+    expect(getShellStatus(context, v1)).toMatchObject({ label: null, commandSha256: null });
+    const terminalPath = join(primary, "artifacts", "workforge-mcp", "shell", ids[0]!, "terminal.json");
+    const terminal = JSON.parse(await readFile(terminalPath, "utf8"));
+    expect(terminal.version).toBe(2);
+    terminal.label = "Different";
+    await writeFile(terminalPath, JSON.stringify(terminal));
+    expect((await listShellJobs({ context })).errors).toContainEqual({ id: ids[0], code: "terminal_mismatch" });
+  });
+  it("widens filtered candidates and supports descendant cwd matching", async () => {
+    const { context, primary } = await fixture();
+    const child = join(primary, "child");
+    await mkdir(child);
+    const job = await startShellJob({ context, cwd: child, command: "exit 2", timeoutMs: 10000 });
+    await waitForShellSettled(context, job.id, 10000);
+    const root = join(primary, "artifacts", "workforge-mcp", "shell", job.id);
+    await utimes(root, 1, 1);
+    for (let i = 0; i < 5; i++) await archivedStart(context, `shell_${String(i).repeat(32)}`);
+    const filtered = await listShellJobs({ context, limit: 1, status: ["failed"], cwd: primary, cwdScope: "tree" });
+    expect(filtered.jobs.map(job => job.id)).toEqual([job.id]);
+    expect(filtered.filterApplied).toBe(true);
+    expect(filtered.inspectedCandidates).toBe(6);
+    expect((await listShellJobs({ context, status: ["failed"], cwd: primary })).jobs).toEqual([]);
+    expect((await listShellJobs({ context, status: ["completed"] })).jobs).toEqual([]);
+  });
+  it("discovers recent metadata candidates past 1000 arbitrary IDs without changing archives", async () => {
+    const { context, primary } = await fixture();
+    expect((await listShellJobs({ context })).jobs).toEqual([]);
+    const runtime = join(primary, "artifacts", "workforge-mcp", "shell");
+    await mkdir(runtime, { recursive: true });
+    for (let index = 0; index < 1050; index += 1) {
+      const directory = join(runtime, `shell_${index.toString(16).padStart(32, "0")}`);
+      await mkdir(directory);
+      await utimes(directory, 1, 1);
+    }
+    const id = `shell_${"f".repeat(32)}`;
+    const root = await archivedStart(context, id);
+    const before = await readFile(join(root, "started.json"));
+    const result = await listShellJobs({ context, limit: 1 });
+    expect(result.jobs.map((job) => job.id)).toEqual([id]);
+    expect(result.jobs[0]).toMatchObject({ status: "ownership_lost", replayAllowed: false, stdoutBytes: 0 });
+    expect(result.scannedEntries).toBe(1051);
+    expect(result.scanLimited).toBe(false);
+    expect(result.truncated).toBe(true);
+    expect(result.errors[0]?.code).toBe("incomplete_start");
+    expect(await readFile(join(root, "started.json"))).toEqual(before);
+    expect((await listShellJobs({ context, cwd: process.platform === "win32" ? primary.toUpperCase() : primary })).jobs).toHaveLength(1);
+    await expect(listShellJobs({ context, limit: 0 })).rejects.toThrow("limit");
+    await expect(listShellJobs({ context, signal: AbortSignal.abort() })).rejects.toThrow();
+  });
+
+  it("returns only fixed diagnostics for damaged, foreign, redirected and hardlinked archives", async () => {
+    const { context, primary, outside } = await fixture();
+    const ids = Array.from({ length: 6 }, (_, index) => `shell_${index.toString(16).padStart(32, "0")}`);
+    const malformed = await archivedStart(context, ids[0]!);
+    await writeFile(join(malformed, "started.json"), '{"PRIVATE_MANIFEST_FRAGMENT"');
+    await archivedStart(context, ids[1]!, { profileId: "foreign-profile" });
+    await archivedStart(context, ids[2]!, { createdAt: "9999" });
+    const hardlinked = await archivedStart(context, ids[3]!);
+    await link(join(hardlinked, "started.json"), join(outside, "linked.json"));
+    const runtime = join(primary, "artifacts", "workforge-mcp", "shell");
+    await symlink(outside, join(runtime, ids[4]!), process.platform === "win32" ? "junction" : "dir");
+    await mkdir(join(runtime, ids[5]!));
+    const result = await listShellJobs({ context });
+    expect(result.jobs).toEqual([]);
+    expect(Object.fromEntries(result.errors.map(({ id, code }) => [id, code]))).toEqual({
+      [ids[0]!]: "manifest_invalid", [ids[1]!]: "identity_mismatch", [ids[2]!]: "manifest_invalid",
+      [ids[3]!]: "archive_unsafe", [ids[4]!]: "archive_unsafe", [ids[5]!]: "incomplete_start",
+    });
+    expect(JSON.stringify(result)).not.toContain("PRIVATE_MANIFEST_FRAGMENT");
+  });
+
+  it("bounds diagnostics and rejects a redirected runtime root", async () => {
+    const { context, primary, outside } = await fixture();
+    const runtime = join(primary, "artifacts", "workforge-mcp", "shell");
+    await mkdir(runtime, { recursive: true });
+    for (let index = 0; index < 110; index += 1) {
+      await mkdir(join(runtime, `shell_${index.toString(16).padStart(32, "0")}`));
+    }
+    const result = await listShellJobs({ context, limit: 100 });
+    expect(result.errors).toHaveLength(100);
+    expect(result.errorsTruncated).toBe(true);
+    await rm(runtime, { recursive: true });
+    await symlink(outside, runtime, process.platform === "win32" ? "junction" : "dir");
+    await expect(listShellJobs({ context })).rejects.toThrow("redirected");
+  });
+
+  it("lists attached jobs once through MCP and finds their sealed archives", async () => {
+    const { context, primary, outside } = await fixture();
+    const started = await startShellJob({ context, cwd: primary,
+      command: shellCommand("Start-Sleep -Seconds 1; Write-Output 'done'", "sleep 1; echo done"), timeoutMs: 10_000 });
+    const client = new Client({ name: "history-test", version: "1" });
+    const server = createServer(context);
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    try {
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+      const response = await client.callTool({ name: "shell_list", arguments: {} });
+      expect(response.isError).not.toBe(true);
+      expect(response.structuredContent).toMatchObject({ jobs: [{ id: started.id, trackingState: "attached" }] });
+      expect((await listShellJobs({ context, cwd: outside })).jobs).toEqual([]);
+      await waitForTerminal(context, started.id);
+      const result = await listShellJobs({ context });
+      expect(result.jobs).toHaveLength(1);
+      expect(result.jobs[0]).toMatchObject({ id: started.id, trackingState: "archived_terminal", status: "completed" });
+    } finally {
+      cancelActiveShellJobs(context);
+      await client.close();
+      await server.close();
+    }
+  });
+
   it("runs multiline PowerShell outside the profile root and separates stdout/stderr", async () => {
     const { context, primary, outside } = await fixture();
     const started = await startShellJob({

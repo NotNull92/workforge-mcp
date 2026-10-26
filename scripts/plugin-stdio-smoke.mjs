@@ -1,3 +1,4 @@
+import { enabledToolNames } from "../dist/server.js";
 import { strict as assert } from "node:assert";
 import { resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -5,11 +6,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 
 const pluginRoot = resolve(process.argv[2] ?? "plugins/workforge");
 const profileId = process.argv[3] ?? "workstation";
-const expectedTools = [
-  "list_directory", "project_resume", "read_image", "read_text_file", "replace_text",
-  "search_files", "shell_cancel", "shell_output", "shell_start", "shell_status",
-  "workstation_context", "write_text_file",
-];
+const expectedTools = enabledToolNames(process.env.WORKFORGE_MCP_READ_ONLY === "1", process.env.WORKFORGE_MCP_TOOLS, { readOnlyExtras: process.env.WORKFORGE_MCP_READ_ONLY_EXTRAS === "1", multiFileEdit: process.env.WORKFORGE_MCP_ENABLE_MULTI_FILE_EDIT === "1" });
 const client = new Client({ name: "workforge-plugin-stdio-smoke", version: "1.0.0" });
 const command = process.platform === "win32"
   ? resolve(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
@@ -26,6 +23,7 @@ const transport = new StdioClientTransport({
 });
 
 try {
+  if (process.platform === "win32") console.log("Plugin smoke checks the portable engine selected by the launcher, not this source checkout. Use node scripts/test-isolated-stdio.mjs to test the built source in isolation.");
   await client.connect(transport);
   const listed = await client.listTools();
   assert.deepEqual(listed.tools.map((tool) => tool.name).sort(), expectedTools);

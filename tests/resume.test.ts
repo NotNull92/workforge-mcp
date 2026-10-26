@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { inspectRun } from "../src/inspect.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -56,6 +57,68 @@ afterEach(async () => {
 });
 
 describe("project resume snapshot", () => {
+  it("neutralizes included Git filters before read-only worktree inspection", async () => {
+    const { context, root } = await makeContext();
+    await initializeRepository(root);
+    await writeFile(join(root, "filter.cjs"), "require('fs').writeFileSync('PWNED','executed');");
+    await writeFile(join(root, "filter.conf"), `[filter "evil"]\n clean = node filter.cjs\n required = true\n`);
+    await git(root, "config", "include.path", "../filter.conf");
+    await writeFile(join(root, ".gitattributes"), "*.txt filter=evil\n");
+    await writeFile(join(root, "tracked.txt"), "changed\n");
+    const result = await getProjectResume(context, 5, 200, root, [], true);
+    expect(result.isGitRepository).toBe(true);
+    expect(result.status?.unstaged).toContain("tracked.txt");
+    await expect(access(join(root, "PWNED"))).rejects.toThrow();
+    expect((await inspectRun({ context, path: root, preset: "git_log" })).exitCode).toBe(0);
+    await expect(inspectRun({ context, path: root, preset: "git_show_stat", revision: "--exec=bad" })).rejects.toThrow("revision");
+  });
+  it("refuses excessive Git filter drivers before worktree inspection", async () => {
+    const { context, root } = await makeContext();
+    await initializeRepository(root);
+    await writeFile(join(root, "filter.cjs"), "require('fs').writeFileSync('PWNED','executed');");
+    await writeFile(join(root, "filter.conf"), Array.from({ length: 65 }, (_, i) => `[filter "driver${i}"]\n clean = node filter.cjs\n`).join(""));
+    await git(root, "config", "include.path", "../filter.conf");
+    await writeFile(join(root, ".gitattributes"), "*.txt filter=driver0\n");
+    await writeFile(join(root, "tracked.txt"), "changed\n");
+    const result = await getProjectResume(context, 5, 200, root, [], true);
+    expect(result.status).toBeNull();
+    expect(result.error).toContain("Too many filter drivers");
+    await expect(access(join(root, "PWNED"))).rejects.toThrow();
+  });
+  it("reads selected handoffs relative to the target without Git", async () => {
+    const { context, root } = await makeContext();
+    const resume = await getProjectResume(context, 5, 200, join(root, "docs"), ["HANDOFF.md"]);
+    expect(resume.isGitRepository).toBe(false);
+    expect(resume.resumeDocuments).toEqual([expect.objectContaining({
+      path: join(root, "docs", "HANDOFF.md"),
+      text: "Next: inspect the current diff.\n",
+      sha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      truncated: false,
+    })]);
+    expect((await getProjectResume(context)).resumeDocuments).toEqual([]);
+  });
+
+  it("bounds document content and count, and rejects missing documents", async () => {
+    const { context, root } = await makeContext();
+    await writeFile(join(root, "docs", "HANDOFF.md"), "x".repeat(12_001), "utf8");
+    const resume = await getProjectResume(context, 5, 200, root, ["docs/HANDOFF.md"]);
+    expect(resume.resumeDocuments[0]?.text).toHaveLength(12_000);
+    expect(resume.resumeDocuments[0]?.truncated).toBe(true);
+    expect(resume.truncated).toBe(true);
+    await expect(getProjectResume(context, 5, 200, root, Array(9).fill("docs/HANDOFF.md"))).rejects.toThrow("At most 8");
+    await expect(getProjectResume(context, 5, 200, root, ["missing.md"])).rejects.toThrow();
+  });
+
+  it("rejects handoff symlinks into another registered profile", async () => {
+    const { context, root } = await makeContext();
+    const foreign = await makeContext();
+    await symlink(foreign.root, join(root, "foreign"), process.platform === "win32" ? "junction" : "dir");
+    const isolated = { ...context, managedProjectRoots: [
+      ...context.managedProjectRoots, { profileId: "foreign", primaryRoot: foreign.root },
+    ] } satisfies ProjectContext;
+    await expect(getProjectResume(isolated, 5, 200, root, ["foreign/docs/HANDOFF.md"])).rejects.toThrow("Cross-profile path denied");
+  });
+
   it("returns a bounded structured Git snapshot without mutating the worktree", async () => {
     const { context, root } = await makeContext();
     await initializeRepository(root);

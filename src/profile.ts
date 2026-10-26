@@ -237,6 +237,17 @@ async function readRegisteredProfile(
   return { parsed, primaryRoot };
 }
 
+export function parseBridgeArguments(argv: readonly string[]) {
+  let readOnlyFlag = false;
+  const profileArgv = argv.filter(argument => {
+    if (argument !== "--read-only") return true;
+    if (readOnlyFlag) throw new Error("Specify --read-only only once.");
+    readOnlyFlag = true;
+    return false;
+  });
+  return { profileArgv, readOnlyFlag };
+}
+
 export function parseProfileId(argv: readonly string[]): string {
   let selected: string | undefined;
   for (let index = 0; index < argv.length; index += 1) {
@@ -316,5 +327,5 @@ export async function loadProjectContextFromArgv(
   argv: readonly string[] = process.argv.slice(2),
   options: ProfileLoadOptions = {},
 ): Promise<ProjectContext> {
-  return await loadProjectProfile(parseProfileId(argv), options);
+  return await loadProjectProfile(parseProfileId(parseBridgeArguments(argv).profileArgv), options);
 }

@@ -1,23 +1,24 @@
 import { createHash, randomBytes } from "node:crypto";
+import { assertSafeRuntimeRoot, readBoundedArchiveFile, recentArchiveEntries } from "./archive.js";
 import {
   closeSync,
   createWriteStream,
-  fstatSync,
   fsyncSync,
   lstatSync,
   openSync,
-  readSync,
   readFileSync,
   realpathSync,
   renameSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { referencedShellJobs } from "./tasks.js";
 import { isAbsolute, relative, resolve } from "node:path";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { z } from "zod";
-import { normalizePathForComparison } from "./path-policy.js";
+import { isPathWithinOrEqual, isSamePath, normalizePathForComparison } from "./path-policy.js";
+import { containsRedactionMarker, createLineRedactor, createRedactor, snapshotSecrets, type RedactionOptions } from "./redaction.js";
 import type { ProjectContext } from "./profile.js";
 import {
   killProcessTree,
@@ -176,7 +177,7 @@ const POWERSHELL_STDIN_WRAPPER = [
 type LiveShellStatus = "running" | "completed" | "failed" | "cancelled";
 type PublicShellStatus = LiveShellStatus | "ownership_lost";
 
-const persistedShellStatusSchema = z.object({
+const persistedShellStatusV1Schema = z.object({
   version: z.literal(1),
   kind: z.literal("connection_owned_shell"),
   executionMode: z.literal("connection_owned"),
@@ -206,9 +207,23 @@ const persistedShellStatusSchema = z.object({
   replayAllowed: z.literal(false),
 }).strict();
 
+const persistedShellStatusSchema = z.discriminatedUnion("version", [persistedShellStatusV1Schema,
+  persistedShellStatusV1Schema.extend({ version: z.literal(2), label: z.string().min(1).max(120).nullable(),
+    logRedaction: z.enum(["none", "line"]).default("none"),
+    suppressedLongLines: z.number().int().nonnegative().default(0),
+    commandSha256: z.string().regex(/^[a-f0-9]{64}$/u) })]);
+
+function hashCommand(command: string) {
+  return createHash("sha256").update("workforge-shell-command:v1\0").update(command).digest("hex");
+}
+
 type PersistedShellStatus = z.infer<typeof persistedShellStatusSchema>;
 
 interface ShellJob {
+  suppressedLongLines: number;
+  readonly logRedaction: "none" | "line";
+  readonly label: string | null;
+  readonly commandSha256: string;
   readonly id: string;
   readonly profileId: string;
   readonly cwd: string;
@@ -312,56 +327,13 @@ function pathsFor(context: ProjectContext, id: string) {
 }
 
 function assertSafeArchivedJobRoot(context: ProjectContext, runtimeRoot: string, jobRoot: string): void {
-  const primaryCanonical = realpathSync(context.primaryRoot);
-  for (const directory of [
-    resolve(context.primaryRoot, "artifacts"),
-    resolve(context.primaryRoot, "artifacts", "workforge-mcp"),
-    runtimeRoot,
-  ]) {
-    const info = lstatSync(directory);
-    if (!info.isDirectory() || info.isSymbolicLink()) {
-      throw new Error("Shell runtime archive contains a redirected directory segment.");
-    }
-  }
-  const runtimeCanonical = realpathSync(runtimeRoot);
-  const runtimeFromPrimary = relative(normalizePathForComparison(primaryCanonical), normalizePathForComparison(runtimeCanonical));
-  if (runtimeFromPrimary === "" || runtimeFromPrimary.startsWith("..") || isAbsolute(runtimeFromPrimary)) {
-    throw new Error("Shell runtime archive escaped the registered project root.");
-  }
+  const runtimeCanonical = assertSafeRuntimeRoot(context, runtimeRoot);
   const jobInfo = lstatSync(jobRoot);
   if (!jobInfo.isDirectory() || jobInfo.isSymbolicLink()) throw new Error("Shell job archive directory is unsafe.");
   const jobCanonical = realpathSync(jobRoot);
   const fromRuntime = relative(normalizePathForComparison(runtimeCanonical), normalizePathForComparison(jobCanonical));
   if (fromRuntime === "" || fromRuntime.startsWith("..") || isAbsolute(fromRuntime)) {
     throw new Error("Shell job archive escaped the profile runtime root.");
-  }
-}
-
-function readBoundedArchiveFile(path: string, maxBytes: number, label: string): Buffer {
-  const pathInfo = lstatSync(path);
-  if (!pathInfo.isFile() || pathInfo.isSymbolicLink() || pathInfo.nlink > 1 || pathInfo.size > maxBytes) {
-    throw new Error(`${label} is missing or unsafe.`);
-  }
-  const handle = openSync(path, "r");
-  try {
-    const info = fstatSync(handle);
-    if (!info.isFile() || info.nlink > 1 || info.size !== pathInfo.size || info.size > maxBytes) {
-      throw new Error(`${label} changed while it was being opened.`);
-    }
-    const bytes = Buffer.alloc(info.size);
-    let offset = 0;
-    while (offset < bytes.byteLength) {
-      const count = readSync(handle, bytes, offset, bytes.byteLength - offset, offset);
-      if (count === 0) throw new Error(`${label} changed while it was being read.`);
-      offset += count;
-    }
-    const after = fstatSync(handle);
-    if (after.size !== info.size || after.mtimeMs !== info.mtimeMs) {
-      throw new Error(`${label} changed while it was being read.`);
-    }
-    return bytes;
-  } finally {
-    closeSync(handle);
   }
 }
 
@@ -412,6 +384,10 @@ function archiveStatus(context: ProjectContext, id: string) {
       || terminal.createdAt !== started.createdAt
       || terminal.timeoutMs !== started.timeoutMs
       || terminal.commandUtf8Bytes !== started.commandUtf8Bytes
+      || terminal.version !== started.version
+      || (terminal.version === 2 && started.version === 2
+        && (terminal.label !== started.label || terminal.commandSha256 !== started.commandSha256))
+      || (terminal.version === 2 && started.version === 2 && terminal.logRedaction !== started.logRedaction)
     ) {
       throw new Error("Shell terminal manifest is incomplete or does not match its start manifest.");
     }
@@ -419,6 +395,10 @@ function archiveStatus(context: ProjectContext, id: string) {
   const record = terminal ?? started;
   return {
     id: record.id,
+    label: record.version === 2 ? record.label : null,
+    logRedaction: record.version === 2 ? record.logRedaction : "none" as const,
+    suppressedLongLines: record.version === 2 ? record.suppressedLongLines : 0,
+    commandSha256: record.version === 2 ? record.commandSha256 : null,
     profileId: record.profileId,
     status: (terminal ? record.status : "ownership_lost") as PublicShellStatus,
     executionMode: "connection_owned" as const,
@@ -478,6 +458,10 @@ function publicStatus(job: ShellJob) {
   refreshJobEvidence(job);
   return {
     id: job.id,
+    label: job.label,
+    logRedaction: job.logRedaction,
+    suppressedLongLines: job.suppressedLongLines,
+    commandSha256: job.commandSha256,
     profileId: job.profileId,
     status: job.status,
     executionMode: "connection_owned" as const,
@@ -512,7 +496,11 @@ function persistedStatus(
 ): PersistedShellStatus {
   const status = publicStatus(job);
   return {
-    version: 1,
+    version: 2,
+    label: job.label,
+    logRedaction: job.logRedaction,
+    suppressedLongLines: job.suppressedLongLines,
+    commandSha256: job.commandSha256,
     kind: "connection_owned_shell",
     executionMode: "connection_owned",
     id: status.id,
@@ -573,6 +561,10 @@ export async function startShellJob(input: {
   command: string;
   cwd: string;
   timeoutMs: number;
+  label?: string;
+  knownSecrets?: readonly string[];
+  redactionOptions?: RedactionOptions;
+  redactLogs?: boolean;
 }) {
   const profileId = input.context.profile.id;
   const activeCount = [...jobs.values()].filter(
@@ -597,7 +589,17 @@ async function startReservedShellJob(input: {
   command: string;
   cwd: string;
   timeoutMs: number;
+  label?: string;
+  knownSecrets?: readonly string[];
+  redactionOptions?: RedactionOptions;
+  redactLogs?: boolean;
 }) {
+  const label = input.label ?? null;
+  const logRedactor = createRedactor(input.knownSecrets ?? snapshotSecrets(process.env).values, input.redactionOptions);
+  if (label !== null && (typeof label !== "string" || label.length < 1 || label.length > 120 || /[\x00-\x1f\x7f]/u.test(label))) throw new Error("Invalid shell label.");
+  if (label !== null && (containsRedactionMarker(label)
+    || createRedactor(input.knownSecrets ?? snapshotSecrets(process.env).values, input.redactionOptions)(label).redactionCount > 0)) throw new Error("SHELL_LABEL_SECRET");
+  const commandSha256 = hashCommand(input.command);
   const cwd = await resolveAuthorizedWorkstationPath(input.context, input.cwd, "tree");
   const cwdInfo = await stat(cwd);
   if (!cwdInfo.isDirectory()) throw new Error(`Shell cwd is not a directory: ${cwd}`);
@@ -622,7 +624,11 @@ async function startReservedShellJob(input: {
     command: input.command,
   })).digest("hex");
   writeStatusManifest(paths.startedStatusPath, {
-    version: 1,
+    version: 2,
+    logRedaction: input.redactLogs ? "line" : "none",
+    suppressedLongLines: 0,
+    label,
+    commandSha256,
     kind: "connection_owned_shell",
     executionMode: "connection_owned",
     id,
@@ -721,6 +727,10 @@ async function startReservedShellJob(input: {
     stderrStream.once("error", (error) => resolveFinished(error));
   });
   const job: ShellJob = {
+    suppressedLongLines: 0,
+    logRedaction: input.redactLogs ? "line" : "none",
+    label,
+    commandSha256,
     id,
     profileId: input.context.profile.id,
     cwd,
@@ -755,28 +765,30 @@ async function startReservedShellJob(input: {
   clearTimeout(job.timer);
   jobs.set(id, job);
 
-  child.stdout.on("data", (raw: Buffer | string) => {
-    const result = writeBounded(stdoutStream, Buffer.from(raw), job.stdoutBytes);
+  const stdoutRedactor = createLineRedactor(logRedactor), stderrRedactor = createLineRedactor(logRedactor);
+  const appendStdout = (raw: Buffer | string, final = false) => {
+    const result = writeBounded(stdoutStream, input.redactLogs ? stdoutRedactor(Buffer.from(raw), final) : Buffer.from(raw), job.stdoutBytes);
+    job.suppressedLongLines = stdoutRedactor.getSuppressedLongLines() + stderrRedactor.getSuppressedLongLines();
     job.stdoutBytes = result.bytes;
     if (result.accepted.byteLength > 0) job.stdoutChunks.push(result.accepted);
     job.stdoutTruncated ||= result.truncated;
     job.updatedAt = now();
-  });
-  child.stderr.on("data", (raw: Buffer | string) => {
-    const result = writeBounded(stderrStream, Buffer.from(raw), job.stderrBytes);
+  };
+  const appendStderr = (raw: Buffer | string, final = false) => {
+    const result = writeBounded(stderrStream, input.redactLogs ? stderrRedactor(Buffer.from(raw), final) : Buffer.from(raw), job.stderrBytes);
+    job.suppressedLongLines = stdoutRedactor.getSuppressedLongLines() + stderrRedactor.getSuppressedLongLines();
     job.stderrBytes = result.bytes;
     if (result.accepted.byteLength > 0) job.stderrChunks.push(result.accepted);
     job.stderrTruncated ||= result.truncated;
     job.updatedAt = now();
-  });
+  };
+  child.stdout.on("data", appendStdout);
+  child.stderr.on("data", appendStderr);
   child.once("error", (error) => {
     job.status = "failed";
     job.updatedAt = now();
     const line = Buffer.from(`${error instanceof Error ? error.message : String(error)}\n`, "utf8");
-    const result = writeBounded(stderrStream, line, job.stderrBytes);
-    job.stderrBytes = result.bytes;
-    if (result.accepted.byteLength > 0) job.stderrChunks.push(result.accepted);
-    job.stderrTruncated ||= result.truncated;
+    appendStderr(line);
   });
   child.once("close", (exitCode, signal) => {
     clearTimeout(job.timer);
@@ -794,6 +806,8 @@ async function startReservedShellJob(input: {
       }
       try { unlinkSync(profileLeasePath); } catch { /* already removed */ }
     }
+    appendStdout(Buffer.alloc(0), true);
+    appendStderr(Buffer.alloc(0), true);
     stdoutStream.end();
     stderrStream.end();
     void Promise.all([stdoutFinished, stderrFinished]).then(([stdoutError, stderrError]) => {
@@ -865,6 +879,126 @@ export function getShellStatus(context: ProjectContext, id: string) {
     return publicStatus(job);
   }
   return archiveStatus(context, id);
+}
+
+export async function listShellJobs(input: {
+  context: ProjectContext;
+  limit?: number;
+  cwd?: string;
+  cwdScope?: "exact" | "tree";
+  command?: string;
+  labelContains?: string;
+  status?: Array<"running" | "completed" | "failed" | "cancelled" | "ownership_lost">;
+  signal?: AbortSignal;
+}) {
+  const limit = input.limit ?? 20;
+  if (input.cwdScope !== undefined && input.cwdScope !== "exact" && input.cwdScope !== "tree") throw new Error("Invalid cwdScope.");
+  if (input.status !== undefined && (!Array.isArray(input.status) || input.status.length < 1 || input.status.length > 5
+    || input.status.some(status => !["running", "completed", "failed", "cancelled", "ownership_lost"].includes(status)))) throw new Error("Invalid status filter.");
+  if (input.command !== undefined && (typeof input.command !== "string" || input.command.length < 1 || input.command.length > 1024 * 1024)) throw new Error("Invalid command filter.");
+  if (input.labelContains !== undefined && (typeof input.labelContains !== "string" || input.labelContains.length < 1 || input.labelContains.length > 120)) throw new Error("Invalid label filter.");
+  const commandSha256 = input.command === undefined ? undefined : hashCommand(input.command);
+  const filterApplied = input.cwd !== undefined || input.status !== undefined || input.command !== undefined || input.labelContains !== undefined;
+  const keep = filterApplied ? Math.min(500, Math.max(limit * 10, 100)) : limit * 2;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("limit must be an integer from 1 to 100.");
+  input.signal?.throwIfAborted();
+  const cwd = input.cwd === undefined ? undefined : await resolveAuthorizedWorkstationPath(input.context, input.cwd, "tree");
+  const runtimeRoot = runtimeRootFor(input.context);
+  type ErrorCode = "incomplete_start" | "archive_unsafe" | "manifest_invalid" | "identity_mismatch" | "terminal_mismatch";
+  const errors: Array<{ id: string; code: ErrorCode }> = [];
+  let errorsTruncated = false;
+  const recordError = (id: string, code: ErrorCode) => {
+    if (errors.length < 100) errors.push({ id, code });
+    else errorsTruncated = true;
+  };
+  const discovery = await recentArchiveEntries(input.context, runtimeRoot, JOB_ID_PATTERN, "directory", limit, input.signal, keep);
+  const { scannedEntries, candidateCount, scanLimited } = discovery;
+  for (const name of discovery.unsafeNames) recordError(name, "archive_unsafe");
+  errorsTruncated = discovery.errorsTruncated;
+  const candidates = discovery.entries.map(({ name }) => ({ id: name }));
+  const ids = new Set(candidates.map(({ id }) => id));
+  for (const job of jobs.values()) {
+    if (job.profileId === input.context.profile.id) ids.add(job.id);
+  }
+  const summaries = [];
+  let inspectedCandidates = 0;
+  for (const id of ids) {
+    if (filterApplied && (summaries.length >= limit || inspectedCandidates >= keep)) break;
+    inspectedCandidates++;
+    await new Promise<void>((done) => setImmediate(done));
+    input.signal?.throwIfAborted();
+    try {
+      const status = getShellStatus(input.context, id);
+      for (const timestamp of [status.createdAt, status.updatedAt]) {
+        if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(timestamp)
+          || !Number.isFinite(Date.parse(timestamp)) || new Date(timestamp).toISOString() !== timestamp) {
+          throw new Error("Invalid timestamp.");
+        }
+      }
+      if (cwd !== undefined && !(input.cwdScope === "tree" ? isPathWithinOrEqual(cwd, status.cwd) : isSamePath(cwd, status.cwd))) continue;
+      if (input.status && !input.status.includes(status.status)) continue;
+      if (commandSha256 !== undefined && commandSha256 !== status.commandSha256) continue;
+      if (input.labelContains !== undefined && !status.label?.toLowerCase().includes(input.labelContains.toLowerCase())) continue;
+      const { createdAt, updatedAt, trackingState, exitCode, timedOut, stdoutBytes, stderrBytes, cancelRequested } = status;
+      summaries.push({ id, label: status.label, commandSha256: status.commandSha256, cwd: status.cwd, createdAt, updatedAt, status: status.status, trackingState,
+        exitCode, timedOut, stdoutBytes, stderrBytes, cancelRequested, replayAllowed: false as const });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      const code: ErrorCode = message === "Shell job archive has no trusted start manifest." ? "incomplete_start"
+        : message === "Shell status manifest does not match this profile and job id." ? "identity_mismatch"
+        : message === "Shell terminal manifest is incomplete or does not match its start manifest." ? "terminal_mismatch"
+        : /unsafe|redirected|escaped|changed while|Unknown shell job/u.test(message) ? "archive_unsafe"
+        : "manifest_invalid";
+      recordError(id, code);
+    }
+  }
+  summaries.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
+  const result = summaries.slice(0, limit);
+  // shortcut: mtime candidates bound archive I/O; use an index if complete history pagination is needed.
+  return { jobs: result, scannedEntries, scanLimited, truncated: scanLimited || Math.max(candidateCount, ids.size) > result.length,
+    errors, errorsTruncated, filterApplied, inspectedCandidates };
+}
+
+export async function pruneShellJobs(input: { context: ProjectContext; olderThanDays: number; keepLatest?: number;
+  maxDeletes?: number; keepReferencedByTasks?: boolean; dryRun?: boolean; confirm?: "DELETE_SHELL_RECORDS"; signal?: AbortSignal }) {
+  const keepLatest = input.keepLatest ?? 50, maxDeletes = input.maxDeletes ?? 100, dryRun = input.dryRun ?? true;
+  if (!Number.isInteger(input.olderThanDays) || input.olderThanDays < 1 || input.olderThanDays > 3650
+    || !Number.isInteger(keepLatest) || keepLatest < 0 || keepLatest > 1000
+    || !Number.isInteger(maxDeletes) || maxDeletes < 1 || maxDeletes > 500) throw new Error("Invalid shell prune limits.");
+  if (!dryRun && input.confirm !== "DELETE_SHELL_RECORDS") throw new Error("DELETE_SHELL_RECORDS confirmation required.");
+  const referenced = input.keepReferencedByTasks === false ? new Set<string>() : await referencedShellJobs(input.context, input.signal);
+  const runtimeRoot = runtimeRootFor(input.context);
+  const discovery = await recentArchiveEntries(input.context, runtimeRoot, JOB_ID_PATTERN, "directory", 1000, input.signal, 2000);
+  const candidates: Array<{ id: string; updatedAt: string; trackingState: string; reason: string }> = [];
+  const deleted: string[] = [];
+  const skipped = discovery.unsafeNames.map(id => ({ id, code: "unsafe" }));
+  const cutoff = Date.now() - input.olderThanDays * 86400000;
+  for (const entry of discovery.entries.slice(keepLatest)) {
+    input.signal?.throwIfAborted();
+    if (candidates.length >= maxDeletes) break;
+    const id = entry.name;
+    if (jobs.has(id) || referenced.has(id)) continue;
+    try {
+      const status = archiveStatus(input.context, id);
+      if (!Number.isFinite(Date.parse(status.updatedAt)) || Date.parse(status.updatedAt) >= cutoff) continue;
+      const paths = pathsFor(input.context, id);
+      if (status.trackingState === "ownership_lost") {
+        const start = readStatusManifest(paths.startedStatusPath)!;
+        if (!Number.isFinite(Date.parse(start.createdAt)) || Date.parse(start.createdAt) + start.timeoutMs + 3600000 >= Date.now()) continue;
+      }
+      candidates.push({ id, updatedAt: status.updatedAt, trackingState: status.trackingState, reason: "older_than_retention" });
+      if (!dryRun) {
+        assertSafeArchivedJobRoot(input.context, runtimeRoot, paths.jobRoot);
+        const tombstone = resolve(runtimeRoot, `.prune-${randomBytes(16).toString("hex")}`);
+        await rename(paths.jobRoot, tombstone);
+        assertSafeArchivedJobRoot(input.context, runtimeRoot, tombstone);
+        await rm(tombstone, { recursive: true });
+        deleted.push(id);
+      }
+    } catch { if (skipped.length < 1000) skipped.push({ id, code: "unsafe_or_busy" }); }
+  }
+  return { dryRun, candidates, deleted, skipped, scannedEntries: discovery.scannedEntries,
+    scanLimited: discovery.scanLimited || discovery.candidateCount > discovery.entries.length };
 }
 
 function pageText(text: string, offset: number, maxCharacters: number) {

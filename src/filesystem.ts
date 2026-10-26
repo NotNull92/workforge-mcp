@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  chmod,
   lstat,
+  link,
   mkdir,
   open,
   readFile,
@@ -15,6 +17,7 @@ import { basename, dirname, extname, resolve } from "node:path";
 import type { ProjectContext } from "./profile.js";
 import { makeWorkstationEnvironment, resolveToolExecutable, runProcess } from "./process.js";
 import { resolveAuthorizedWorkstationPath } from "./workstation.js";
+import { normalizePathForComparison } from "./path-policy.js";
 
 const MAX_TEXT_BYTES = 64 * 1024 * 1024;
 const MAX_WRITE_BYTES = 16 * 1024 * 1024;
@@ -209,103 +212,148 @@ export async function searchFiles(input: {
   includeHidden: boolean;
   respectIgnoreFiles: boolean;
   maxResults: number;
+  timeoutMs?: number;
+  sort?: "none" | "path";
+  match?: "path" | "basename";
+  lineFormat?: "json" | "columns";
+  includeStats?: boolean;
+  signal?: AbortSignal;
 }) {
+  const startedAt = performance.now();
+  if (input.sort !== undefined && !["none", "path"].includes(input.sort)) throw new Error("Invalid sort.");
+  if (input.match !== undefined && !["path", "basename"].includes(input.match)) throw new Error("Invalid match.");
+  if (input.lineFormat !== undefined && !["json", "columns"].includes(input.lineFormat)) throw new Error("Invalid lineFormat.");
+  if (input.includeStats !== undefined && typeof input.includeStats !== "boolean") throw new Error("Invalid includeStats.");
+  if (input.mode === "content" && input.match === "basename") throw new Error("basename requires path mode.");
+  if (input.mode === "path" && input.lineFormat === "columns") throw new Error("columns requires content mode.");
   const root = await resolveAuthorizedWorkstationPath(input.context, input.path, "tree");
   const rootInfo = await stat(root);
   const cwd = rootInfo.isDirectory() ? root : dirname(root);
   const target = rootInfo.isDirectory() ? "." : basename(root);
-  const commonArgs: string[] = [];
-  if (input.includeHidden) commonArgs.push("--hidden");
-  if (!input.respectIgnoreFiles) commonArgs.push("--no-ignore");
-  for (const glob of input.globs) commonArgs.push("--glob", glob);
-
-  if (input.mode === "path") {
-    const result = await runProcess(resolveToolExecutable("rg"), ["--files", ...commonArgs, "--", target], {
-      cwd,
-      timeoutMs: 120_000,
-      maxStdoutBytes: MAX_SEARCH_OUTPUT_BYTES,
-      maxStderrBytes: 512 * 1024,
-      env: makeWorkstationEnvironment(),
-    });
-    const matchesQuery = compilePathQuery(input.query, input.regex);
-    const matches: Array<{ path: string; line: null; column: null; text: null }> = [];
-    const lines = result.stdout.split(/\r?\n/u).filter(Boolean);
-    let overflow = false;
-    for (const line of lines) {
-      const absolutePath = resolve(cwd, line);
-      if (!matchesQuery(absolutePath)) continue;
-      if (matches.length >= input.maxResults) {
-        overflow = true;
-        break;
+  const matchesQuery = input.mode === "path" ? compilePathQuery(input.query, input.regex) : undefined;
+  const columns = input.lineFormat === "columns";
+  const args = input.mode === "path" ? ["--no-config", "--files", "--null"] : columns
+    ? ["--no-config", "--null", "--with-filename", "--line-number", "--column", "--no-heading", "--color", "never", "--max-columns", "1024", "--max-columns-preview"]
+    : ["--no-config", "--json", "--line-number", "--column", "--color", "never"];
+  if (input.sort === "path") args.push("--sort", "path");
+  if (input.includeStats && input.mode === "content" && !columns) args.push("--stats");
+  if (input.mode === "path" && input.match === "basename" && !input.regex) args.push("--iglob", `**/*${input.query.replace(/[\\*?\[\]{}!]/gu, "\\$&")}*`);
+  if (input.includeHidden) args.push("--hidden");
+  if (!input.respectIgnoreFiles) args.push("--no-ignore");
+  for (const glob of input.globs) args.push("--glob", glob);
+  if (input.mode === "content" && !input.regex) args.push("--fixed-strings");
+  args.push("--", ...(input.mode === "content" ? [input.query] : []), target);
+  const matches: Array<{ path: string; line: number | null; column: number | null; text: string | null }> = [];
+  const delimiter = input.mode === "path" ? 0 : 10;
+  let pending: Buffer[] = [];
+  let stats: { searches: number; searchesWithMatch: number; bytesSearched: number; matchedLines: number } | null = null;
+  const consumeRecord = (record: string): boolean => {
+    let match: (typeof matches)[number];
+    if (input.mode === "path") {
+      if (!record) return false;
+      const path = resolve(cwd, record);
+      if (!matchesQuery!(input.match === "basename" ? basename(path) : path)) return false;
+      match = { path, line: null, column: null, text: null };
+    } else if (columns) {
+      const split = record.indexOf("\0");
+      if (split < 0) return false;
+      const fields = /^(\d+):(\d+):(.*)$/u.exec(record.slice(split + 1));
+      if (!fields) return false;
+      match = { path: resolve(cwd, record.slice(0, split)), line: Number(fields[1]), column: Number(fields[2]), text: fields[3]!.replace(/\r$/u, "").slice(0, 1024) };
+    } else {
+      let event: unknown;
+      try { event = JSON.parse(record) as unknown; } catch { return false; }
+      if (!event || typeof event !== "object") return false;
+      const data = (event as { data?: Record<string, unknown> }).data;
+      if (input.includeStats && (event as { type?: unknown }).type === "summary") {
+        const value = data?.stats as Record<string, unknown> | undefined;
+        const numbers = [value?.searches, value?.searches_with_match, value?.bytes_searched, value?.matched_lines];
+        if (numbers.every(value => typeof value === "number" && Number.isFinite(value) && value >= 0)) {
+          stats = { searches: numbers[0] as number, searchesWithMatch: numbers[1] as number,
+            bytesSearched: numbers[2] as number, matchedLines: numbers[3] as number };
+        }
       }
-      matches.push({ path: absolutePath, line: null, column: null, text: null });
+      if ((event as { type?: unknown }).type !== "match") return false;
+      const pathText = (data?.path as { text?: unknown } | undefined)?.text;
+      const lineText = (data?.lines as { text?: unknown } | undefined)?.text;
+      const lineNumber = data?.line_number;
+      const submatches = data?.submatches;
+      const firstStart = Array.isArray(submatches) && submatches.length > 0 ? (submatches[0] as { start?: unknown }).start : 0;
+      if (typeof pathText !== "string" || typeof lineText !== "string" || typeof lineNumber !== "number") return false;
+      match = { path: resolve(cwd, pathText), line: lineNumber,
+        column: typeof firstStart === "number" ? firstStart + 1 : 1,
+        text: lineText.replace(/[\r\n]+$/u, "").slice(0, 1024) };
     }
-    return {
-      path: root,
-      mode: input.mode,
-      query: input.query,
-      matches,
-      warning: result.exitCode !== 0 && result.exitCode !== 1 ? result.stderr.slice(0, 4096) || `rg exited with ${result.exitCode}` : null,
-      truncated: result.truncated || overflow,
-    };
-  }
-
-  const args = ["--json", "--line-number", "--column", "--color", "never", ...commonArgs];
-  if (!input.regex) args.push("--fixed-strings");
-  args.push("--", input.query, target);
-  const result = await runProcess(resolveToolExecutable("rg"), args, {
-    cwd,
-    timeoutMs: 120_000,
-    maxStdoutBytes: MAX_SEARCH_OUTPUT_BYTES,
-    maxStderrBytes: 512 * 1024,
-    env: makeWorkstationEnvironment(),
-  });
-  const matches: Array<{ path: string; line: number; column: number; text: string }> = [];
-  let overflow = false;
-  for (const line of result.stdout.split(/\r?\n/u)) {
-    if (!line) continue;
-    let event: unknown;
-    try {
-      event = JSON.parse(line) as unknown;
-    } catch {
-      continue;
-    }
-    if (!event || typeof event !== "object" || (event as { type?: unknown }).type !== "match") continue;
-    const data = (event as { data?: Record<string, unknown> }).data;
-    const pathText = (data?.path as { text?: unknown } | undefined)?.text;
-    const lineText = (data?.lines as { text?: unknown } | undefined)?.text;
-    const lineNumber = data?.line_number;
-    const submatches = data?.submatches;
-    const firstStart = Array.isArray(submatches) && submatches.length > 0
-      ? (submatches[0] as { start?: unknown }).start
-      : 0;
-    if (typeof pathText !== "string" || typeof lineText !== "string" || typeof lineNumber !== "number") continue;
-    if (matches.length >= input.maxResults) {
-      overflow = true;
-      break;
-    }
-    matches.push({
-      path: resolve(cwd, pathText),
-      line: lineNumber,
-      column: typeof firstStart === "number" ? firstStart + 1 : 1,
-      text: lineText.replace(/[\r\n]+$/u, "").slice(0, 1024),
-    });
-  }
-  return {
-    path: root,
-    mode: input.mode,
-    query: input.query,
-    matches,
-    warning: result.exitCode !== 0 && result.exitCode !== 1 ? result.stderr.slice(0, 4096) || `rg exited with ${result.exitCode}` : null,
-    truncated: result.truncated || overflow,
+    if (matches.length >= input.maxResults) return true;
+    matches.push(match);
+    return false;
   };
+  const result = await runProcess(resolveToolExecutable("rg"), args, {
+    cwd, timeoutMs: input.timeoutMs ?? 10_000,
+    maxStdoutBytes: MAX_SEARCH_OUTPUT_BYTES, maxStderrBytes: 512 * 1024,
+    env: makeWorkstationEnvironment(), stopOnOutputLimit: true, signal: input.signal,
+    onStdoutChunk: (chunk) => {
+      let start = 0;
+      let end: number;
+      while ((end = chunk.indexOf(delimiter, start)) >= 0) {
+        pending.push(chunk.subarray(start, end));
+        const record = Buffer.concat(pending).toString("utf8");
+        pending = [];
+        if (consumeRecord(record)) return true;
+        start = end + 1;
+      }
+      if (start < chunk.length) pending.push(chunk.subarray(start));
+      return false;
+    },
+  });
+  // rg terminates every path/JSON record; an unterminated tail is never a match.
+  const stoppedBecause = result.stopReason === "callback" ? "result_limit" as const
+    : result.stopReason === "timeout" ? "timeout" as const
+    : result.stopReason === "output_limit" ? "output_limit" as const
+    : result.exitCode === 0 || result.exitCode === 1 ? "complete" as const : "error" as const;
+  let warning = stoppedBecause === "timeout" ? "Search time budget reached; matches are partial."
+    : stoppedBecause === "output_limit" ? "Search output budget reached; a very long JSON line may produce no complete matches."
+    : stoppedBecause === "error" ? result.stderr.slice(0, 4096) || `rg exited with ${result.exitCode}` : null;
+  if (!result.killConfirmed) warning = `${warning ?? "Search stopped."} Process termination could not be confirmed.`;
+  return { path: root, mode: input.mode, query: input.query, matches, warning,
+    sorted: input.sort === "path", stats,
+    truncated: stoppedBecause !== "complete", stoppedBecause, elapsedMs: Math.round(performance.now() - startedAt) };
 }
 
-async function readTextBytes(path: string): Promise<{ bytes: Buffer; text: string; hasBom: boolean; sha256: string }> {
+interface TextReadBudget { remainingBytes: number }
+
+async function readTextBytes(path: string, budget?: TextReadBudget, signal?: AbortSignal): Promise<{ bytes: Buffer; text: string; hasBom: boolean; sha256: string }> {
+  signal?.throwIfAborted();
   const info = await stat(path);
   if (!info.isFile()) throw new Error(`Not a file: ${path}`);
   if (info.size > MAX_TEXT_BYTES) throw new Error(`Text file exceeds the ${MAX_TEXT_BYTES}-byte tool limit; use shell tools for a bounded alternative.`);
-  const bytes = await readFile(path);
+  const limit = Math.min(MAX_TEXT_BYTES, budget?.remainingBytes ?? MAX_TEXT_BYTES);
+  const limitError = () => budget && limit < MAX_TEXT_BYTES
+    ? Object.assign(new Error("SOURCE_BUDGET_EXCEEDED: insufficient batch source budget; read this file separately with read_text_file."), { code: "SOURCE_BUDGET_EXCEEDED" })
+    : new Error(`Text file exceeds the ${MAX_TEXT_BYTES}-byte tool limit; use shell tools for a bounded alternative.`);
+  if (info.size > limit) throw limitError();
+  const handle = await open(path, "r");
+  const chunks: Buffer[] = [];
+  let total = 0;
+  try {
+    const openedInfo = await handle.stat();
+    if (!openedInfo.isFile()) throw new Error(`Not a file: ${path}`);
+    if (openedInfo.size > limit) throw limitError();
+    while (true) {
+      signal?.throwIfAborted();
+      const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, limit - total + 1));
+      const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
+      if (bytesRead === 0) break;
+      total += bytesRead;
+      if (budget) budget.remainingBytes = Math.max(0, budget.remainingBytes - bytesRead);
+      if (total > limit) throw limitError();
+      chunks.push(chunk.subarray(0, bytesRead));
+    }
+  } finally {
+    await handle.close();
+  }
+  signal?.throwIfAborted();
+  const bytes = Buffer.concat(chunks, total);
   const decoded = decodeUtf8(bytes);
   return { bytes, ...decoded, sha256: sha256(bytes) };
 }
@@ -316,25 +364,132 @@ export async function readTextFile(input: {
   startLine: number;
   maxLines: number;
   maxCharacters?: number;
+  sourceBudget?: TextReadBudget;
+  ifSha256Differs?: string;
+  signal?: AbortSignal;
 }) {
   const path = await resolveAuthorizedWorkstationPath(input.context, input.path);
   const maxCharacters = input.maxCharacters ?? 60_000;
-  const current = await readTextBytes(path);
-  const lines = current.text.split(/\r\n|\n|\r/u);
+  if (input.ifSha256Differs !== undefined && !/^[a-f0-9]{64}$/u.test(input.ifSha256Differs)) throw new Error("Invalid ifSha256Differs.");
+  const current = await readTextBytes(path, input.sourceBudget, input.signal);
+  return selectRange(current, { ...input, maxCharacters }, path);
+}
+
+function selectRange(current: Awaited<ReturnType<typeof readTextBytes>> & { lines?: string[] }, input: Parameters<typeof readTextFile>[0], path: string) {
+  const maxCharacters = input.maxCharacters ?? 60_000;
+  const unchanged = current.sha256 === input.ifSha256Differs;
+  const lines = current.lines ?? current.text.split(/\r\n|\n|\r/u);
   const startIndex = Math.min(input.startLine - 1, lines.length);
   const selected = lines.slice(startIndex, startIndex + input.maxLines);
   const selectedText = selected.join("\n");
-  const text = selectedText.slice(0, maxCharacters);
+  const text = selectedText.slice(0, maxCharacters).replace(/[\uD800-\uDBFF]$/u, "");
   const endLine = selected.length === 0 ? input.startLine - 1 : startIndex + selected.length;
+  const characterLimited = text.length < selectedText.length;
+  const nextStartLine = selected.length === 0 ? null : characterLimited
+    ? input.startLine + (text.match(/\n/gu)?.length ?? 0)
+    : endLine < lines.length ? endLine + 1 : null;
   return {
     path,
-    text,
+    text: unchanged ? "" : text,
+    unchanged,
     sha256: current.sha256,
     byteLength: current.bytes.byteLength,
     startLine: input.startLine,
     endLine,
     totalLines: lines.length,
-    truncated: startIndex > 0 || endLine < lines.length || text.length < selectedText.length,
+    characterLimited: unchanged ? false : characterLimited,
+    nextStartLine: unchanged ? null : nextStartLine,
+    truncated: !unchanged && (startIndex > 0 || endLine < lines.length || text.length < selectedText.length),
+  };
+}
+
+type BatchReadResult =
+  | { requestedPath: string; status: "read"; file: Awaited<ReturnType<typeof readTextFile>> }
+  | { requestedPath: string; status: "error"; error: string; code: string | null }
+  | { requestedPath: string; status: "skipped"; reason: "budget_exhausted" | "source_budget_exhausted" };
+
+export async function readTextFiles(input: {
+  context: ProjectContext;
+  files?: readonly { path: string; startLine?: number; maxLines?: number; maxCharacters?: number; ifSha256Differs?: string }[];
+  select?: { root: string; globs: readonly string[]; maxFiles?: number };
+  maxTotalCharacters?: number;
+  signal?: AbortSignal;
+}) {
+  const maxTotalCharacters = input.maxTotalCharacters ?? 60_000;
+  const inRange = (value: number, minimum: number, maximum: number) => Number.isInteger(value) && value >= minimum && value <= maximum;
+  if ((input.files === undefined) === (input.select === undefined)) throw new Error("Provide either files or select, never both.");
+  let requested = input.files;
+  let selection: { matched: number; truncated: boolean; stoppedBecause: string } | null = null;
+  if (input.select) {
+    const { root, globs } = input.select;
+    const maxFiles = input.select.maxFiles ?? 10;
+    if (typeof root !== "string" || !root || !Array.isArray(globs) || globs.length < 1 || globs.length > 8
+      || globs.some(glob => typeof glob !== "string" || !glob || glob.length > 1024) || !inRange(maxFiles, 1, 20)) throw new Error("Invalid file selection.");
+    const found = await searchFiles({ context: input.context, path: root, query: "", mode: "path", regex: false,
+      globs, includeHidden: true, respectIgnoreFiles: true, maxResults: maxFiles, sort: "path", signal: input.signal });
+    requested = found.matches.map(match => ({ path: match.path }));
+    selection = { matched: requested.length, truncated: found.truncated, stoppedBecause: found.stoppedBecause };
+  }
+  if (!requested || requested.length > 20 || (!input.select && requested.length < 1)) throw new Error("Select between 1 and 20 files.");
+  if (!inRange(maxTotalCharacters, 1024, 200_000)) throw new Error("maxTotalCharacters must be between 1024 and 200000.");
+  const files = requested.map((file) => ({
+    path: file.path, startLine: file.startLine ?? 1, maxLines: file.maxLines ?? 400, maxCharacters: file.maxCharacters ?? 60_000,
+    ifSha256Differs: file.ifSha256Differs,
+  }));
+  for (const file of files) {
+    if (typeof file.path !== "string" || file.path.length < 1 || file.path.length > 32_768
+      || !inRange(file.startLine, 1, 100_000_000) || !inRange(file.maxLines, 1, 5000) || !inRange(file.maxCharacters, 1024, 200_000)) {
+      throw new Error("Invalid batch file path or read range.");
+    }
+  }
+  const sourceBudget = { remainingBytes: MAX_TEXT_BYTES };
+  let returnedCharacters = 0;
+  const results: BatchReadResult[] = [];
+  const cache = new Map<string, { source: Awaited<ReturnType<typeof readTextBytes>> & { lines: string[] }; stamp: string }>();
+  for (const file of files) {
+    input.signal?.throwIfAborted();
+    const remaining = maxTotalCharacters - returnedCharacters;
+    if (remaining === 0 || (sourceBudget.remainingBytes === 0 && cache.size === 0)) {
+      results.push({ requestedPath: file.path, status: "skipped", reason: remaining === 0 ? "budget_exhausted" : "source_budget_exhausted" });
+      continue;
+    }
+    try {
+      if (file.ifSha256Differs !== undefined && !/^[a-f0-9]{64}$/u.test(file.ifSha256Differs)) throw new Error("Invalid ifSha256Differs.");
+      const path = await resolveAuthorizedWorkstationPath(input.context, file.path);
+      const key = normalizePathForComparison(path);
+      if (sourceBudget.remainingBytes === 0 && !cache.has(key)) {
+        results.push({ requestedPath: file.path, status: "skipped", reason: "source_budget_exhausted" });
+        continue;
+      }
+      const stampFor = async () => { const info = await stat(path); return `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}`; };
+      const stamp = await stampFor();
+      const cached = cache.get(key);
+      let source;
+      if (cached?.stamp === stamp) source = cached.source;
+      else {
+        if (sourceBudget.remainingBytes === 0) {
+          results.push({ requestedPath: file.path, status: "skipped", reason: "source_budget_exhausted" });
+          continue;
+        }
+        const loaded = await readTextBytes(path, sourceBudget, input.signal);
+        source = { ...loaded, lines: loaded.text.split(/\r\n|\n|\r/u) };
+        if (await stampFor() === stamp) cache.set(key, { source, stamp });
+        else cache.delete(key);
+      }
+      const result = selectRange(source, { ...file, context: input.context, maxCharacters: Math.min(file.maxCharacters, remaining) }, path);
+      returnedCharacters += result.text.length;
+      results.push({ requestedPath: file.path, status: "read", file: result });
+    } catch (error) {
+      input.signal?.throwIfAborted();
+      results.push({ requestedPath: file.path, status: "error", error: errorMessage(error).slice(0, 1000), code: errorCode(error) ?? null });
+    }
+  }
+  return {
+    results,
+    selection,
+    returnedCharacters,
+    truncated: results.some((result) => result.status === "skipped" || (result.status === "read" && result.file.characterLimited)),
+    hasErrors: results.some((result) => result.status === "error"),
   };
 }
 
@@ -364,6 +519,19 @@ async function writeNewFileExclusive(path: string, bytes: Buffer): Promise<void>
   await handle.close();
 }
 
+export async function deleteFileWithCas(input: { context: ProjectContext; path: string; expectedSha256: string }) {
+  if (!/^[a-f0-9]{64}$/u.test(input.expectedSha256)) throw new Error("Invalid expectedSha256.");
+  const path = await resolveAuthorizedWorkstationPath(input.context, input.path);
+  if ((await lstat(path)).isSymbolicLink()) throw new Error("Redirected deletion is not supported.");
+  const target = await resolveWriteTarget(path);
+  return withTargetWriteLease(input.context, target.actualPath, async () => {
+    const current = await lstat(path);
+    if (!current.isFile() || current.isSymbolicLink() || current.nlink > 1) throw new Error("Unsafe deletion target.");
+    if ((await readTextBytes(path)).sha256 !== input.expectedSha256) throw new Error("CHECKPOINT_CONFLICT");
+    await rm(path);
+  });
+}
+
 async function atomicReplace(path: string, bytes: Buffer, expectedSha256: string): Promise<void> {
   const temporaryPath = resolve(dirname(path), `.chatgpt-workstation-${randomUUID()}.tmp`);
   const temporary = await open(temporaryPath, "wx", 0o600);
@@ -376,6 +544,7 @@ async function atomicReplace(path: string, bytes: Buffer, expectedSha256: string
   try {
     const latest = await readTextBytes(path);
     if (latest.sha256 !== expectedSha256) throw new Error("The file changed after it was read; no write was applied.");
+    if (process.platform !== "win32") await chmod(temporaryPath, (await stat(path)).mode & 0o7777);
     await rename(temporaryPath, path);
   } catch (error) {
     await rm(temporaryPath, { force: true }).catch(() => undefined);
@@ -426,77 +595,249 @@ export async function writeTextFile(input: {
   });
 }
 
-function countOccurrences(text: string, needle: string, cap = 2): number {
-  let count = 0;
-  let offset = 0;
-  while (count < cap) {
-    const foundAt = text.indexOf(needle, offset);
-    if (foundAt < 0) break;
-    count += 1;
-    offset = foundAt + Math.max(needle.length, 1);
-  }
-  return count;
-}
-
 function replacementForCurrentText(
   currentText: string,
   oldText: string,
   newText: string,
-): { needle: string; replacement: string } {
-  const exactCount = countOccurrences(currentText, oldText);
-  if (exactCount === 1) return { needle: oldText, replacement: newText };
-  if (exactCount > 1) throw new Error("oldText must occur exactly once in the current file.");
-
+  expectedCount = 1,
+): Array<{ start: number; end: number; replacement: string }> {
+  let found = 0;
+  const locate = (needle: string, replacement: string) => {
+    const matches = [];
+    let start = currentText.indexOf(needle);
+    while (start >= 0 && matches.length <= expectedCount) {
+      if (matches.length && start < matches[matches.length - 1]!.end) {
+        throw new Error(expectedCount === 1 ? "oldText matches multiple locations." : "overlapping occurrences");
+      }
+      matches.push({ start, end: start + needle.length, replacement });
+      start = currentText.indexOf(needle, start + 1);
+    }
+    found = Math.max(found, matches.length);
+    if (expectedCount === 1 && matches.length > 1) throw new Error("oldText matches multiple locations.");
+    return matches.length === expectedCount ? matches : undefined;
+  };
+  const exact = locate(oldText, newText);
+  if (exact) return exact;
   if (oldText.includes("\n") && !oldText.includes("\r\n") && currentText.includes("\r\n")) {
-    const crlfNeedle = oldText.replaceAll("\n", "\r\n");
-    if (countOccurrences(currentText, crlfNeedle) === 1) {
-      return {
-        needle: crlfNeedle,
-        replacement: newText.replace(/\r\n|\r|\n/gu, "\r\n"),
-      };
-    }
+    const normalized = locate(oldText.replaceAll("\n", "\r\n"), newText.replace(/\r\n|\r|\n/gu, "\r\n"));
+    if (normalized) return normalized;
   }
-
   if (oldText.includes("\r\n")) {
-    const lfNeedle = oldText.replaceAll("\r\n", "\n");
-    if (countOccurrences(currentText, lfNeedle) === 1) {
-      return {
-        needle: lfNeedle,
-        replacement: newText.replace(/\r\n|\r/gu, "\n"),
-      };
-    }
+    const normalized = locate(oldText.replaceAll("\r\n", "\n"), newText.replace(/\r\n|\r/gu, "\n"));
+    if (normalized) return normalized;
   }
-
-  throw new Error("oldText must occur exactly once in the current file.");
+  throw new Error(expectedCount === 1 ? "oldText not found." : `expected ${expectedCount} occurrences, found ${found}`);
 }
 
-export async function replaceText(input: {
+async function replaceTextInternal(input: {
   context: ProjectContext;
   path: string;
   expectedSha256: string;
-  oldText: string;
-  newText: string;
-}) {
-  if (!input.oldText) throw new Error("oldText must not be empty.");
+  oldText?: string;
+  newText?: string;
+  expectedCount?: number;
+  dryRun?: boolean;
+  edits?: Array<{ oldText: string; newText: string; expectedCount?: number }>;
+}, capture?: (bytes: Buffer) => void) {
+  const batch = input.edits !== undefined;
+  if (batch ? input.oldText !== undefined || input.newText !== undefined || input.expectedCount !== undefined
+    : input.oldText === undefined || input.newText === undefined) {
+    throw new Error("Provide either oldText/newText or edits, never both.");
+  }
+  if (input.dryRun !== undefined && typeof input.dryRun !== "boolean") throw new Error("dryRun must be boolean.");
+  const edits = batch ? input.edits! : [{ oldText: input.oldText!, newText: input.newText!, expectedCount: input.expectedCount }];
+  if (!Array.isArray(edits) || edits.length < 1 || edits.length > 100) throw new Error("edits must contain 1 to 100 items.");
+  const textLimit = (batch ? 1 : 4) * 1024 * 1024;
+  let payloadBytes = 0;
+  for (const [index, edit] of edits.entries()) {
+    if (edit?.expectedCount !== undefined && (!Number.isInteger(edit.expectedCount) || edit.expectedCount < 1 || edit.expectedCount > 1000)) {
+      throw new Error(`edits[${index}]: expectedCount must be from 1 to 1000.`);
+    }
+    if (!edit || typeof edit.oldText !== "string" || !edit.oldText || edit.oldText.length > textLimit
+      || typeof edit.newText !== "string" || edit.newText.length > textLimit) {
+      throw new Error(`edits[${index}]: invalid oldText/newText or text limit exceeded.`);
+    }
+    payloadBytes += Buffer.byteLength(edit.oldText, "utf8") + Buffer.byteLength(edit.newText, "utf8");
+    if (batch && payloadBytes > MAX_WRITE_BYTES) throw new Error("Replacement payload exceeds the 16 MiB UTF-8 limit.");
+  }
   const requestedPath = await resolveAuthorizedWorkstationPath(input.context, input.path);
   const target = await resolveWriteTarget(requestedPath);
   if (!target.exists) throw new Error(`File does not exist: ${requestedPath}`);
-  return await withTargetWriteLease(input.context, target.actualPath, async () => {
+  const apply = async () => {
     const current = await readTextBytes(target.actualPath);
     if (current.sha256 !== input.expectedSha256) throw new Error("The file changed after it was read; no write was applied.");
-    const { needle, replacement } = replacementForCurrentText(current.text, input.oldText, input.newText);
-    const foundAt = current.text.indexOf(needle);
-    const updated = `${current.text.slice(0, foundAt)}${replacement}${current.text.slice(foundAt + needle.length)}`;
+    const ranges = edits.flatMap((edit, index) => {
+      try {
+        return replacementForCurrentText(current.text, edit.oldText, edit.newText, edit.expectedCount).map(range => ({ ...range, index }));
+      } catch (error) {
+        if (!batch && (edit.expectedCount ?? 1) === 1) throw new Error("oldText must occur exactly once in the current file.");
+        throw new Error(`edits[${index}]: ${error instanceof Error ? error.message : "invalid replacement"}`);
+      }
+    }).sort((a, b) => a.start - b.start);
+    const pieces: string[] = [];
+    const positions: Array<{ index: number; start: number; length: number }> = [];
+    let offset = 0;
+    let delta = 0;
+    let resultBytes = current.hasBom ? 3 : 0;
+    for (const [index, range] of ranges.entries()) {
+      if (range.start < offset) throw new Error(`edits[${ranges[index - 1]!.index}] overlaps edits[${range.index}].`);
+      const gap = current.text.slice(offset, range.start);
+      resultBytes += Buffer.byteLength(gap, "utf8") + Buffer.byteLength(range.replacement, "utf8");
+      if (resultBytes > MAX_WRITE_BYTES) throw new Error(`Edited file exceeds the ${MAX_WRITE_BYTES}-byte tool limit.`);
+      pieces.push(gap, range.replacement);
+      positions.push({ index: range.index, start: range.start + delta, length: range.replacement.length });
+      delta += range.replacement.length - (range.end - range.start);
+      offset = range.end;
+    }
+    pieces.push(current.text.slice(offset));
+    const updated = pieces.join("");
     const updatedBytes = encodeUtf8(updated, current.hasBom);
     if (updatedBytes.byteLength > MAX_WRITE_BYTES) throw new Error(`Edited file exceeds the ${MAX_WRITE_BYTES}-byte tool limit.`);
-    await atomicReplace(target.actualPath, updatedBytes, input.expectedSha256);
+    let cursor = 0;
+    let line = 1;
+    const lineAt = (position: number) => {
+      while (cursor < position) {
+        if (updated[cursor] === "\n" || (updated[cursor] === "\r" && updated[cursor + 1] !== "\n")) line++;
+        cursor++;
+      }
+      return line;
+    };
+    const outputRanges = positions.map(position => {
+      const startLine = lineAt(position.start);
+      return { index: position.index, startLine, endLine: position.length ? lineAt(position.start + position.length - 1) : startLine - 1 };
+    }).sort((a, b) => a.index - b.index);
+    if (!input.dryRun) await atomicReplace(target.actualPath, updatedBytes, input.expectedSha256);
+    capture?.(updatedBytes);
     return {
       path: requestedPath,
       previousSha256: input.expectedSha256,
       sha256: sha256(updatedBytes),
       byteLength: updatedBytes.byteLength,
+      editsApplied: edits.length,
+      replacementsApplied: ranges.length,
+      ranges: outputRanges,
+      dryRun: input.dryRun ?? false,
     };
-  });
+  };
+  return input.dryRun ? apply() : withTargetWriteLease(input.context, target.actualPath, apply);
+}
+
+export function replaceText(input: Parameters<typeof replaceTextInternal>[0]) {
+  return replaceTextInternal(input);
+}
+
+export type MultiEditFile = { path: string; expectedSha256: string; edits?: NonNullable<Parameters<typeof replaceTextInternal>[0]["edits"]>; content?: string };
+export async function replaceTextMulti(input: { context: ProjectContext; files: readonly MultiEditFile[] }) {
+  if (!Array.isArray(input.files) || input.files.length < 1 || input.files.length > 10) throw new Error("Select 1 to 10 files.");
+  let payload = 0;
+  const targets: Array<Awaited<ReturnType<typeof resolveWriteTarget>> & { index: number; file: MultiEditFile }> = [];
+  const seen = new Set<string>();
+  const files: readonly MultiEditFile[] = input.files;
+  for (const [index, file] of files.entries()) {
+    if (!/^(?:absent|[a-f0-9]{64})$/u.test(file.expectedSha256)) throw new Error(`files[${index}]: invalid expectedSha256`);
+    if (file.expectedSha256 === "absent" ? typeof file.content !== "string" || file.edits !== undefined : file.content !== undefined || !Array.isArray(file.edits)) throw new Error(`files[${index}]: invalid edit form`);
+    payload += file.content === undefined ? file.edits!.reduce((sum, edit) => sum + Buffer.byteLength(edit.oldText) + Buffer.byteLength(edit.newText), 0) : Buffer.byteLength(file.content);
+    if (payload > MAX_WRITE_BYTES) throw new Error("Multi-edit payload exceeds 16 MiB.");
+    const path = await resolveAuthorizedWorkstationPath(input.context, file.path);
+    const target = await resolveWriteTarget(path);
+    const key = normalizePathForComparison(target.actualPath);
+    if (seen.has(key)) throw new Error("Duplicate actual file path.");
+    seen.add(key);
+    targets.push({ ...target, index, file });
+  }
+  targets.sort((a, b) => normalizePathForComparison(a.actualPath).localeCompare(normalizePathForComparison(b.actualPath)));
+  const operationId = randomUUID();
+  const run = async () => {
+    const plans = [];
+    for (const target of targets) {
+      let bytes: Buffer | undefined;
+      let original: Buffer | undefined;
+      let result;
+      try {
+        if (target.file.expectedSha256 === "absent") {
+          if ((await resolveWriteTarget(target.actualPath)).exists) throw new Error("File already exists.");
+          bytes = Buffer.from(target.file.content!, "utf8");
+          result = { path: target.requestedPath, previousSha256: null, sha256: sha256(bytes), byteLength: bytes.length, editsApplied: 0, replacementsApplied: 0, ranges: [] };
+        } else {
+          result = await replaceTextInternal({ context: input.context, path: target.actualPath, expectedSha256: target.file.expectedSha256,
+            edits: target.file.edits, dryRun: true }, value => { bytes = value; });
+          original = (await readTextBytes(target.actualPath)).bytes;
+          if (sha256(original) !== target.file.expectedSha256) throw new Error("File changed during preparation.");
+        }
+      } catch (error) { throw new Error(`files[${target.index}]: ${errorMessage(error)}`); }
+      if (!bytes || bytes.length > MAX_WRITE_BYTES) throw new Error("Prepared file exceeds the write limit.");
+      plans.push({ ...target, bytes, original, result, temporaryPath: resolve(dirname(target.actualPath), `.workforge-multi-${operationId}-${target.index}.tmp`) });
+    }
+    let journalRoot = input.context.engineRoot;
+    for (const segment of ["runtime", "multi-edit", operationId]) {
+      journalRoot = resolve(journalRoot, segment);
+      try { await mkdir(journalRoot); } catch (error) { if (errorCode(error) !== "EEXIST") throw error; }
+      const info = await lstat(journalRoot);
+      if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Unsafe multi-edit journal directory.");
+    }
+    const applied: typeof plans = [];
+    const publicationWarnings: Array<{ path: string; code: "exclusive_write_fallback" }> = [];
+    try {
+      for (const plan of plans) {
+        if (plan.original) await writeFile(resolve(journalRoot, `${plan.index}.orig`), plan.original, { flag: "wx", mode: 0o600 });
+      }
+      await writeFile(resolve(journalRoot, "journal.json"), JSON.stringify(plans.map(plan => ({ index: plan.index, path: plan.actualPath,
+        previousSha256: plan.result.previousSha256, sha256: plan.result.sha256 }))), { flag: "wx", mode: 0o600 });
+      for (const plan of plans) {
+        const handle = await open(plan.temporaryPath, "wx", 0o600);
+        try { await handle.writeFile(plan.bytes); await handle.sync(); } finally { await handle.close(); }
+        if (plan.original && process.platform !== "win32") await chmod(plan.temporaryPath, (await stat(plan.actualPath)).mode & 0o7777);
+      }
+      for (const plan of plans) {
+        if (plan.original) {
+          if ((await readTextBytes(plan.actualPath)).sha256 !== plan.file.expectedSha256) throw new Error("File changed before commit.");
+        } else if ((await resolveWriteTarget(plan.actualPath)).exists) throw new Error("New file appeared before commit.");
+      }
+      for (const plan of plans) {
+        if (plan.original) {
+          if ((await readTextBytes(plan.actualPath)).sha256 !== plan.file.expectedSha256) throw new Error("File changed during commit.");
+          await rename(plan.temporaryPath, plan.actualPath);
+        } else {
+          // Exclusive creation avoids rename overwriting a file created by another process.
+          try { await link(plan.temporaryPath, plan.actualPath); }
+          catch (error) {
+            if (!["EPERM", "ENOTSUP", "EXDEV", "EOPNOTSUPP"].includes(errorCode(error) ?? "")) throw error;
+            await writeNewFileExclusive(plan.actualPath, plan.bytes);
+            publicationWarnings.push({ path: plan.requestedPath, code: "exclusive_write_fallback" });
+          }
+          applied.push(plan);
+          await rm(plan.temporaryPath);
+          continue;
+        }
+        applied.push(plan);
+      }
+    } catch (error) {
+      let rollback = "complete";
+      for (const plan of applied.reverse()) {
+        try {
+          if (plan.original) await atomicReplace(plan.actualPath, plan.original, plan.result.sha256);
+          else {
+            if ((await readTextBytes(plan.actualPath)).sha256 !== plan.result.sha256) throw new Error("New file changed.");
+            await rm(plan.actualPath);
+          }
+        } catch { rollback = "failed"; }
+      }
+      throw new Error(`MULTI_EDIT_FAILED: rollback=${rollback}; journal=${journalRoot}; ${errorMessage(error)}. After inspection, remove any leftover .workforge-multi-*.tmp link to restore nlink=1; never replay automatically.`);
+    } finally {
+      for (const plan of plans) await rm(plan.temporaryPath, { force: true }).catch(() => undefined);
+    }
+    let cleanupWarning: string | null = null;
+    try { await rm(journalRoot, { recursive: true }); }
+    catch { cleanupWarning = "journal_cleanup_failed"; }
+    return { operationId, cleanupWarning, journalPath: cleanupWarning ? journalRoot : null, publicationWarnings,
+      files: plans.sort((a, b) => a.index - b.index).map(({ result }) => {
+      const { path, previousSha256, sha256, byteLength, editsApplied, replacementsApplied, ranges } = result;
+      return { path, previousSha256, sha256, byteLength, editsApplied, replacementsApplied, ranges };
+    }) };
+  };
+  const lease = (index: number): ReturnType<typeof run> => index === targets.length ? run()
+    : withTargetWriteLease(input.context, targets[index]!.actualPath, () => lease(index + 1));
+  return lease(0);
 }
 
 function imageMimeType(path: string, bytes: Buffer): string {
