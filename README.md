@@ -8,9 +8,9 @@
 
 > **ChatGPT is smart, but it does not normally have hands inside your PC. WorkForge gives it a safe pair of hands.**
 
-WorkForge connects ChatGPT to your Windows or macOS workstation so it can inspect real project files, search and make guarded edits, read local images, and run supervised shell commands. If Git is installed, WorkForge can additionally inspect branches, commits, and change history.
+WorkForge is a general-purpose workstation MCP server for Windows and macOS. It connects ChatGPT to local files, bounded search, guarded edits, images, and supervised shell commands. Saved task checkpoints and execution records help resume work with inspectable evidence. With Git installed, it can also inspect branches, commits, and working-tree changes.
 
-macOS support is available in this fork as a source preview for Apple Silicon and Intel Macs. See [docs/MACOS.md](docs/MACOS.md). The existing Windows portable release remains unchanged.
+Windows is distributed as a portable release. macOS is available as a source preview for Apple Silicon and Intel Macs; see [docs/MACOS.md](docs/MACOS.md). Both platforms require manual startup.
 
 In plain language, it is **a secure working bridge between ChatGPT and your computer**.
 
