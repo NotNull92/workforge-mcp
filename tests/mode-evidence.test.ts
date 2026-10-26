@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile, symlink, rm, link } from "node:fs/promises";
+import { mkdtemp, writeFile, symlink, rm, link, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
@@ -16,7 +16,8 @@ it("distinguishes current, stale and absent mode evidence without guessing", () 
 });
 
 it("reads only a bounded tail and rejects redirected logs", async () => {
-  const root = await mkdtemp(join(tmpdir(), "workforge-mode-log-"));
+  // Ancestors must not be symlinks; macOS tmpdir lives under the /var -> /private/var link.
+  const root = await realpath(await mkdtemp(join(tmpdir(), "workforge-mode-log-")));
   try {
     const path = join(root, "tunnel.stderr.log");
     await writeFile(path, "x".repeat(300000) + '\nWorkForge MCP posture: {"toolMode":"read_write","redaction":"off","tools":19}\n');

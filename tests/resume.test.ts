@@ -113,8 +113,9 @@ describe("project resume snapshot", () => {
     const { context, root } = await makeContext();
     const foreign = await makeContext();
     await symlink(foreign.root, join(root, "foreign"), process.platform === "win32" ? "junction" : "dir");
+    // The profile loader registers canonical roots; CI temp dirs sit behind /var or 8.3 aliases.
     const isolated = { ...context, managedProjectRoots: [
-      ...context.managedProjectRoots, { profileId: "foreign", primaryRoot: foreign.root },
+      ...context.managedProjectRoots, { profileId: "foreign", primaryRoot: await realpath(foreign.root) },
     ] } satisfies ProjectContext;
     await expect(getProjectResume(isolated, 5, 200, root, ["foreign/docs/HANDOFF.md"])).rejects.toThrow("Cross-profile path denied");
   });
