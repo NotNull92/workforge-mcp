@@ -4,8 +4,8 @@ WorkForge does not vendor npm dependency source code in Git. `npm ci` installs v
 
 | Component | Version | License |
 |---|---:|---|
-| `@modelcontextprotocol/sdk` | 1.29.0 | MIT |
-| `zod` | 4.4.3 | MIT |
+| `@modelcontextprotocol/sdk` | 1.32.2 | MIT |
+| `zod` | 4.6.7 | MIT |
 | `typescript` | 7.0.2 | Apache-2.0 |
 | `vitest` | 4.1.10 | MIT |
 | `@types/node` | 24.13.3 | MIT |

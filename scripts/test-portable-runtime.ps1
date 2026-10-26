@@ -20,7 +20,7 @@ function New-PortableFixture {
   }
   $Files = [ordered]@{
     ".workforge-release.json" = (@{ schemaVersion = 1; product = "WorkForge"; version = $Version; distributionKind = "portable-release" } | ConvertTo-Json)
-    "package.json" = (@{ name = "workforge-mcp"; version = $Version; dependencies = @{ "@modelcontextprotocol/sdk" = "1.29.0"; zod = "4.4.3" } } | ConvertTo-Json -Depth 4)
+    "package.json" = (@{ name = "workforge-mcp"; version = $Version; dependencies = @{ "@modelcontextprotocol/sdk" = "1.32.2"; zod = "4.6.7" } } | ConvertTo-Json -Depth 4)
     "runtime-lock.json" = (@{ schemaVersion = 1; product = "WorkForge"; runtimes = @{} } | ConvertTo-Json)
     "dist\stdio.js" = "stdio-$Marker"
     "runtimes\node\node.exe" = "node-$Marker"
