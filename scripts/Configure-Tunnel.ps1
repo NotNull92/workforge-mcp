@@ -3,7 +3,8 @@ param(
   [string]$TunnelId,
   [string]$ProfileId = "workstation",
   [switch]$SkipDoctor,
-  [switch]$RebindRuntime
+  [switch]$RebindRuntime,
+  [switch]$ReadOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -29,7 +30,7 @@ if ($RebindRuntime) {
 }
 if ($TunnelId -cnotmatch '^tunnel_[a-f0-9]{32}$') { throw "tunnel_id is invalid." }
 
-$McpCommand = New-WorkForgeMcpCommand -StdioRuntime $StdioRuntime -ProfileId $ProfileId
+$McpCommand = New-WorkForgeMcpCommand -StdioRuntime $StdioRuntime -ProfileId $ProfileId -ReadOnly:$ReadOnly
 $RunsRoot = Get-WorkForgeRunsRoot
 New-Item -ItemType Directory -Path $RunsRoot -Force | Out-Null
 $CredentialPath = Join-Path $RunsRoot ".env.local"

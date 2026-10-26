@@ -323,11 +323,13 @@ function Set-WorkForgeMcpRuntimeEnvironment {
 function New-WorkForgeMcpCommand {
   param(
     [Parameter(Mandatory = $true)][object]$StdioRuntime,
-    [Parameter(Mandatory = $true)][string]$ProfileId
+    [Parameter(Mandatory = $true)][string]$ProfileId,
+    [switch]$ReadOnly
   )
 
   Set-WorkForgeMcpRuntimeEnvironment -StdioRuntime $StdioRuntime
-  return ("cmd.exe /d /s /c %WORKFORGE_MCP_NODE% %WORKFORGE_MCP_STDIO% --profile {0}" -f $ProfileId)
+  $ModeArgument = if ($ReadOnly) { " --read-only" } else { "" }
+  return ("cmd.exe /d /s /c %WORKFORGE_MCP_NODE% %WORKFORGE_MCP_STDIO% --profile {0}{1}" -f $ProfileId, $ModeArgument)
 }
 
 function Get-WorkForgeRegistryPath {

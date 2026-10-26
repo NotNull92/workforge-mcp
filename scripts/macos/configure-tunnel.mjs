@@ -62,7 +62,7 @@ try {
   }
 
   const key = readStoredControlPlaneKey(profileId);
-  const command = `"${installation.nodePath.replaceAll('"', '\\"')}" "${resolve(installation.engineRoot, "dist", "stdio.js").replaceAll('"', '\\"')}" --profile ${profileId}`;
+  const command = `"${installation.nodePath.replaceAll('"', '\\"')}" "${resolve(installation.engineRoot, "dist", "stdio.js").replaceAll('"', '\\"')}" --profile ${profileId}${process.argv.includes("--read-only") ? " --read-only" : ""}`;
   buildRoot = mkdtempSync(resolve(tmpdir(), "workforge-tunnel-profile-"));
   execFileSync(executable, [
     "init", "--sample", "sample_mcp_stdio_local", "--profile", profileId,
