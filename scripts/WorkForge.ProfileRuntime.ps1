@@ -297,7 +297,7 @@ function Get-WorkForgeStdioRuntime {
   $NodePath = if ($null -ne $script:WorkForgePortableRuntime) {
     $script:WorkForgePortableRuntime.NodePath
   } else {
-    $NodeCommand = Get-Command node.exe -CommandType Application -ErrorAction Stop
+    $NodeCommand = Get-Command node.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1
     (Resolve-Path -LiteralPath $NodeCommand.Source -ErrorAction Stop).Path
   }
   $NodeFile = Assert-WorkForgeRegularFile -Path $NodePath -MaximumBytes 268435456 -Description "Node.js runtime"
