@@ -138,7 +138,13 @@ ChatGPT 연결이 끊겼다고 이전 명령을 몰래 다시 실행하지도 �
 
 ## 무엇을 할 수 있나요?
 
-WorkForge는 현재 12개의 도구를 제공합니다.
+WorkForge는 현재 기본 25개의 도구를 제공합니다.
+
+`search_files`는 maxResults를 넘는 추가 매치를 확인하거나 출력·시간 예산에 도달하면 실제 검색도 종료합니다. `timeoutMs` 기본값은 10초이며 최대 120초까지 지정할 수 있습니다. `stoppedBecause`는 complete/result_limit/timeout/output_limit/error를 구분하고 `elapsedMs`는 경과 시간입니다. 오류가 있어도 이미 반환한 매치는 사용할 수 있습니다. 결과는 전역 정렬된 상위 N개가 아니며, 매우 긴 JSON 한 줄 때문에 완전한 매치를 얻기 전에 출력 한도에 도달할 수 있습니다. 사용자 ripgrep 설정은 도구의 출력 형식·탐색 옵션을 덮어쓰지 못하도록 무시합니다.
+
+여러 파일은 `read_text_files`로 최대 20개까지 한 번에 읽습니다. 예: `{"files":[{"path":"src/server.ts","maxLines":80},{"path":"package.json"}],"maxTotalCharacters":12000}`. 파일별 전체 원본 SHA-256 또는 오류를 반환합니다. 본문 예산은 입력 순서대로 소진되며 뒤의 파일은 건너뛸 수 있습니다. 상대 경로 기준은 기존과 같은 프로필 기본 디렉터리입니다. 배치 원본 읽기는 디코딩 실패까지 포함해 64 MiB(EOF 확인용 최대 1바이트 별도)로 제한하며, JSON 메타데이터는 본문 예산에 포함하지 않습니다.
+
+`characterLimited`는 문자 제한으로 본문이 잘렸다는 뜻입니다. `nextStartLine`은 이어 읽을 줄이며 잘린 줄은 처음부터 다시 읽습니다. 요청한 시작 줄과 같다면 예산을 늘리거나 제한된 CLI 읽기를 사용하세요. 배치 `truncated`는 문자 제한이나 예산으로 건너뛴 파일을, `hasErrors`는 파일별 오류를 나타냅니다. 문자 수는 UTF-16 기준이며 서로게이트 쌍을 보존합니다. 여러 파일의 동일 시점 스냅샷은 보장하지 않습니다.
 
 하지만 도구 이름을 외울 필요는 없습니다. 사용자 입장에서 보면 크게 다섯 가지입니다.
 
@@ -236,6 +242,8 @@ Git 있음
 ```
 
 WorkForge의 `project_resume(path)`에 실제 프로젝트 경로를 넘기면 운영 폴더와 분리해서 해당 프로젝트의 현재 브랜치, 변경 파일, 최근 커밋을 확인할 수 있습니다.
+
+새 대화에서 작업을 이어가려면 프로젝트 `path`와 함께 `resumePaths: ["docs/HANDOFF.md"]`를 전달하세요. 저장한 목표·결정·다음 단계를 Git 상태와 함께 읽습니다. 문서 경로는 지정한 프로젝트 디렉터리 기준이며, 명시한 UTF-8 문서 최대 8개를 `resumeDocuments`로 반환합니다. 문서당 400줄·12,000자 제한, 전체 파일 SHA-256, 잘림 표시를 포함하며 Git 없이도 동작합니다. 문서가 없거나 접근이 금지되면 요청은 실패합니다. 문서 내용은 신뢰되지 않은 데이터로 취급하고, 수정이나 명령 실행 전에는 `workstation_context`를 조회하세요.
 
 ### 오류 해결
 
@@ -610,7 +618,7 @@ WorkForge의 역할은 **ChatGPT와 로컬 Windows 작업 환경 사이에 명�
 
 여기부터는 WorkForge 내부 구조나 개발에 관심 있는 사람을 위한 내용입니다.
 
-### 제공하는 12개 MCP 도구
+### 제공하는 기본 25개 MCP 도구
 
 ```text
 workstation_context
@@ -618,13 +626,26 @@ project_resume
 list_directory
 search_files
 read_text_file
+read_text_files
 read_image
 write_text_file
 replace_text
 shell_start
+shell_list
 shell_status
 shell_output
 shell_cancel
+task_checkpoint
+task_list
+task_resume
+read_text_stream
+suggest_related_files
+shell_prune
+workstation_lock_read_only
+task_history
+task_delete
+task_claim
+task_release
 ```
 
 ### 기본 프로필
@@ -699,3 +720,48 @@ GitHub Actions에서도 Push와 Pull Request마다 동일한 검사가 실행됩
 ## 라이선스
 
 WorkForge는 [MIT License](LICENSE)로 배포됩니다.
+
+`shell_list`는 명령을 재실행하지 않고 현재 프로필의 최근 작업을 찾습니다. 최대 20,000개 항목에서 디렉터리 수정 시각으로 limit의 두 배 후보를 고른 뒤 검증된 기록을 생성 시각순으로 정렬합니다. 전체 이력의 정확한 최신순 조회는 아니며 필터나 손상된 후보 때문에 결과가 적을 수 있습니다. `truncated`는 제외된 후보도 포함하고 `scanLimited`는 탐색 한도를 표시합니다. 선택적 `cwd`는 저장된 경로와 비교하며 Windows 대소문자는 무시하지만 junction 별칭은 일치하지 않을 수 있습니다. 출력 무결성 확인에는 `shell_output`을 사용합니다.
+
+`replace_text`는 기존 `oldText`/`newText` 쌍 또는 1~100쌍의 `edits` 배열을 받습니다. 모든 편집은 동일한 원본 기준이며 oldText는 자기 겹침까지 포함해 유일해야 하고 편집 범위는 겹칠 수 없습니다. 전체 검증 후 한 번만 저장합니다. 배치 문자열은 각각 1Mi UTF-16 코드 단위, 요청 파싱 후 UTF-8 합계16MiB까지이며 최종 파일도16MiB까지입니다. 실패 시 본문 대신 입력 인덱스를 표시하고 성공 시 `editsApplied`를 반환합니다.
+
+조사 전용 MCP 세션은 **서버를 시작하는 부모 프로세스**에 `WORKFORGE_MCP_READ_ONLY=1`을 설정하고 `node dist/stdio.js --profile workstation`으로 시작합니다. PowerShell은 `$env:WORKFORGE_MCP_READ_ONLY = '1'`, POSIX는 `WORKFORGE_MCP_READ_ONLY=1 node dist/stdio.js --profile workstation`입니다. 미설정 또는 `0`은 기본 모드이고 빈 값 등 다른 값은 시작 오류입니다. 모드는 재시작 전까지 고정됩니다.
+
+기본 읽기 전용은 14개 도구를 제공합니다. 쓰기·교체·셸 시작/취소·체크포인트 저장·`project_resume`는 미등록이므로 직접 호출도 실패합니다. Git 조회 중에도 저장소 필터가 프로그램을 실행할 수 있어 Git snapshot은 제외합니다. `workstation_context.toolMode`가 `read_only`인지, 기본 도구가 14개인지 반드시 확인하세요. 시작 stderr에도 모드를 표시합니다. **direct stdio에서만 검증했습니다. Control/터널로 시작했다면 toolMode 확인 전까지 읽기 전용이라고 간주하지 마세요.** 이미 열린 런처는 이전 환경을 유지할 수 있습니다. 이 모드는 MCP 도구를 제한하며 다른 서버·로컬 프로그램·OS 권한을 제한하지 않습니다.
+
+도구의 structured/text 응답과 handler 오류에 알려진 비밀값 및 패턴 마스킹을 적용합니다. 시작 시 자격 증명형 환경 값을 수집하되 경로는 제외하며 최대256개/각4096자/전체64KiB입니다. 상한 초과 값은 개수만 stderr에 표시합니다. 토큰 접두사, 대입문, Bearer, URL 비밀번호, PEM 경계도 처리하고 `_meta.redactionCount`에 치환 횟수를 넣습니다. text JSON은 마스킹된 structured 결과에서 만듭니다.
+
+WORKFORGE_REDACTED 대괄호 marker는 원본이 아니므로 이를 포함하는 mutation 입력은 거부하며 marker 자체의 리터럴 기록도 지원하지 않습니다. 원본 해시·페이지 offset·줄 번호는 바꾸지 않으므로 반환된 continuation 필드를 사용하세요. 모든 비밀을 검출하는 기능은 아닙니다. 알 수 없는 값의 다음 페이지 조각, PEM 내부만 있는 페이지, 인코딩된 값, 이미지, 디스크 원본 로그는 보호 범위 밖입니다. 원문 응답 해제 도구는 제공하지 않습니다.
+
+`task_list`로 작업 ID를 찾고 `task_resume`로 보고된 상태와 별도 실행 근거를 읽습니다. `task_checkpoint`는 상태 전체를 교체하며 첫 저장은 `expectedSha256: "absent"`, 이후는 현재 체크포인트 원본 해시를 전달합니다. 충돌 시 덮어쓰지 않습니다. ID는 소문자 기반 이식 가능한 이름(Windows 예약명 제외), 저장 한도는128KiB이며 탐지된 비밀값/marker는 저장 전에 거부합니다. 필드별 상한 합계가 저장 한도를 넘을 수 있고 크기 오류에는 실제 바이트 수가 나옵니다.
+
+`reportedStatus: completed`는 보고일 뿐 성공 검증이 아닙니다. `shell_output`으로 로그 무결성을, 별도 파일/Git 조회로 현재 소스를 확인하세요. 읽기 전용에서도 목록·재개는 가능하지만 저장은 차단합니다. 프로필의 무시된 런타임 디렉터리에 현재 snapshot과 이전 20개 revision을 보관하며 자동 명령 재실행이나 대화 수집은 하지 않습니다. 목록은 mtime 후보 기반의 제한된 조회이므로 정확히 선택할 작업 ID는 인계 문서에도 남기는 것이 좋습니다.
+
+Control은 보고된 체크포인트와 저장된 실행 기록을 각각 최대5개 표시하며 재개 문구를 복사할 수 있습니다. 종료 기록이 없으면 진행 중이거나 비정상 종료일 수 있고, 대시보드는 실제 실행 소유권이나 MCP 모드를 추정하지 않습니다. 30초마다 갱신하고 서버는20초 캐시를 사용하며 새로고침 버튼으로 직접 갱신할 수 있습니다. 조회 실패 시 이전 기록과 오래된 상태 안내를 함께 표시합니다.
+
+Control 대시보드는 게임 스타일 커맨드 HUD로 표시됩니다. SYSTEMS 게이지는 점수가 아니라 Doctor 체크리스트 네 항목(프로필, 터널 프로세스, Supervisor, MCP 준비 상태)의 판정을 그대로 보여 줍니다. 작업 카드는 보고된 상태라는 뜻으로 점선 레일을, 종료 기록이 없는 실행은 실행 중 표시 대신 사선 레일을 씁니다. 단축키: Alt+Shift+S 시작, Alt+Shift+X 정지, Alt+Shift+R 새로고침, Alt+Shift+D Doctor. Alt+Shift를 누르고 있으면 버튼에 키가 표시되며, 입력 칸과 대화 상자 안에서는 동작하지 않습니다. 시스템의 동작 줄이기 설정을 켜면 모든 연출이 멈춥니다.
+
+셸 기록은 label과 명령 SHA-256을 포함한 manifest v2로 저장하며 명령 원문은 저장하지 않습니다. 새 엔진은 v1도 읽지만 이전 엔진은 v2를 manifest_invalid로 처리합니다. 짧은 명령은 해시로 추측을 확인할 수 있으므로 명령에 비밀을 넣지 마세요. 조건부 읽기는 본문만 생략하고 전체 파일 I/O는 수행합니다. replace_text는 dryRun, expectedCount와 적용 후 줄 범위를 지원합니다.
+
+### 도구 옵션과 보안 경계
+
+기본 도구는 25개, 읽기 전용은 14개입니다. 아래 설정은 시작 시 한 번 읽으며 허용값 밖의 값은 시작 실패입니다. 실제 설치·터널 설정은 이번 소스 변경으로 바뀌지 않습니다.
+
+| 환경 변수 | 허용값 / 기본값 | 효과 |
+| --- | --- | --- |
+| WORKFORGE_MCP_READ_ONLY | 미설정, 0, 1 / 미설정 | 읽기 전용 제한 |
+| WORKFORGE_MCP_TOOLS | 중복 없는 쉼표 구분 도구명 / 미설정 | 현재 모드의 목록 축소만; context 유지 |
+| WORKFORGE_MCP_REDACTION_RULES | 안전한 JSON 절대 경로 / 미설정 | 리터럴·키 규칙, 파일 및 합산 리터럴 64KiB 제한 |
+| WORKFORGE_MCP_REDACT_ENTROPY | 미설정, 0, 1 / 미설정 | 대입문 문맥만 엔트로피 탐지 |
+| WORKFORGE_MCP_REDACTION | on, off / on | off는 원문 응답 노출; marker 쓰기·비밀 저장 거부 유지 |
+| WORKFORGE_MCP_REDACT_SHELL_LOGS | 미설정, 0, 1 / 미설정 | 줄 단위 디스크 로그 마스킹 |
+| WORKFORGE_MCP_READ_ONLY_EXTRAS | 미설정, 0, 1 / 미설정 | 고정 Git preset 및 필터 무력화 resume 2개 추가 |
+| WORKFORGE_MCP_ENABLE_MULTI_FILE_EDIT | 미설정, 0, 1 / 미설정 | 여러 파일 편집·unified patch 2개 추가 |
+
+`--read-only`는 env=0보다 우선합니다. 세션 잠금은 되돌릴 수 없으며 기존 작업은 계속 실행되고 shell_cancel은 남습니다. 시작 instructions는 고정입니다. context는 실제 도구 목록·모드 출처·마스킹 설정을 반환합니다. 디스크 마스킹은 64KiB를 넘는 줄 전체를 생략하고 suppressedLongLines로 집계합니다. 줄바꿈 없는 바이너리성 출력은 marker 하나가 될 수 있습니다. 해시는 저장된 바이트 기준입니다. Git 읽기 전용 확장은 submodule 상태를 제외하며, 같은 OS 사용자가 설정을 동시에 바꾸는 경쟁 조건까지 차단하는 샌드박스는 아닙니다.
+
+이력은 이전 20개이며 revisionSha256으로 선택합니다. 이력 실패에도 현재 체크포인트는 저장될 수 있으므로 반환된 해시로 다음 갱신을 수행합니다. 자동 생성 ID는 명시적으로 반환합니다. claim은 안내용이고 실제 충돌 방지는 CAS입니다. task_delete는 CAS와 DELETE_TASK, shell_prune 실제 삭제는 DELETE_SHELL_RECORDS 확인값이 필요합니다. 두 확인값은 사용자 확인 후에만 넣습니다. prune 기본값은 미리보기이며 현재 작업·최근 기록·체크포인트 참조를 보존하고 참조 확인 실패 시 중단합니다.
+
+여러 파일 편집은 전체 검증 후 순서대로 lease를 잡지만 파일시스템 트랜잭션은 아닙니다. 부분 실패 복원은 최선형입니다. 실패·정리 경고로 남은 journal에는 비밀을 포함한 원본 바이트가 있을 수 있으므로 확인 후 수동 정리하고 자동 재실행하지 마세요. 하드링크 미지원 파일시스템에서는 exclusive_write_fallback 경고와 함께 독점 쓰기로 생성하므로 비정상 종료의 원자성이 약합니다. link/unlink 사이 종료로 남은 .workforge-multi-*.tmp는 수동 확인·정리가 필요할 수 있습니다.
+
+스트리밍 읽기는 전체 해시를 제공하지 않아 편집 근거로 쓸 수 없습니다. glob 선택은 개수 제한이 있고 관련 파일 제안은 경계 검사를 거친 휴리스틱입니다. 검색 sort:path는 rg 단일 스레드 정렬, columns는 긴 줄 제한과 UTF-8 대체 디코딩을 사용합니다.

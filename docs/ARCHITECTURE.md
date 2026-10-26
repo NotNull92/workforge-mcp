@@ -1,5 +1,15 @@
 # Architecture
 
+## Batch text reads
+
+Search uses an opt-in stdout callback on the shared subprocess runner. Complete newline-delimited JSON or NUL-delimited path records are parsed incrementally with UTF-8 chunk state; an extra match triggers real process termination. Result, time and output limits remain distinct from rg errors. Abort requests stop the process, and a two-second termination backstop bounds settlement with an explicit warning if exit cannot be confirmed. Ordinary Git capture retains its default buffered behavior; its timeout path also gains the backstop.
+
+`read_text_files` sequentially reads 1–20 explicit paths through the shared authorized UTF-8 reader. It applies both an ordered response-text budget and a 64 MiB source budget, counting failed decoding and bounding actual handle reads with at most one extra EOF-check byte. Results preserve input order and distinguish read/error/skipped; errors do not hide successful files. The shared reader exposes `characterLimited` and `nextStartLine` for safe line resumption while preserving existing range metadata and full-file hashes. This is not an atomic multi-file snapshot. See TASK-18 for the reviewed design and adoption decisions.
+
+## Selected handoff documents
+
+The optional `project_resume.resumePaths` input adds bounded document text and full-file hashes to the Git snapshot, including when Git is unavailable. Selection is explicit; no directory scan or conversation recording occurs. Existing `readTextFile` validation enforces UTF-8, size limits, and cross-profile boundaries. These documents are data, not bootstrap authorization. The response is a point-in-time collection, not an atomic snapshot across Git and files.
+
 ## Runtime path
 
 ```text
@@ -278,3 +288,25 @@ The portable WorkForge ZIP needs no system Node.js, ripgrep, npm, or Git.
 Windows startup unchanged. Source checkouts retain the older prerequisite path.
 Normal release creation remains blocked until third-party license review is
 explicitly acknowledged; signing and public publication remain separate gates.
+
+Shell discovery (`shell_list`) shares archive-root and manifest validation with `shell_status`. Async metadata enumeration is capped at 20,000 entries; at most twice the requested limit of mtime candidates plus attached jobs undergo manifest validation, yielding between records. Results omit command/log bodies and use fixed error codes. Discovery neither verifies output hashes nor grants replay or PID ownership; `shell_output` remains the evidence reader.
+
+Multi-edit replacement normalizes the legacy pair to one edit, validates every original-file range (including line-ending normalization), rejects self-ambiguous matches and intersecting ranges, then composes bytes under the existing single-file lease/hash/atomic rename flow. Batch failures include only input indices and fixed reasons, with no partial write.
+
+The stdio startup snapshots WORKFORGE_MCP_READ_ONLY (unset/0/1 only) into a server option. Default read-only servers register fourteen inspection tools, excluding both explicit mutations and project_resume, whose Git reads can invoke repository filters. workstation_context reports toolMode, and stderr reports startup mode. A one-way session lock can remove mutation tools while retaining shell_cancel; there is no unlock or OS sandbox. Normal Git snapshots disable pager and commit signature display in addition to existing fsmonitor/diff protections.
+
+All tool callbacks use one registration boundary for sanitized errors and marker guards. Server-local responseFor recursively redacts string values, emits redactionCount metadata, and regenerates text JSON from structured data. read_image uses the same metadata path but leaves its binary content unchanged. Secret snapshots precede connector-key removal in stdio and remain bounded in memory; original file/log bytes, hashes and offsets are not rewritten.
+
+Task checkpoints use explicit portable IDs and strict versioned JSON under the profile runtime tasks directory. Shared archive checks reject redirected roots, nonregular/hardlinked files, and bounded reads prevent oversized parsing. The existing text writer provides exclusive create and hash/lease/atomic replacement. A wildcard .gitignore protects runtime task files. task_list shares bounded metadata candidate selection with shell_list; task_resume keeps reported state separate from manifest-only shell evidence. It never attests output hashes or current source state.
+
+Control work summaries are authenticated read-only HTTP views over shared shell/task archive readers. Dynamic imports keep old or missing engines from preventing Control startup; busy update/uninstall blocks new scans. Twenty-second caching, shared in-flight requests, a five-second cooperative abort budget, and thirty-second UI polling bound repeat work. Pattern redaction and existing path sanitization precede summary responses. No live ownership or MCP mode is inferred from a separate Control process.
+
+Atomic replacement preserves existing POSIX permission bits, including executable bits. It does not preserve uid/gid ownership; newly created files retain the 0600 policy. Control work responses also mask the control-plane key captured from the startup environment before it is removed, without reading credential files. Task resume evidenceSummary counts manifest states without judging reported task completion.
+
+Shell manifest v2 binds label and domain-separated commandSha256 across start and terminal records. v1 remains readable with null fields. Labels are checked for secrets before archive creation; fingerprints are not encryption and may confirm short-command guesses.
+
+Additional tools use the common response/marker boundary and a shared mode catalog (25 default / 14 read-only). Startup-only opt-ins add two multi-file tools or two read-only Git inspection tools. Git filter names are read with --includes --null --name-only; clean/smudge/process and required are neutralized, submodule worktree inspection is excluded, and unavailable or over-64-driver enumeration fails closed. Same-user configuration changes between calls remain a TOCTOU limit.
+
+Checkpoint history is bounded to 20 prior revisions with raw SHA verification; advisory claims do not override CAS. Deletion requires confirmation, and shell retention protects live jobs and checkpoint references. Multi-file edits use ordered leases, staged bytes and original-byte recovery journals with best-effort rollback. Cleanup-only failure is a successful edit with a fixed warning. Journals may contain secrets and require manual cleanup after inspection; new-file hardlink publication falls back to exclusive writes only for unsupported-link errors and reports weaker crash atomicity.
+
+Custom redaction rules are bounded literals/key names, never user regexes. Entropy detection is opt-in and assignment-only; raw-response opt-out does not disable persistence guards or marker rejection. Opt-in disk log masking buffers lines, preserves PEM state, suppresses oversized lines entirely and reports suppressedLongLines. Hashes cover stored bytes. No startup persistence or automatic replay was added.

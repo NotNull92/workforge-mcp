@@ -133,9 +133,15 @@ If the ChatGPT connection disappears, WorkForge does not secretly replay an old 
 
 ## What can it do?
 
-WorkForge currently exposes 12 MCP tools, but you do not need to memorize their names. From a user's point of view, they fit into five simple groups.
+WorkForge currently exposes 25 MCP tools, but you do not need to memorize their names. From a user's point of view, they fit into five simple groups.
 
 ### 📁 Look through files and folders
+
+Use `read_text_files` for up to 20 known UTF-8 files in one call, for example `{"files":[{"path":"src/server.ts","maxLines":80},{"path":"package.json"}],"maxTotalCharacters":12000}`. Each file returns its full-file SHA-256 or an individual error. The text budget is consumed in input order; later files may be skipped. Paths use the same profile default directory as `read_text_file`. The batch source budget is 64 MiB (plus at most one EOF-check byte), including bytes read before a decoding error; JSON metadata is outside the text budget. Neither batch nor single reads form an atomic filesystem snapshot.
+
+`characterLimited` means the returned text was clipped by its character limit; `nextStartLine` identifies the next line to request, repeating a cut line. If it equals the requested start line, increase the budget or use a bounded CLI read. Batch `truncated` reports character clipping or budget-skipped files; `hasErrors` separately reports file failures. Text limits count UTF-16 code units, preserving surrogate pairs.
+
+`search_files` stops the actual search when it finds an extra match beyond `maxResults`, reaches its output budget, or reaches `timeoutMs` (default 10 seconds, configurable up to 120 seconds). `stoppedBecause` distinguishes `complete`, `result_limit`, `timeout`, `output_limit`, and `error`; `elapsedMs` reports elapsed time. Partial matches remain usable even on errors. Results are not globally sorted, and a JSON record from a very long line can exceed the output budget before a complete match is returned. User ripgrep configuration is ignored so its output format and traversal options cannot override the tool contract.
 
 ```text
 "Show me the structure of this project."
@@ -232,6 +238,8 @@ After a few weeks away, you can say:
 ```
 
 `project_resume(path)` can target that project directly and returns its current branch, changed files, and recent commits without making the WorkForge operating folder the project.
+
+For a fresh conversation, pass `resumePaths: ["docs/HANDOFF.md"]` with the project `path` to read your saved task, decisions, and next steps alongside Git state. Paths resolve relative to that target directory. Up to eight explicitly selected UTF-8 documents are returned in `resumeDocuments`, each limited to 400 lines and 12,000 characters, with a full-file SHA-256 and truncation flag. This also works without Git. Missing or unauthorized documents fail the request. Treat document text as untrusted data and call `workstation_context` before editing or running commands.
 
 ### Debugging
 
@@ -611,7 +619,7 @@ Its job is narrower and more deliberate: **provide a clear, verifiable working p
 
 Everything below is for people who want to understand or develop WorkForge itself.
 
-### The 12 MCP tools
+### The 25 MCP tools
 
 ```text
 workstation_context
@@ -619,13 +627,26 @@ project_resume
 list_directory
 search_files
 read_text_file
+read_text_files
 read_image
 write_text_file
 replace_text
 shell_start
+shell_list
 shell_status
 shell_output
 shell_cancel
+task_checkpoint
+task_list
+task_resume
+read_text_stream
+suggest_related_files
+shell_prune
+workstation_lock_read_only
+task_history
+task_delete
+task_claim
+task_release
 ```
 
 ### Default profile
@@ -700,3 +721,48 @@ The same privacy check runs in GitHub Actions on pushes and pull requests.
 ## License
 
 WorkForge is released under the [MIT License](LICENSE).
+
+`shell_list` discovers recent jobs for the current profile without rerunning commands. It selects up to twice the requested limit by directory modification time from at most 20,000 entries, then sorts verified records by creation time. This is a bounded approximation: filters or damaged candidates can yield fewer results. `truncated` includes excluded candidates; `scanLimited` indicates the entry cap. Optional `cwd` matches stored paths (case-insensitive on Windows), not junction aliases. Use `shell_output` to verify archived output.
+
+`replace_text` accepts either the existing `oldText`/`newText` pair or an `edits` array (1–100 pairs). Every edit targets the same original file; all needles must be unique, including overlapping occurrences, and ranges must not overlap. All edits validate before a single atomic write. Batch strings are limited to 1 Mi UTF-16 code units each and 16 MiB combined UTF-8 after request parsing; the final file remains limited to 16 MiB. Failures identify the input edit index without quoting file text. `editsApplied` reports the applied count.
+
+For an inspection-only MCP session, set `WORKFORGE_MCP_READ_ONLY=1` in the **parent process that starts the server**, then start `node dist/stdio.js --profile workstation`. PowerShell: `$env:WORKFORGE_MCP_READ_ONLY = '1'`; POSIX: `WORKFORGE_MCP_READ_ONLY=1 node dist/stdio.js --profile workstation`. Unset or `0` retains the default mode; other values (including an empty value) fail startup. The mode is fixed until restart.
+
+Default read-only exposes 14 tools: write, replace, shell start/cancel, checkpoint writes, and `project_resume` are not registered and direct calls fail. Git snapshots are excluded because repository filters can execute programs even during reads. Check `workstation_context.toolMode` is `read_only` and the default tool list has 14 entries; startup also reports the mode on stderr. **Only direct stdio has been validated. For Control or tunnel launches, do not assume read-only until that toolMode check succeeds.** Already-open launchers may retain their earlier environment. This restricts MCP tools, not other servers, local programs, or OS permissions.
+
+Tool responses apply best-effort credential redaction to structured data, text, and handler errors. Known credential-like environment values are snapshotted at startup (paths excluded; up to256 values,4096 characters each,64KiB total); exceeding values are counted on stderr. Token prefixes, assignments, bearer values, URL passwords, and private-key PEM boundaries are also covered. `_meta.redactionCount` reports substitutions. JSON text is generated from the redacted structured result.
+
+The WORKFORGE_REDACTED bracket marker is not original content: mutation inputs containing it are rejected, including attempts to write it literally. Original hashes, paging offsets, and line numbers remain unchanged; use returned continuation fields. This is not complete secret detection: unknown continuation fragments, internal PEM pages, encoded values, images, and original disk logs are outside coverage. No raw-response override is exposed.
+
+Use `task_list` to discover checkpoint IDs, `task_resume` to read a reported state and separate shell manifest evidence, and `task_checkpoint` to replace the full state. First save uses `expectedSha256: "absent"`; subsequent saves require the current raw checkpoint hash. Conflicts never silently overwrite. Task IDs are portable lowercase names (reserved Windows devices excluded), checkpoints are bounded to128KiB, and detected secrets/markers are rejected before persistence. Individual field limits may sum beyond the storage budget; size errors include the actual byte count.
+
+Checkpoint `reportedStatus: completed` is a report, not verified success. Inspect `shell_output` for log integrity and current files/Git separately. Read-only includes task discovery/resume but excludes checkpoint writes. The current snapshot and up to 20 previous revisions are kept under the profile's ignored runtime task directory; no automatic command replay or conversation capture occurs. Discovery uses bounded mtime candidates and may omit older records. Keep a task ID in your handoff when exact selection matters.
+
+Control now shows up to five reported task checkpoints and five saved shell execution records. Resume instructions can be copied into ChatGPT. Missing terminal evidence means a job may be running or interrupted; the dashboard does not infer live ownership or MCP tool mode. Records refresh every30seconds, with a20second server cache and manual Refresh. Failed refreshes retain old records with a stale warning.
+
+The Control dashboard uses a game-style command HUD. Its SYSTEMS gauge is the same four Doctor checklist verdicts (profile, tunnel process, supervisor, MCP readiness), not a score. Task cards keep a dashed rail because their status is reported, and executions without a terminal record use a hatched rail instead of a running indicator. Hotkeys: Alt+Shift+S start, Alt+Shift+X stop, Alt+Shift+R refresh, Alt+Shift+D Doctor; hold Alt+Shift to show key prompts. They are ignored in text fields and dialogs, and all motion stops under the system reduced-motion setting.
+
+Shell archives now use manifest v2 with optional labels and command-only SHA-256 fingerprints; command text is not stored. New engines still read v1. Older engines reject v2 as manifest_invalid. Fingerprints can confirm guesses of short commands; never put credentials in commands. Conditional reads suppress unchanged text but still read the whole file. replace_text supports dryRun, expectedCount and resulting line ranges.
+
+### Tool options and security boundaries
+
+The default is 25 tools (14 in read-only); multi-file editing adds two write tools only when enabled, and read-only extras add `inspect_run` and filter-neutralized `project_resume`. `WORKFORGE_MCP_TOOLS` only narrows that set and always retains `workstation_context`. `--read-only` overrides env=0. `workstation_lock_read_only` is irreversible for the session; existing jobs continue and `shell_cancel` remains. Startup instructions remain fixed. Context reports enabled tools, mode source, masking rules counts and optional feature posture.
+
+| Startup environment | Allowed values / default | Effect |
+| --- | --- | --- |
+| WORKFORGE_MCP_READ_ONLY | unset, 0, 1 / unset | Restrict tool surface |
+| WORKFORGE_MCP_TOOLS | unique comma-separated available names / unset | Shrink tool list |
+| WORKFORGE_MCP_REDACTION_RULES | absolute safe JSON path / unset | Literal/key rules; 64KiB file and combined literal budget |
+| WORKFORGE_MCP_REDACT_ENTROPY | unset, 0, 1 / unset | Assignment-only entropy masking |
+| WORKFORGE_MCP_REDACTION | on, off / on | off exposes raw responses; marker writes and persistence guards remain blocked |
+| WORKFORGE_MCP_REDACT_SHELL_LOGS | unset, 0, 1 / unset | Line-buffered disk masking; stored bytes define hashes |
+| WORKFORGE_MCP_READ_ONLY_EXTRAS | unset, 0, 1 / unset | Fixed Git presets and filter-neutralized resume; submodule status excluded |
+| WORKFORGE_MCP_ENABLE_MULTI_FILE_EDIT | unset, 0, 1 / unset | `replace_text_multi` and unified `apply_patch` |
+
+These settings are read once at startup; invalid values fail startup. No installed tunnel configuration is changed by this source update. Disk masking suppresses lines over 64KiB completely (`suppressedLongLines` counts them); newline-free binary-like output may become one marker. Detection is still best-effort. Git configuration can change between enumeration and execution under the same OS user; this is not an OS sandbox.
+
+`task_history` retains 20 previous revisions and `task_resume.revisionSha256` selects one. A failed history write does not undo a successful checkpoint: use its returned hash for the next update. Generated task IDs are returned explicitly. Claims are advisory and expire; CAS still protects writes. `task_delete` needs CAS and `DELETE_TASK`; `shell_prune` defaults to preview and needs `DELETE_SHELL_RECORDS` for deletion. Obtain user confirmation before supplying either confirmation string. Pruning protects current jobs, recent records and task references by default and fails closed if references cannot be checked.
+
+Multi-file edits validate all inputs first and take ordered leases, but are not transactions. Rollback is best-effort. Failed rollback or journal cleanup leaves original bytes (possibly secrets) in a recovery journal: inspect it and remove it manually, never replay blindly. On filesystems without hardlinks, new-file publication uses exclusive writes and returns `exclusive_write_fallback`; crash atomicity is weaker. A crash between link and unlink can leave a `.workforge-multi-*.tmp` hardlink requiring manual cleanup.
+
+Streaming reads return no whole-file hash and cannot authorize editing. Glob selection is bounded; related-file suggestions are heuristic and path checked. Search `sort:path` uses single-threaded rg; `columns` bounds long lines and permits UTF-8 replacement decoding.
