@@ -246,6 +246,39 @@ try {
   if (-not [bool]$Receipt.removed -or [string]$Receipt.state -cne "completed") { throw "Release finalizer reported failure." }
   foreach ($ReceiptFile in $NewResults) { Remove-Item -LiteralPath $ReceiptFile.FullName -Force -ErrorAction SilentlyContinue }
 
+  # An in-use portable engine must remain intact until its process exits.
+  $Programs = Join-Path $TestRoot 'portable-in-use-programs'
+  $State = Join-Path $TestRoot 'portable-in-use-state'
+  $PortableEngine = Join-Path $Programs 'versions\0.3.0'
+  $Dist = Join-Path $PortableEngine 'dist'
+  New-Item -ItemType Directory -Path $Dist -Force | Out-Null
+  New-Item -ItemType Directory -Path $State -Force | Out-Null
+  [IO.File]::WriteAllText((Join-Path $Dist 'stdio.js'), 'fixture')
+  Write-JsonFile -Path (Join-Path $Programs 'current.json') -Value @{ version = '0.3.0'; relativePath = 'versions/0.3.0' }
+  $PortableManifest = Join-Path $PortableEngine '.workforge-release.json'
+  Write-JsonFile -Path $PortableManifest -Value @{ schemaVersion = 1; product = 'WorkForge'; distributionKind = 'portable-release'; version = '0.3.0' }
+  $Hasher = [Security.Cryptography.SHA256]::Create()
+  try { $ManifestHash = [BitConverter]::ToString($Hasher.ComputeHash([IO.File]::ReadAllBytes($PortableManifest))).Replace('-', '') }
+  finally { $Hasher.Dispose() }
+  $NodePath = Join-Path $PortableEngine 'node.exe'
+  Copy-Item -LiteralPath (Get-Command node.exe).Source -Destination $NodePath
+  $RunningNode = $null
+  try {
+    $RunningNode = Start-Process -FilePath $NodePath -ArgumentList @('-e', 'setTimeout(()=>{},30000)') -WindowStyle Hidden -PassThru
+    $ReceiptPath = Join-Path $TestRoot 'portable-finalizer-result.json'
+    foreach ($Attempt in 1..2) {
+      $FinalizerCopy = Join-Path $TestRoot "finalizer-$Attempt.ps1"
+      Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'uninstall-finalizer.ps1') -Destination $FinalizerCopy
+      & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $FinalizerCopy -ParentProcessId 2147483647 -EngineRoot $PortableEngine -ExpectedManifestSha256 $ManifestHash -ResultPath $ReceiptPath -PortableProgramsRoot $Programs -PortableStateRoot $State -InUseTimeoutSeconds 1
+      $Receipt = Get-Content -Raw -LiteralPath $ReceiptPath | ConvertFrom-Json
+      if ($Attempt -eq 1) {
+        if ($Receipt.state -cne 'failed' -or $Receipt.detail -notmatch "PID $($RunningNode.Id)" -or -not (Test-Path -LiteralPath (Join-Path $Dist 'stdio.js')) -or -not (Test-Path -LiteralPath (Join-Path $Programs 'current.json'))) { throw 'In-use portable engine was not preserved.' }
+        Stop-Process -Id $RunningNode.Id -Force
+        $RunningNode.WaitForExit()
+      } elseif ($Receipt.state -cne 'completed' -or (Test-Path -LiteralPath $Programs)) { throw 'Stopped portable engine was not removed.' }
+    }
+  } finally { if ($RunningNode -and -not $RunningNode.HasExited) { Stop-Process -Id $RunningNode.Id -Force -ErrorAction SilentlyContinue } }
+
   Write-Output "UNINSTALL_TEST_OK"
 } finally {
   if (Test-Path -LiteralPath $TestRoot) { Remove-Item -LiteralPath $TestRoot -Recurse -Force }

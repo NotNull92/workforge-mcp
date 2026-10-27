@@ -6,7 +6,8 @@ param(
   [Parameter(Mandatory = $true)][string]$ResultPath,
   [string]$PortableProgramsRoot,
   [string]$PortableStateRoot,
-  [ValidateRange(5, 120)][int]$TimeoutSeconds = 45
+  [ValidateRange(5, 120)][int]$TimeoutSeconds = 45,
+  [ValidateRange(0, 120)][int]$InUseTimeoutSeconds = 30
 )
 
 $ErrorActionPreference = "Stop"
@@ -108,6 +109,18 @@ try {
     if ([string]$Current.version -cne [string]$Manifest.version -or [string]$Current.relativePath -cne "versions/$([string]$Manifest.version)") {
       throw "Portable current pointer no longer selects the verified engine."
     }
+    $ProcessDeadline = [DateTimeOffset]::UtcNow.AddSeconds($InUseTimeoutSeconds)
+    do {
+      $InUse = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+        $_.ExecutablePath -and ([string]$_.ExecutablePath).StartsWith($PortableProgramsRoot + '\', [StringComparison]::OrdinalIgnoreCase)
+      })
+      if ($InUse.Count -eq 0) { break }
+      if ([DateTimeOffset]::UtcNow -ge $ProcessDeadline) {
+        $Processes = ($InUse | ForEach-Object { "$([IO.Path]::GetFileName($_.ExecutablePath)) (PID $($_.ProcessId))" }) -join ', '
+        throw "Portable engine is still in use by: $Processes. Close WorkForge plugins and Control windows, then run Uninstall again."
+      }
+      Start-Sleep -Milliseconds 500
+    } while ($true)
     Remove-Item -LiteralPath $PortableProgramsRoot -Recurse -Force -ErrorAction Stop
     if (Test-Path -LiteralPath $PortableStateRoot) {
       Remove-Item -LiteralPath $PortableStateRoot -Recurse -Force -ErrorAction Stop
