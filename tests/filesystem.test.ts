@@ -155,6 +155,20 @@ describe("workstation filesystem", () => {
     await expect(fs.access(join(primary, "rollbackdir"))).rejects.toThrow();
   });
 
+  it("accepts empty context records while still validating hunk counts", async () => {
+    const { context, primary } = await fixture();
+    const path = join(primary, "a.txt");
+    const patch = "--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n first\n\n-before\n+after\n";
+    for (const newline of ["\n", "\r\n"]) {
+      await writeFile(path, "first\n\nbefore\n");
+      const { sha256 } = await readTextFile({ context, path, startLine: 1, maxLines: 10 });
+      await applyUnifiedPatch({ context, patch: patch.replaceAll("\n", newline), expectedSha256: { "a.txt": sha256 } });
+      expect(await readFile(path, "utf8")).toBe("first\n\nafter\n");
+    }
+    const { sha256 } = await readTextFile({ context, path, startLine: 1, maxLines: 10 });
+    await expect(applyUnifiedPatch({ context, patch: patch.replace("-1,3 +1,3", "-1,4 +1,4"), expectedSha256: { "a.txt": sha256 } })).rejects.toThrow();
+  });
+
   it("keeps opt-in tools disabled by default and raw responses still reject masked writes", async () => {
     expect(enabledToolNames(false)).toHaveLength(25);
     expect(enabledToolNames(true)).toHaveLength(14);

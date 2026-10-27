@@ -29,8 +29,9 @@ export function parseUnifiedPatch(patch: string, expectedSha256: Record<string, 
       let oldCount = 0, newCount = 0, previous = "";
       while (index < lines.length && (oldCount < Number(header[1] ?? 1) || newCount < Number(header[2] ?? 1)
         || lines[index] === "\\ No newline at end of file")) {
-        const line = lines[index]!;
+        let line = lines[index]!;
         if (!line && index === lines.length - 1) { index++; break; }
+        if (!line) line = " ";
         if (line === "\\ No newline at end of file") {
           if (!previous) throw new Error("Unexpected no-newline marker.");
           if (previous !== "+") oldParts[oldParts.length - 1] = oldParts.at(-1)!.slice(0, -1);
