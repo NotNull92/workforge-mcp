@@ -51,7 +51,7 @@ try {
   assert.equal((await fetch(`${origin}/api/work`)).status, 401);
   assert.equal((await fetch(`${origin}/api/work/task?id=example`)).status, 401);
   assert.equal((await fetch(`${origin}/api/mode-evidence`)).status, 401);
-  const response = await fetch(origin, { redirect: 'manual' });
+  const response = await fetch(`${origin}/?k=${ready.launchToken}`, { redirect: 'manual' });
   const cookie = response.headers.get('set-cookie').split(';', 1)[0];
   const logRoot = process.platform === 'darwin' ? join(root, 'tunnel', profile.id) : join(primaryRoot, 'artifacts', 'workforge-mcp', 'tunnel');
   await mkdir(logRoot, { recursive: true });

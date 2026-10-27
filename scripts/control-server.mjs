@@ -51,6 +51,8 @@ delete process.env.CONTROL_PLANE_API_KEY;
 process.chdir(os.tmpdir());
 
 const sessionToken = randomBytes(32).toString('base64url');
+const launchToken = randomBytes(32).toString('base64url');
+let launchTokenUsed = false;
 const cookieName = 'workforge_control_session';
 const idleTimeoutMs = testMode ? 30_000 : 5 * 60_000;
 const activity = [];
@@ -718,7 +720,7 @@ function closeControlServer(delayMs = 0) {
   else close();
 }
 
-async function serveStatic(pathname, response, setSession = false) {
+async function serveStatic(pathname, response) {
   const files = new Map([
     ['/', [path.join(uiRoot, 'index.html'), 'text/html; charset=utf-8']],
     ['/app.js', [path.join(uiRoot, 'app.js'), 'text/javascript; charset=utf-8']],
@@ -731,15 +733,11 @@ async function serveStatic(pathname, response, setSession = false) {
   if (!entry) return false;
   const [filePath, contentType] = entry;
   const body = await readFile(filePath);
-  const extraHeaders = setSession
-    ? { 'Set-Cookie': `${cookieName}=${sessionToken}; HttpOnly; SameSite=Strict; Path=/; Max-Age=1800` }
-    : {};
-  sendText(response, 200, body, contentType, extraHeaders);
+  sendText(response, 200, body, contentType);
   return true;
 }
 
 const server = http.createServer(async (request, response) => {
-  lastRequestAt = Date.now();
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : requestedPort;
   const expectedHost = `127.0.0.1:${port}`;
@@ -749,13 +747,31 @@ const server = http.createServer(async (request, response) => {
     if (!requireLocalHost(request, response, expectedHost)) return;
     const url = new URL(request.url || '/', expectedOrigin);
 
-    if (request.method === 'GET' && await serveStatic(url.pathname, response, url.pathname === '/')) return;
+    if (request.method === 'GET' && url.pathname === '/') {
+      if (!launchTokenUsed && safeEqual(url.searchParams.get('k') || '', launchToken)) {
+        launchTokenUsed = true;
+        lastRequestAt = Date.now();
+        response.writeHead(303, { ...commonHeaders('text/html; charset=utf-8'), Location: '/',
+          'Set-Cookie': `${cookieName}=${sessionToken}; HttpOnly; SameSite=Strict; Path=/` });
+        response.end();
+        return;
+      }
+      if (!safeEqual(parseCookies(request.headers.cookie).get(cookieName) || '', sessionToken)) {
+        sendText(response, 401, 'Open WorkForge Status from its launcher.', 'text/html; charset=utf-8');
+        return;
+      }
+      lastRequestAt = Date.now();
+      await serveStatic('/', response);
+      return;
+    }
+    if (request.method === 'GET' && await serveStatic(url.pathname, response)) return;
 
     if (!url.pathname.startsWith('/api/')) {
       sendJson(response, 404, { ok: false, error: 'Not found.' });
       return;
     }
     if (!requireSession(request, response)) return;
+    lastRequestAt = Date.now();
 
     if (request.method === 'GET' && url.pathname === '/api/meta') {
       sendJson(response, 200, {
@@ -867,11 +883,12 @@ server.on('clientError', (_error, socket) => {
 server.listen({ host: '127.0.0.1', port: requestedPort, exclusive: true }, () => {
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Could not resolve control dashboard address.');
-  const url = `http://127.0.0.1:${address.port}/`;
+  const url = `http://127.0.0.1:${address.port}/?k=${launchToken}`;
   if (testMode) {
     process.stdout.write(`WORKFORGE_CONTROL_TEST_READY ${JSON.stringify({
       address: address.address,
       port: address.port,
+      launchToken,
     })}\n`);
   } else {
     process.stdout.write(`WorkForge Control ready at ${url}\n`);

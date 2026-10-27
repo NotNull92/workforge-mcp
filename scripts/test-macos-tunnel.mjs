@@ -156,10 +156,11 @@ try {
   dashboard.stderr.on("data", (chunk) => { dashboardStderr += chunk; });
   const dashboardDeadline = Date.now() + 8_000;
   let dashboardPort;
+  let dashboardLaunchToken;
   while (Date.now() < dashboardDeadline) {
     const line = dashboardStdout.split(/\r?\n/u).find((value) => value.startsWith("WORKFORGE_CONTROL_TEST_READY "));
     if (line) {
-      dashboardPort = JSON.parse(line.slice("WORKFORGE_CONTROL_TEST_READY ".length)).port;
+      ({ port: dashboardPort, launchToken: dashboardLaunchToken } = JSON.parse(line.slice("WORKFORGE_CONTROL_TEST_READY ".length)));
       break;
     }
     if (dashboard.exitCode !== null) throw new Error(`macOS Control exited early: ${dashboardStderr || dashboardStdout}`);
@@ -167,7 +168,7 @@ try {
   }
   assert.equal(Number.isInteger(dashboardPort), true, `macOS Control did not become ready: ${dashboardStderr || dashboardStdout}`);
   const origin = `http://127.0.0.1:${dashboardPort}`;
-  const rootResponse = await fetch(`${origin}/`);
+  const rootResponse = await fetch(`${origin}/?k=${dashboardLaunchToken}`, { redirect: "manual" });
   assert.equal(rootResponse.status, 200);
   const cookie = (rootResponse.headers.get("set-cookie") ?? "").split(";", 1)[0];
   const headers = { Cookie: cookie, Origin: origin, "Content-Type": "application/json" };

@@ -307,16 +307,23 @@ try {
   assert(ready.address === '127.0.0.1', `Control server bound to ${ready.address}.`);
   const origin = `http://127.0.0.1:${port}`;
 
-  const root = await fetch(`${origin}/`, { redirect: 'manual' });
-  assert(root.status === 200, `Dashboard root returned ${root.status}.`);
+  const deniedRoot = await fetch(`${origin}/`, { redirect: 'manual' });
+  assert(deniedRoot.status === 401 && !deniedRoot.headers.get('set-cookie'), 'Root without launch token must not issue a session.');
+  assert((await fetch(`${origin}/?k=wrong`, { redirect: 'manual' })).status === 401, 'Wrong launch token was accepted.');
+  const root = await fetch(`${origin}/?k=${ready.launchToken}`, { redirect: 'manual' });
+  assert(root.status === 303 && root.headers.get('location') === '/', `Dashboard launch returned ${root.status}.`);
   const cookieHeader = root.headers.get('set-cookie') || '';
   assert(cookieHeader.includes('workforge_control_session='), 'Dashboard root did not set a session cookie.');
   assert(cookieHeader.includes('HttpOnly'), 'Dashboard cookie is not HttpOnly.');
   assert(cookieHeader.includes('SameSite=Strict'), 'Dashboard cookie is not SameSite=Strict.');
+  assert(!cookieHeader.includes('Max-Age'), 'Dashboard cookie must last for the browser session.');
+  assert((await fetch(`${origin}/?k=${ready.launchToken}`, { redirect: 'manual' })).status === 401, 'Launch token was reused.');
   assert(root.headers.get('access-control-allow-origin') === null, 'Dashboard unexpectedly enabled CORS.');
   assert((root.headers.get('content-security-policy') || '').includes("default-src 'self'"), 'Dashboard CSP is missing.');
   assert(root.headers.get('x-frame-options') === 'DENY', 'Dashboard must deny framing.');
   const cookie = cookieHeader.split(';', 1)[0];
+  assert((await fetch(`${origin}/`, { headers: { Cookie: cookie } })).status === 200, 'Authenticated dashboard reload failed.');
+  assert((await fetch(`${origin}/api/start`, { method: 'POST', headers: { Origin: origin }, body: '{}' })).status === 401, 'Forged origin bypassed the session.');
 
   for (const [asset, expectedType] of [
     ['/style.css', 'text/css'],
@@ -371,6 +378,9 @@ try {
     assert(!statusFailureText.toLowerCase().includes(process.env.USERPROFILE.toLowerCase()), 'Dashboard error leaked the literal user profile path.');
   }
   assert(!statusFailureText.includes('CONTROL_PLANE_API_KEY='), 'Dashboard error leaked credential-shaped content.');
+  const startFailure = await fetch(`${origin}/api/start`, { method: 'POST', headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' }, body: '{}' });
+  const startFailureText = (await startFailure.json()).error;
+  assert(startFailure.status === 500 && startFailureText.startsWith(expectedSetupMessage) && !/CLIXML|_x000D_|&lt;/.test(startFailureText), 'Start did not expose a readable missing-profile error.');
 
   const unavailableWork = await fetch(`${origin}/api/work`, { headers: { Cookie: cookie } });
   assert(unavailableWork.status === 200, 'Unavailable work must not enter the common 500/log path.');
