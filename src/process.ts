@@ -2,6 +2,9 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { lstatSync, type Stats } from "node:fs";
 import { delimiter, dirname, isAbsolute } from "node:path";
 
+export const SAFE_GIT_ARGS = ["--no-pager", "-c", "core.fsmonitor=false", "-c", "protocol.allow=never"] as const;
+export const SAFE_GIT_ENV = { GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0", GIT_NO_LAZY_FETCH: "1" } as const;
+
 const SAFE_ENV_KEYS = new Set([
   "ALLUSERSPROFILE",
   "APPDATA",

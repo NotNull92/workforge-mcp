@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { readTextFile } from "./filesystem.js";
 import { isPathWithinOrEqual } from "./path-policy.js";
 import type { ProjectContext } from "./profile.js";
-import { makeSafeEnvironment, resolveToolExecutable, runProcess, type ProcessResult } from "./process.js";
+import { makeSafeEnvironment, resolveToolExecutable, runProcess, SAFE_GIT_ARGS, SAFE_GIT_ENV, type ProcessResult } from "./process.js";
 import { resolveAuthorizedWorkstationPath } from "./workstation.js";
 
 const GIT_EXECUTABLE = resolveToolExecutable("git");
@@ -73,12 +73,12 @@ function firstDiagnostic(result: ProcessResult, fallback: string): string {
 }
 
 async function runGit(cwd: string, args: readonly string[], maxStdoutBytes = MAX_GIT_STDOUT_BYTES, configuration: readonly string[] = []): Promise<ProcessResult> {
-  return await runProcess(GIT_EXECUTABLE, ["--no-pager", "-c", "core.fsmonitor=false", ...configuration, ...args], {
+  return await runProcess(GIT_EXECUTABLE, [...SAFE_GIT_ARGS, ...configuration, ...args], {
     cwd,
     timeoutMs: GIT_TIMEOUT_MS,
     maxStdoutBytes,
     maxStderrBytes: MAX_GIT_STDERR_BYTES,
-    env: makeSafeEnvironment({ GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0" }),
+    env: makeSafeEnvironment(SAFE_GIT_ENV),
   });
 }
 

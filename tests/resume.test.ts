@@ -2,6 +2,7 @@ import { access, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:f
 import { inspectRun } from "../src/inspect.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ProjectContext, ProjectProfile } from "../src/profile.js";
 import { resolveToolExecutable, runProcess } from "../src/process.js";
@@ -57,6 +58,27 @@ afterEach(async () => {
 });
 
 describe("project resume snapshot", () => {
+  it("does not run lazy-fetch transport commands for missing partial-clone objects", async () => {
+    const { root: source } = await makeContext();
+    await initializeRepository(source);
+    await git(source, "config", "uploadpack.allowFilter", "true");
+    await writeFile(join(source, "tracked.txt"), "changed\n");
+    await git(source, "add", "tracked.txt");
+    await git(source, "commit", "-m", "second");
+    const parent = await mkdtemp(join(tmpdir(), "project-resume-partial-"));
+    temporaryRoots.push(parent);
+    const clone = join(parent, "clone");
+    await git(parent, "clone", "--filter=blob:none", "--no-checkout", pathToFileURL(source).href, clone);
+    const missing = await runProcess(resolveToolExecutable("git"), ["rev-list", "--objects", "--missing=print", "HEAD"], {
+      cwd: clone, timeoutMs: 10000, env: { ...process.env, GIT_NO_LAZY_FETCH: "1" },
+    });
+    expect(missing.stdout).toMatch(/^\?[0-9a-f]{40,64}$/mu);
+    const { context } = await makeContext(clone);
+    await git(clone, "config", "remote.origin.uploadpack", `sh -c 'touch WF_FETCHED; exec git-upload-pack "$@"' --`);
+    await inspectRun({ context, path: clone, preset: "git_show_stat", revision: "HEAD" });
+    await getProjectResume(context, 5, 200, clone, [], true).catch(() => undefined);
+    await expect(access(join(clone, "WF_FETCHED"))).rejects.toThrow();
+  });
   it("neutralizes included Git filters before read-only worktree inspection", async () => {
     const { context, root } = await makeContext();
     await initializeRepository(root);

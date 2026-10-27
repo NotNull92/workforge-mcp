@@ -1,4 +1,4 @@
-import { makeSafeEnvironment, resolveToolExecutable, runProcess } from "./process.js";
+import { makeSafeEnvironment, resolveToolExecutable, runProcess, SAFE_GIT_ARGS, SAFE_GIT_ENV } from "./process.js";
 import type { ProjectContext } from "./profile.js";
 import { resolveAuthorizedWorkstationPath } from "./workstation.js";
 
@@ -20,9 +20,9 @@ export async function inspectRun(input: { context: ProjectContext; path: string;
     default: throw new Error("Unknown inspection preset.");
   }
   const cwd = await resolveAuthorizedWorkstationPath(input.context, input.path, "tree");
-  const result = await runProcess(resolveToolExecutable("git"), ["--no-pager", "-c", "core.fsmonitor=false", "-c", "diff.ignoreSubmodules=all", ...args], {
+  const result = await runProcess(resolveToolExecutable("git"), [...SAFE_GIT_ARGS, "-c", "diff.ignoreSubmodules=all", ...args], {
     cwd, timeoutMs: 15000, maxStdoutBytes: 256 * 1024, maxStderrBytes: 65536, signal: input.signal,
-    env: makeSafeEnvironment({ GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0" }),
+    env: makeSafeEnvironment(SAFE_GIT_ENV),
   });
   return { preset: input.preset, exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr.slice(0, 1000),
     truncated: result.truncated, timedOut: result.timedOut };
