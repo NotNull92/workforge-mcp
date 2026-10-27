@@ -105,6 +105,22 @@ describe("workstation filesystem", () => {
     await expect(applyUnifiedPatch({ context, patch: "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-same\n+changed\n", expectedSha256: { "a.txt": duplicated.sha256 } })).rejects.toThrow("multiple");
   });
 
+  it("accepts CRLF patch transport while preserving target line endings", async () => {
+    const { context, primary } = await fixture();
+    const path = join(primary, "a.txt");
+    const patch = "--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-before\n+after\n";
+    for (const [source, transport, expected] of [["before\n", "\r\n", "after\n"], ["before\r\n", "\n", "after\r\n"], ["before\r\n", "\r\n", "after\r\n"]]) {
+      await writeFile(path, source!);
+      const { sha256 } = await readTextFile({ context, path, startLine: 1, maxLines: 10 });
+      await applyUnifiedPatch({ context, patch: patch.replaceAll("\n", transport!), expectedSha256: { "a.txt": sha256 } });
+      expect(await readFile(path, "utf8")).toBe(expected);
+    }
+    await writeFile(path, "before");
+    const { sha256 } = await readTextFile({ context, path, startLine: 1, maxLines: 10 });
+    await applyUnifiedPatch({ context, patch: "--- a/a.txt\r\n+++ b/a.txt\r\n@@ -1 +1 @@\r\n-before\r\n\\ No newline at end of file\r\n+after\r\n\\ No newline at end of file\r\n", expectedSha256: { "a.txt": sha256 } });
+    expect(await readFile(path, "utf8")).toBe("after");
+  });
+
   it("keeps opt-in tools disabled by default and raw responses still reject masked writes", async () => {
     expect(enabledToolNames(false)).toHaveLength(25);
     expect(enabledToolNames(true)).toHaveLength(14);

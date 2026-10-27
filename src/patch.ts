@@ -3,7 +3,7 @@ import type { ProjectContext } from "./profile.js";
 
 export function parseUnifiedPatch(patch: string, expectedSha256: Record<string, string>): MultiEditFile[] {
   if (typeof patch !== "string" || Buffer.byteLength(patch) > 4 * 1024 * 1024) throw new Error("Patch exceeds 4 MiB.");
-  const lines = patch.split("\n");
+  const lines = patch.replace(/\r\n/gu, "\n").split("\n");
   const files: MultiEditFile[] = [];
   let index = 0;
   const headerPath = (line: string) => {
