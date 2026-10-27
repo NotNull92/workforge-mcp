@@ -968,16 +968,19 @@ export async function pruneShellJobs(input: { context: ProjectContext; olderThan
   if (!dryRun && input.confirm !== "DELETE_SHELL_RECORDS") throw new Error("DELETE_SHELL_RECORDS confirmation required.");
   const referenced = input.keepReferencedByTasks === false ? new Set<string>() : await referencedShellJobs(input.context, input.signal);
   const runtimeRoot = runtimeRootFor(input.context);
-  const discovery = await recentArchiveEntries(input.context, runtimeRoot, JOB_ID_PATTERN, "directory", 1000, input.signal, 2000);
+  const latest = keepLatest ? await recentArchiveEntries(input.context, runtimeRoot, JOB_ID_PATTERN, "directory", keepLatest, input.signal, keepLatest) : null;
+  if (latest?.scanLimited) throw new Error("SHELL_RETENTION_UNAVAILABLE: latest records could not be scanned completely.");
+  const protectedIds = new Set(latest?.entries.map(entry => entry.name) ?? []);
+  const discovery = await recentArchiveEntries(input.context, runtimeRoot, JOB_ID_PATTERN, "directory", 1000, input.signal, 2000, "oldest");
   const candidates: Array<{ id: string; updatedAt: string; trackingState: string; reason: string }> = [];
   const deleted: string[] = [];
   const skipped = discovery.unsafeNames.map(id => ({ id, code: "unsafe" }));
   const cutoff = Date.now() - input.olderThanDays * 86400000;
-  for (const entry of discovery.entries.slice(keepLatest)) {
+  for (const entry of discovery.entries) {
     input.signal?.throwIfAborted();
     if (candidates.length >= maxDeletes) break;
     const id = entry.name;
-    if (jobs.has(id) || referenced.has(id)) continue;
+    if (jobs.has(id) || referenced.has(id) || protectedIds.has(id)) continue;
     try {
       const status = archiveStatus(input.context, id);
       if (!Number.isFinite(Date.parse(status.updatedAt)) || Date.parse(status.updatedAt) >= cutoff) continue;
@@ -998,7 +1001,7 @@ export async function pruneShellJobs(input: { context: ProjectContext; olderThan
     } catch { if (skipped.length < 1000) skipped.push({ id, code: "unsafe_or_busy" }); }
   }
   return { dryRun, candidates, deleted, skipped, scannedEntries: discovery.scannedEntries,
-    scanLimited: discovery.scanLimited || discovery.candidateCount > discovery.entries.length };
+    scanLimited: Boolean(latest?.scanLimited) || discovery.scanLimited || discovery.candidateCount > discovery.entries.length };
 }
 
 function pageText(text: string, offset: number, maxCharacters: number) {

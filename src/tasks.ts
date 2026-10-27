@@ -117,8 +117,8 @@ export async function deleteTask(input: { context: ProjectContext; taskId: strin
 }
 
 export async function referencedShellJobs(context: ProjectContext, signal?: AbortSignal) {
-  const discovery = await recentArchiveEntries(context, taskRoot(context), /^[a-z0-9][a-z0-9_-]{0,63}\.json$/u, "file", 500, signal, 1000);
-  if (discovery.scanLimited || discovery.candidateCount > 1000 || discovery.unsafeNames.length) throw new Error("TASK_REFERENCES_UNAVAILABLE");
+  const discovery = await recentArchiveEntries(context, taskRoot(context), /^[a-z0-9][a-z0-9_-]{0,63}\.json$/u, "file", 500, signal, 20000);
+  if (discovery.scanLimited || discovery.candidateCount > discovery.entries.length || discovery.unsafeNames.length || discovery.errorsTruncated) throw new Error("TASK_REFERENCES_UNAVAILABLE");
   const ids = new Set<string>();
   for (const entry of discovery.entries) {
     signal?.throwIfAborted();

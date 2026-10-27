@@ -53,8 +53,8 @@ export function readBoundedArchiveFile(path: string, maxBytes: number, label: st
 }
 
 export async function recentArchiveEntries(context: ProjectContext, root: string, pattern: RegExp,
-  kind: "file" | "directory", limit: number, signal?: AbortSignal, keep = limit * 2) {
-  if (!Number.isInteger(keep) || keep < 1 || keep > 2000) throw new Error("Invalid archive candidate limit.");
+  kind: "file" | "directory", limit: number, signal?: AbortSignal, keep = limit * 2, order: "newest" | "oldest" = "newest") {
+  if (!Number.isInteger(keep) || keep < 1 || keep > 20000) throw new Error("Invalid archive candidate limit.");
   const result = { entries: [] as Array<{ name: string; mtimeMs: number }>, scannedEntries: 0,
     candidateCount: 0, scanLimited: false, unsafeNames: [] as string[], errorsTruncated: false };
   signal?.throwIfAborted();
@@ -72,8 +72,12 @@ export async function recentArchiveEntries(context: ProjectContext, root: string
     try {
       const info = await lstat(resolve(root, entry.name));
       if (info.isSymbolicLink() || (kind === "directory" ? !info.isDirectory() : !info.isFile() || info.nlink > 1)) throw new Error("Unsafe archive entry.");
-      result.entries.push({ name: entry.name, mtimeMs: info.mtimeMs });
-      result.entries.sort((a, b) => b.mtimeMs - a.mtimeMs || a.name.localeCompare(b.name));
+      const candidate = { name: entry.name, mtimeMs: info.mtimeMs };
+      const compare = (left: typeof candidate, right: typeof candidate) =>
+        (order === "newest" ? right.mtimeMs - left.mtimeMs : left.mtimeMs - right.mtimeMs) || left.name.localeCompare(right.name);
+      let low = 0, high = result.entries.length;
+      while (low < high) { const middle = (low + high) >>> 1; if (compare(result.entries[middle]!, candidate) <= 0) low = middle + 1; else high = middle; }
+      result.entries.splice(low, 0, candidate);
       if (result.entries.length > keep) result.entries.pop();
     } catch {
       if (result.unsafeNames.length < 100) result.unsafeNames.push(entry.name);

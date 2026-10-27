@@ -137,6 +137,29 @@ describe("workstation shell", { timeout: 30_000 }, () => {
     expect(getShellStatus(context, ids[0]!).status).toBe("ownership_lost");
   });
 
+  it("finds the oldest records beyond the recent window and protects references beyond 1000 tasks", async () => {
+    const { context, primary } = await fixture();
+    const ids = Array.from({ length: 2050 }, (_, i) => `shell_${i.toString(16).padStart(32, "0")}`);
+    for (let start = 0; start < ids.length; start += 50) await Promise.all(ids.slice(start, start + 50).map(async (id, index) => {
+      const old = start + index < 50;
+      const time = old ? "2020-01-01T00:00:00.000Z" : new Date().toISOString();
+      const root = await archivedStart(context, id, { createdAt: time, updatedAt: time });
+      await utimes(root, new Date(time), new Date(time));
+    }));
+    const taskRoot = join(primary, "artifacts", "workforge-mcp", "tasks");
+    await mkdir(taskRoot, { recursive: true });
+    for (let start = 0; start < 1001; start += 50) await Promise.all(Array.from({ length: Math.min(50, 1001 - start) }, (_, index) => {
+      const taskId = `task${start + index}`;
+      return writeFile(join(taskRoot, `${taskId}.json`), JSON.stringify({ version: 1, taskId, profileId: context.profile.id,
+        savedAt: new Date().toISOString(), state: { title: "Fixture", objective: "Keep evidence", reportedStatus: "active", plan: [], completedSteps: [], blockers: [], nextAction: "", projectPath: primary, relatedPaths: [], shellJobIds: taskId === "task1000" ? [ids[0]] : [] } }));
+    }));
+    const input = { context, olderThanDays: 1, keepLatest: 0, maxDeletes: 100 };
+    expect((await pruneShellJobs({ ...input, keepReferencedByTasks: false })).candidates).toHaveLength(50);
+    const protectedResult = await pruneShellJobs(input);
+    expect(protectedResult.candidates).toHaveLength(49);
+    expect(protectedResult.candidates.some(candidate => candidate.id === ids[0])).toBe(false);
+  }, 120_000);
+
   it("redacts disk log streams and seals hashes of stored bytes including a final partial line", async () => {
     const { context, primary } = await fixture();
     const secret = "opaque-disk-fixture-123456";
