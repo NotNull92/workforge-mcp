@@ -204,9 +204,20 @@ if ($Fail) { exit 7 }
     for (const flag of ['-Fail', '-Throw']) {
       let failed = false;
       try { await powershellContext.runPowerShell(fixtureName, ['-Value', literal, flag]); }
-      catch (error) { failed = error.message.includes(flag === '-Throw' ? '한글 예외' : '한글 오류'); }
+      catch (error) {
+        failed = error.message.includes(flag === '-Throw' ? '한글 예외' : '한글 오류');
+        assert(!/CLIXML|_x000D_|&lt;/.test(error.message), 'PowerShell error contains serialized XML.');
+      }
       assert(failed, `PowerShell ${flag} failure was lost or corrupted.`);
     }
+    await writeFile(path.join(emptyStateRoot, 'write-error.ps1'), '\ufeff' + `Write-Progress -Activity x -PercentComplete 50\nWrite-Error '한글 <오류> & "따옴표"'\nexit 3`);
+    let writeError = '';
+    try { await powershellContext.runPowerShell('write-error.ps1'); } catch (error) { writeError = error.message; }
+    assert(writeError.includes('한글 <오류> & "따옴표"') && writeError.includes('exit code 3') && !/CLIXML|_x000D_|&lt;/.test(writeError), 'PowerShell Write-Error was not decoded.');
+    await writeFile(path.join(emptyStateRoot, 'warning.ps1'), '\ufeff' + "Write-Warning '한글 <경고> & 확인'");
+    assert((await powershellContext.runPowerShell('warning.ps1')).stderr.includes('한글 <경고> & 확인'), 'PowerShell warning was not decoded.');
+    await writeFile(path.join(emptyStateRoot, 'progress.ps1'), 'Write-Progress -Activity x -PercentComplete 50');
+    assert((await powershellContext.runPowerShell('progress.ps1')).stderr === '', 'PowerShell progress leaked to stderr.');
     await writeFile(path.join(emptyStateRoot, 'exit.ps1'), 'exit 7');
     let exitMessage = '';
     try { await powershellContext.runPowerShell('exit.ps1'); } catch (error) { exitMessage = error.message; }

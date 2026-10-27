@@ -287,11 +287,24 @@ function runChildScript(executable, spawnArguments, scriptName, timeoutMs, optio
       if (typeof options.onStderrLine === 'function' && options.onStderrLine(line) === true) return;
       stderr = append(stderr, `${line}\n`);
     };
+    const decodeStderrLine = line => {
+      if (line === '#< CLIXML') return;
+      if (!line.startsWith('<Objs ')) { handleStderrLine(line); return; }
+      for (const match of line.matchAll(/<S\s+S="(?:error|warning)"[^>]*>([\s\S]*?)<\/S>/gi)) {
+        const entities = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" };
+        const decoded = match[1].replace(/&(#x[0-9a-f]+|#\d+|lt|gt|amp|quot|apos);/gi, (whole, entity) => {
+          if (entity[0] !== '#') return entities[entity.toLowerCase()] ?? whole;
+          const value = entity[1].toLowerCase() === 'x' ? parseInt(entity.slice(2), 16) : Number(entity.slice(1));
+          return value <= 0x10ffff ? String.fromCodePoint(value) : whole;
+        }).replace(/_x([0-9a-f]{4})_/gi, (_, value) => String.fromCharCode(parseInt(value, 16)));
+        for (const part of decoded.split(/\r?\n/)) if (part.trimEnd()) handleStderrLine(part.trimEnd());
+      }
+    };
     child.stderr.on('data', chunk => {
       stderrRemainder += chunk;
       const lines = stderrRemainder.split(/\r?\n/);
       stderrRemainder = lines.pop() || '';
-      for (const line of lines) handleStderrLine(line);
+      for (const line of lines) decodeStderrLine(line);
     });
 
     const timer = setTimeout(() => {
@@ -304,7 +317,7 @@ function runChildScript(executable, spawnArguments, scriptName, timeoutMs, optio
     });
     child.once('close', code => {
       clearTimeout(timer);
-      if (stderrRemainder) handleStderrLine(stderrRemainder);
+      if (stderrRemainder) decodeStderrLine(stderrRemainder);
       if (overflow) {
         reject(new Error(`${scriptName} produced too much output.`));
         return;
@@ -313,7 +326,7 @@ function runChildScript(executable, spawnArguments, scriptName, timeoutMs, optio
       const cleanStderr = sanitizeText(stderr.trim());
       if (code !== 0) {
         const detail = cleanStderr || cleanStdout || `${scriptName} failed with exit code ${code}.`;
-        reject(new Error(detail.slice(0, 12_000)));
+        reject(new Error(`${detail.slice(0, 11_950)} (exit code ${code})`));
         return;
       }
       resolve({ stdout: cleanStdout, stderr: cleanStderr, code });
@@ -331,7 +344,7 @@ function runPowerShell(scriptName, argumentsList = [], timeoutMs = 90_000, optio
   const literal = value => `'${String(value).replaceAll("'", "''")}'`;
   // Only parameter names are syntax; paths and argument values remain literal strings.
   const argumentsText = argumentsList.map(value => /^-[A-Za-z]+$/.test(value) ? value : literal(value)).join(' ');
-  const command = `[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; $global:LASTEXITCODE = 0; & ${literal(scriptPath)} ${argumentsText}; $succeeded = $?; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; if (-not $succeeded) { exit 1 }; exit 0`;
+  const command = `$ProgressPreference = 'SilentlyContinue'; [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; $global:LASTEXITCODE = 0; & ${literal(scriptPath)} ${argumentsText}; $succeeded = $?; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; if (-not $succeeded) { exit 1 }; exit 0`;
   const spawnArguments = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-OutputFormat', 'Text', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')];
   return runChildScript(powershellPath, spawnArguments, scriptName, timeoutMs, options, { windowsHide: true });
 }
