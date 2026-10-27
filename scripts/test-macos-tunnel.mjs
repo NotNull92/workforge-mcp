@@ -1,15 +1,18 @@
 import { strict as assert } from "node:assert";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import {
   deleteStoredControlPlaneKey,
   hasStoredControlPlaneKey,
   loadInstallation,
+  processMatches,
+  readPidRecord,
   readStoredControlPlaneKey,
   resolveTunnelRuntimeDescriptor,
+  runtimePaths,
   scrubControlPlaneEnvironment,
   storeControlPlaneKey,
 } from "./macos/tunnel-common.mjs";
@@ -169,7 +172,7 @@ try {
   assert.equal(Number.isInteger(dashboardPort), true, `macOS Control did not become ready: ${dashboardStderr || dashboardStdout}`);
   const origin = `http://127.0.0.1:${dashboardPort}`;
   const rootResponse = await fetch(`${origin}/?k=${dashboardLaunchToken}`, { redirect: "manual" });
-  assert.equal(rootResponse.status, 200);
+  assert.equal(rootResponse.status, 303);
   const cookie = (rootResponse.headers.get("set-cookie") ?? "").split(";", 1)[0];
   const headers = { Cookie: cookie, Origin: origin, "Content-Type": "application/json" };
 
@@ -225,6 +228,15 @@ try {
     });
   });
   assert.equal(dashboardExit, 0, dashboardStderr);
+  execFileSync(process.execPath, [resolve(root, "scripts", "macos", "start-tunnel.mjs"), "--profile", profileId], { env: environment, stdio: "ignore" });
+  const paths = runtimePaths(installation);
+  const supervisor = readPidRecord(paths.supervisorPath);
+  const supervisorScript = resolve(root, "scripts", "macos", "tunnel-supervisor.mjs");
+  assert.equal(processMatches(supervisor, [supervisorScript, supervisor.instance]), true);
+  execFileSync(process.execPath, [resolve(root, "scripts", "macos", "uninstall.mjs"), "--profile", profileId], { env: environment, stdio: "ignore" });
+  assert.equal(processMatches(supervisor, [supervisorScript, supervisor.instance]), false);
+  assert.equal(existsSync(installation.runtimeRoot), false);
+  assert.equal(hasStoredControlPlaneKey(profileId), false);
   console.log("MACOS_KEYCHAIN_ROUNDTRIP_TEST_OK");
   console.log("MACOS_TUNNEL_LIFECYCLE_TEST_OK");
   console.log("MACOS_CONTROL_DASHBOARD_TEST_OK");

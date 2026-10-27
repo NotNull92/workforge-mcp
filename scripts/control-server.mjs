@@ -697,7 +697,6 @@ async function performUninstall(mode, body) {
   activeAction = 'uninstall';
   try {
     if (isMacOS) {
-      await runMacOSScript('stop-tunnel.mjs', ['--profile', profileId], 30_000);
       await runMacOSScript('uninstall.mjs', ['--profile', profileId], 30_000);
     } else {
       const args = ['-Mode', mode, '-ProfileId', profileId, '-NonInteractive', '-Plain'];

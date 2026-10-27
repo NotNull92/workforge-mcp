@@ -17,7 +17,7 @@ export function stateRoot() {
   return resolve(configured ?? resolve(homedir(), "Library", "Application Support", "WorkForge"));
 }
 
-function readJson(path, label) {
+export function readJson(path, label) {
   const info = lstatSync(path);
   if (!info.isFile() || info.isSymbolicLink() || info.nlink > 1 || info.size > 256 * 1024) {
     throw new Error(`${label} is missing or unsafe.`);

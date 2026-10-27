@@ -13,6 +13,7 @@ import { pathToFileURL } from "node:url";
 import {
   parseWorkForgeContract,
   registerProfile,
+  unregisterProfile,
   validateDisplayName,
 } from "./macos/setup-support.mjs";
 
@@ -112,6 +113,7 @@ try {
     /Another WorkForge setup is updating the profile registry/u,
   );
   assert.deepEqual(readFileSync(registryPath), registryBeforeLockedSetup);
+  assert.throws(() => unregisterProfile(registryPath, "alpha"), /Another WorkForge setup is updating the profile registry/u);
   assert.equal(readFileSync(lockPath, "utf8"), '{"pid":2147483647}\n');
   rmSync(lockPath);
 
@@ -129,6 +131,14 @@ try {
     registry.profiles.map(candidate => candidate.id).sort(),
     ["alpha", "beta", ...concurrentIds].sort(),
   );
+  assert.deepEqual(unregisterProfile(registryPath, "alpha"), { lastProfile: false });
+  assert.throws(() => unregisterProfile(registryPath, "alpha"), /not registered/u);
+  const lastRegistry = resolve(fixture, "last-registry.json");
+  registerProfile(lastRegistry, entry("last"));
+  let callbackCalled = false;
+  assert.deepEqual(unregisterProfile(lastRegistry, "last", () => { callbackCalled = true; }), { lastProfile: true });
+  assert.equal(callbackCalled, true);
+  assert.throws(() => readFileSync(lastRegistry), /ENOENT/u);
   assert.deepEqual(
     readdirSync(fixture).filter(name => name.startsWith("profile_registry.json.")),
     [],

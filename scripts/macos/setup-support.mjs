@@ -119,7 +119,7 @@ function validateRegistry(registry) {
   return registry;
 }
 
-function readRegistry(registryPath) {
+export function readRegistry(registryPath) {
   let info;
   try {
     info = lstatSync(registryPath);
@@ -197,5 +197,25 @@ export function registerProfile(registryPath, entry) {
     } finally {
       rmSync(lockPath, { force: true });
     }
+  }
+}
+
+export function unregisterProfile(registryPath, profileId, onLastProfile) {
+  const lockPath = `${registryPath}.lock`;
+  const lockHandle = acquireRegistryLock(lockPath);
+  try {
+    const registry = readRegistry(registryPath);
+    if (!registry.profiles.some(candidate => candidate.id === profileId)) throw new Error(`WorkForge macOS profile is not registered: ${profileId}`);
+    const profiles = registry.profiles.filter(candidate => candidate.id !== profileId);
+    if (profiles.length) {
+      const updated = validateRegistry({ version: registryVersion, profiles });
+      atomicWrite(registryPath, `${JSON.stringify(updated, null, 2)}\n`);
+    } else {
+      rmSync(registryPath);
+      onLastProfile?.();
+    }
+    return { lastProfile: profiles.length === 0 };
+  } finally {
+    try { closeSync(lockHandle); } finally { rmSync(lockPath, { force: true }); }
   }
 }
