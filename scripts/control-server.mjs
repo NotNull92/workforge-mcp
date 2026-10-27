@@ -267,6 +267,8 @@ function runChildScript(executable, spawnArguments, scriptName, timeoutMs, optio
       stdio: ['ignore', 'pipe', 'pipe'],
       ...spawnOptions,
     });
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
 
     let stdout = '';
     let stderr = '';
@@ -278,7 +280,7 @@ function runChildScript(executable, spawnArguments, scriptName, timeoutMs, optio
         overflow = true;
         return current;
       }
-      return current + chunk.toString('utf8');
+      return current + chunk;
     };
     child.stdout.on('data', chunk => { stdout = append(stdout, chunk); });
     const handleStderrLine = line => {
@@ -286,7 +288,7 @@ function runChildScript(executable, spawnArguments, scriptName, timeoutMs, optio
       stderr = append(stderr, `${line}\n`);
     };
     child.stderr.on('data', chunk => {
-      stderrRemainder += chunk.toString('utf8');
+      stderrRemainder += chunk;
       const lines = stderrRemainder.split(/\r?\n/);
       stderrRemainder = lines.pop() || '';
       for (const line of lines) handleStderrLine(line);
@@ -326,7 +328,11 @@ function runMacOSScript(scriptName, argumentsList = [], timeoutMs = 90_000, opti
 
 function runPowerShell(scriptName, argumentsList = [], timeoutMs = 90_000, options = {}) {
   const scriptPath = path.join(scriptDirectory, scriptName);
-  const spawnArguments = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, ...argumentsList];
+  const literal = value => `'${String(value).replaceAll("'", "''")}'`;
+  // Only parameter names are syntax; paths and argument values remain literal strings.
+  const argumentsText = argumentsList.map(value => /^-[A-Za-z]+$/.test(value) ? value : literal(value)).join(' ');
+  const command = `[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; $global:LASTEXITCODE = 0; & ${literal(scriptPath)} ${argumentsText}; $succeeded = $?; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; if (-not $succeeded) { exit 1 }; exit 0`;
+  const spawnArguments = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-OutputFormat', 'Text', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')];
   return runChildScript(powershellPath, spawnArguments, scriptName, timeoutMs, options, { windowsHide: true });
 }
 
@@ -536,6 +542,7 @@ async function getUpdateStatus({ force = false } = {}) {
   if (isMacOS) {
     return {
       supported: false,
+      reason: 'source-preview',
       currentVersion: version,
       latestVersion: null,
       updateAvailable: false,
@@ -557,6 +564,7 @@ async function getUpdateStatus({ force = false } = {}) {
 
 async function performUpdate() {
   if (!capabilities.update) throw new Error('Automatic updates are not available in the macOS source preview. Download the new release and run setup again.');
+  if ((await getUpdateStatus()).supported === false) throw new Error('Automatic updates are unavailable for a source checkout. Run git pull and npm run build in the repository.');
   if (activeAction) throw new Error(`Another control action is already running: ${activeAction}.`);
   activeAction = 'update';
   updateProgress = {

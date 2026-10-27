@@ -29,7 +29,21 @@ function Publish-WorkForgeUpdateProgress {
 }
 
 try {
-  if ($Action -eq "Check") {
+  $EngineRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..")).TrimEnd([char[]]@('\', '/'))
+  $VersionsRoot = [IO.Path]::GetFullPath((Join-Path (Get-WorkForgePortableRoots).ProgramsRoot "versions")).TrimEnd([char[]]@('\', '/')) + '\'
+  if (-not $EngineRoot.StartsWith($VersionsRoot, [StringComparison]::OrdinalIgnoreCase)) {
+    if ($Action -eq "Apply") {
+      throw "Automatic updates are unavailable for a source checkout. Run git pull and npm run build in the repository."
+    }
+    $Package = Get-Content -Raw -LiteralPath (Join-Path $EngineRoot "package.json") | ConvertFrom-Json
+    $Result = [pscustomobject]@{
+      supported = $false
+      reason = "source-checkout"
+      currentVersion = [string]$Package.version
+      latestVersion = $null
+      updateAvailable = $false
+    }
+  } elseif ($Action -eq "Check") {
     $Result = Get-WorkForgeUpdateInfo
   } else {
     Publish-WorkForgeUpdateProgress -Stage "checking" -Percent 5 -Message "Checking the latest stable WorkForge release..."

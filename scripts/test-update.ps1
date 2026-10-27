@@ -103,6 +103,38 @@ try {
   [Environment]::SetEnvironmentVariable("WORKFORGE_PORTABLE_STATE_ROOT", $StateRoot, "Process")
   . (Join-Path $PSScriptRoot "WorkForge.Update.ps1")
 
+  # Run the real entrypoint with a module that fails on any pointer/network access.
+  foreach ($RelativeRoot in @("checkout", "programs\versions-other\fixture", "programs\versions", "programs\versions\fixture")) {
+    $FixtureRoot = Join-Path $TestRoot $RelativeRoot
+    Write-FixtureText -Path (Join-Path $FixtureRoot "package.json") -Text '{"version":"9.8.7"}'
+    Write-FixtureText -Path (Join-Path $FixtureRoot "scripts\Update.ps1") -Text (Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot "Update.ps1"))
+    Write-FixtureText -Path (Join-Path $FixtureRoot "scripts\WorkForge.Update.ps1") -Text @'
+function Get-WorkForgePortableRoots { return @{ ProgramsRoot = [IO.Path]::Combine($env:WORKFORGE_PORTABLE_PROGRAMS_ROOT.ToUpperInvariant(), '.') } }
+function Get-WorkForgeUpdateInfo { throw "PORTABLE_CHECK_REACHED" }
+function Get-WorkForgeUpdateDescriptor { throw "PORTABLE_APPLY_REACHED" }
+'@
+    foreach ($TestAction in @("Check", "Apply")) {
+      $ErrorActionPreference = "Continue"
+      $Output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $FixtureRoot "scripts\Update.ps1") -Action $TestAction -Json 2>&1 | Out-String
+      $Code = $LASTEXITCODE
+      $ErrorActionPreference = "Stop"
+      if ($RelativeRoot -eq "programs\versions\fixture") {
+        if ($Code -eq 0 -or $Output -notmatch ("PORTABLE_" + $TestAction.ToUpperInvariant() + "_REACHED")) { throw "Portable entrypoint was blocked: $Output" }
+      } elseif ($TestAction -eq "Check") {
+        if ($Code -ne 0) { throw "Source check failed: $Output" }
+        $Check = $Output | ConvertFrom-Json
+        if ($Check.supported -ne $false -or $Check.reason -cne "source-checkout" -or $Check.currentVersion -cne "9.8.7" -or $null -ne $Check.latestVersion -or $Check.updateAvailable) { throw "Source check returned incorrect metadata." }
+      } elseif ($Code -eq 0 -or $Output -notmatch "unavailable for a source checkout") {
+        throw "Source apply was not blocked: $Output"
+      }
+    }
+  }
+  if (Test-Path -LiteralPath (Join-Path $ProgramsRoot "current.json")) { throw "Source checks created a portable pointer." }
+  if (Test-Path -LiteralPath $StateRoot) { throw "Source checks changed portable state." }
+
+  $SourceCheck = & (Join-Path $PSScriptRoot "Update.ps1") -Action Check -Json | ConvertFrom-Json
+  if ($SourceCheck.reason -cne "source-checkout") { throw "Actual checkout was not recognized." }
+
   $ThrowingProgressCallback = { throw "simulated progress renderer failure" }
   Invoke-WorkForgeUpdateProgressCallback -ProgressCallback $ThrowingProgressCallback -Stage "test" -Percent 1 -Message "test"
 

@@ -209,6 +209,8 @@ const strings = {
     'update.upToDateBadge': 'Up to date',
     'update.unavailableTitle': 'Could not check for updates',
     'update.sourcePreviewTitle': 'Manual updates on macOS',
+    'update.sourceCheckoutTitle': 'Running from source',
+    'update.sourceCheckoutSummary': 'This WorkForge runs from source, so automatic updates are off. For a Git checkout, run git pull and npm run build in the repository.',
     'update.sourcePreviewSummary': 'The macOS source preview does not update itself. Download the new release and run setup again.',
     'update.updatingTitle': 'Updating WorkForge to {version}...',
     'update.runningSummary': 'The update is running. Keep this Control window open.',
@@ -472,6 +474,8 @@ const strings = {
     'update.upToDateBadge': '최신 버전',
     'update.unavailableTitle': '업데이트를 확인할 수 없습니다',
     'update.sourcePreviewTitle': 'macOS에서는 수동으로 업데이트합니다',
+    'update.sourceCheckoutTitle': '소스에서 실행 중입니다',
+    'update.sourceCheckoutSummary': '이 WorkForge는 소스에서 실행 중이라 자동 업데이트를 쓰지 않습니다. Git 체크아웃이라면 저장소에서 git pull 후 npm run build를 실행하세요.',
     'update.sourcePreviewSummary': 'macOS 소스 프리뷰는 자동 업데이트되지 않습니다. 새 릴리스를 받은 뒤 setup을 다시 실행하세요.',
     'update.updatingTitle': 'WorkForge {version}(으)로 업데이트 중...',
     'update.runningSummary': '업데이트가 진행 중입니다. 이 제어판 창을 열어 두세요.',
@@ -735,6 +739,8 @@ const strings = {
     'update.upToDateBadge': '最新版',
     'update.unavailableTitle': 'アップデートを確認できません',
     'update.sourcePreviewTitle': 'macOS では手動でアップデートします',
+    'update.sourceCheckoutTitle': 'ソースから実行中です',
+    'update.sourceCheckoutSummary': 'この WorkForge はソースから実行されているため、自動更新は無効です。Git チェックアウトの場合は、リポジトリで git pull と npm run build を実行してください。',
     'update.sourcePreviewSummary': 'macOS ソースプレビューは自動更新されません。新しいリリースを取得して setup を再実行してください。',
     'update.updatingTitle': 'WorkForge {version} にアップデート中...',
     'update.runningSummary': 'アップデートを実行中です。このコントロール画面を開いたままにしてください。',
@@ -998,6 +1004,8 @@ const strings = {
     'update.upToDateBadge': '已是最新',
     'update.unavailableTitle': '无法检查更新',
     'update.sourcePreviewTitle': 'macOS 需要手动更新',
+    'update.sourceCheckoutTitle': '正在从源码运行',
+    'update.sourceCheckoutSummary': '此 WorkForge 正在从源码运行，因此自动更新已关闭。如果使用 Git 检出，请在仓库中运行 git pull 和 npm run build。',
     'update.sourcePreviewSummary': 'macOS 源码预览版不会自动更新。请下载新版本并重新运行 setup。',
     'update.updatingTitle': '正在将 WorkForge 更新到 {version}...',
     'update.runningSummary': '更新正在进行中。请保持此控制面板窗口打开。',
@@ -1264,7 +1272,7 @@ function setBusy(active, label = null) {
 function updateButtons() {
   const running = Boolean(currentStatus?.running);
   const updating = currentUpdateProgress?.status === 'running' || currentUpdateProgress?.status === 'rollback';
-  const updateSupported = currentMeta?.capabilities?.update !== false;
+  const updateSupported = currentMeta?.capabilities?.update !== false && currentUpdate?.supported !== false;
   const uninstallSupported = currentMeta?.capabilities?.uninstall !== false;
   elements.startButton.disabled = actionInFlight || updating || running;
   elements.stopButton.disabled = actionInFlight || updating || !running;
@@ -1826,8 +1834,8 @@ function renderUpdate(update) {
   elements.currentVersionMetric.textContent = update.currentVersion || t('state.unknown');
   elements.latestVersionMetric.textContent = update.latestVersion || t('state.unknown');
   if (update.supported === false) {
-    elements.updateTitle.textContent = t('update.sourcePreviewTitle');
-    elements.updateSummary.textContent = t('update.sourcePreviewSummary');
+    elements.updateTitle.textContent = t(update.reason === 'source-checkout' ? 'update.sourceCheckoutTitle' : 'update.sourcePreviewTitle');
+    elements.updateSummary.textContent = t(update.reason === 'source-checkout' ? 'update.sourceCheckoutSummary' : 'update.sourcePreviewSummary');
     elements.updateBadge.textContent = t('state.unavailable');
     elements.updateBadge.className = 'badge badge-neutral';
   } else if (update.updateAvailable) {
@@ -1895,7 +1903,7 @@ function renderTerminalScreen(eyebrowKey, titleKey, copyKey) {
 }
 
 async function applyUpdate() {
-  if (actionInFlight || !currentUpdate?.updateAvailable) return;
+  if (actionInFlight || currentUpdate?.supported === false || !currentUpdate?.updateAvailable) return;
   const targetVersion = currentUpdate.latestVersion || t('update.latest');
   if (!window.confirm(t('update.confirm', { version: targetVersion }))) return;
 

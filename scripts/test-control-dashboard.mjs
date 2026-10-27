@@ -87,6 +87,23 @@ const renderContext = vm.createContext({ elements: renderElements, document: { c
     tasks: [{ taskId: 'example', title: '<img src=x onerror=alert(1)>', reportedStatus: 'completed', savedAt: '2026-01-01T00:00:00.000Z' }],
     jobs: [{ id: 'shell_example', cwd: '<script>unsafe</script>', status: 'ownership_lost', trackingState: 'ownership_lost',
       exitCode: null, updatedAt: '2026-01-01T00:00:00.000Z', stdoutBytes: 0, stderrBytes: 0 }] } });
+for (const key of ['currentVersionMetric', 'latestVersionMetric', 'updateTitle', 'updateSummary', 'updateBadge',
+  'startButton', 'stopButton', 'refreshButton', 'doctorButton', 'checkUpdateButton', 'updateButton', 'openUninstallButton']) {
+  renderElements[key] = element();
+}
+Object.assign(renderContext, { currentStatus: null, currentUpdateProgress: null, currentMeta: { capabilities: { update: true } },
+  currentUpdate: null, updateFailureMessage: null, actionInFlight: false });
+vm.runInContext(appSource.slice(appSource.indexOf('function updateButtons('), appSource.indexOf('function setChip(')), renderContext);
+vm.runInContext(appSource.slice(appSource.indexOf('function renderUpdate('), appSource.indexOf('function renderUpdateFailure(')), renderContext);
+for (const language of supportedLanguages) {
+  renderContext.t = key => dictionaries[language][key];
+  vm.runInContext('renderUpdate({ supported: false, reason: "source-checkout", currentVersion: "9.8.7", updateAvailable: true })', renderContext);
+  assert(renderElements.updateTitle.textContent === dictionaries[language]['update.sourceCheckoutTitle'], 'Source guidance title is missing.');
+  assert(renderElements.updateSummary.textContent.includes('npm run build'), 'Source build guidance is missing.');
+  assert(renderElements.updateBadge.className === 'badge badge-neutral', 'Source checkout was rendered as an error.');
+  assert(renderElements.currentVersionMetric.textContent === '9.8.7' && renderElements.updateButton.disabled, 'Unsupported updates must preserve current version and disable Apply.');
+}
+renderContext.t = (key, values = {}) => String(dictionaries.en[key] || key).replace(/\{(\w+)\}/g, (_, name) => values[name] ?? '');
 vm.runInContext(appSource.slice(appSource.indexOf('function workTime('), appSource.indexOf('async function refreshWork(')), renderContext);
 vm.runInContext('renderWork()', renderContext);
 assert(renderElements.taskRecords.children[0].children[0].children[0].textContent === '<img src=x onerror=alert(1)>', 'Task title was not rendered as literal text.');
@@ -160,6 +177,46 @@ assert(!freeRow.children.some(child => String(child.className).includes('work-cl
 // hold on a developer machine that already has WorkForge installed.
 const emptyStateRoot = mkdtempSync(path.join(os.tmpdir(), 'workforge-dashboard-test-'));
 
+// Exercise the actual PowerShell adapter, including quoting, progress and exit codes.
+if (process.platform === 'win32') {
+  const serverSource = await readFile(serverPath, 'utf8');
+  const powershellContext = vm.createContext({ spawn, path, os, Buffer, setTimeout, clearTimeout,
+    scriptDirectory: emptyStateRoot,
+    powershellPath: path.join(process.env.SystemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+    controlEnvironment: () => process.env, sanitizeText: text => text,
+    terminateProcessTree: child => child.kill() });
+  vm.runInContext(serverSource.slice(serverSource.indexOf('function runChildScript('), serverSource.indexOf('function simplifyStatus(')), powershellContext);
+  try {
+    const fixtureName = "한글 ' output.ps1";
+    await writeFile(path.join(emptyStateRoot, fixtureName), '\ufeff' + `param([string]$Value, [switch]$Fail, [switch]$Throw)
+[Console]::Out.WriteLine($Value)
+[Console]::Error.WriteLine('한글 오류')
+[Console]::Error.WriteLine('WORKFORGE_UPDATE_PROGRESS {"message":"한글 진행"}')
+if ($Throw) { throw '한글 예외' }
+if ($Fail) { exit 7 }
+`);
+    const literal = '한글 "quoted" \' ; $(throw "injection")';
+    const lines = [];
+    const result = await powershellContext.runPowerShell(fixtureName, ['-Value', literal], 10_000,
+      { onStderrLine: line => { lines.push(line); return line.startsWith('WORKFORGE_UPDATE_PROGRESS '); } });
+    assert(result.stdout === literal && result.stderr === '한글 오류', 'PowerShell UTF-8 or literal argument roundtrip failed.');
+    assert(lines.includes('WORKFORGE_UPDATE_PROGRESS {"message":"한글 진행"}'), 'UTF-8 update progress was lost.');
+    for (const flag of ['-Fail', '-Throw']) {
+      let failed = false;
+      try { await powershellContext.runPowerShell(fixtureName, ['-Value', literal, flag]); }
+      catch (error) { failed = error.message.includes(flag === '-Throw' ? '한글 예외' : '한글 오류'); }
+      assert(failed, `PowerShell ${flag} failure was lost or corrupted.`);
+    }
+    await writeFile(path.join(emptyStateRoot, 'exit.ps1'), 'exit 7');
+    let exitMessage = '';
+    try { await powershellContext.runPowerShell('exit.ps1'); } catch (error) { exitMessage = error.message; }
+    assert(exitMessage.includes('exit code 7'), 'PowerShell exit code was not propagated.');
+  } catch (error) {
+    rmSync(emptyStateRoot, { recursive: true, force: true });
+    throw error;
+  }
+}
+
 const child = spawn(process.execPath, [serverPath, '--profile', 'missing-dashboard-test', '--no-browser', '--port', '0'], {
   cwd: toolRoot,
   env: {
@@ -167,6 +224,8 @@ const child = spawn(process.execPath, [serverPath, '--profile', 'missing-dashboa
     WORKFORGE_CONTROL_TEST_MODE: '1',
     WORKFORGE_MCP_PROFILE_REGISTRY: path.join(emptyStateRoot, 'profile_registry.json'),
     WORKFORGE_MACOS_STATE_ROOT: emptyStateRoot,
+    WORKFORGE_PORTABLE_PROGRAMS_ROOT: path.join(emptyStateRoot, 'programs'),
+    WORKFORGE_PORTABLE_STATE_ROOT: path.join(emptyStateRoot, 'state'),
   },
   windowsHide: true,
   stdio: ['ignore', 'pipe', 'pipe'],
@@ -272,6 +331,16 @@ try {
   assert(metaJson.platform === (process.platform === 'darwin' ? 'macos' : 'windows'), 'Dashboard platform metadata is incorrect.');
   assert(typeof metaJson.capabilities?.update === 'boolean', 'Dashboard capabilities are missing update support.');
   assert(typeof metaJson.capabilities?.removeEverything === 'boolean', 'Dashboard capabilities are missing destructive uninstall support.');
+
+  const updateResponse = await fetch(`${origin}/api/update`, { headers: { Cookie: cookie } });
+  const updatePayload = await updateResponse.json();
+  assert(updateResponse.status === 200 && updatePayload.update.supported === false, 'Source update check must succeed as unsupported.');
+  assert(updatePayload.update.reason === (process.platform === 'darwin' ? 'source-preview' : 'source-checkout'), 'Incorrect source update reason.');
+  assert(updatePayload.update.currentVersion === JSON.parse(await readFile(path.join(toolRoot, 'package.json'), 'utf8')).version, 'Source version differs from the running engine.');
+  const blockedUpdate = await fetch(`${origin}/api/update`, {
+    method: 'POST', headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' }, body: '{"confirm":true}',
+  });
+  assert(blockedUpdate.status === 500 && /source/.test((await blockedUpdate.json()).error), 'Source Apply was not blocked by the server.');
 
   const statusFailure = await fetch(`${origin}/api/status`, { headers: { Cookie: cookie } });
   assert(statusFailure.status === 500, `Missing-profile status returned ${statusFailure.status}.`);
