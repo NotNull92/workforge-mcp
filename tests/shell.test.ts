@@ -80,6 +80,22 @@ afterEach(async () => {
 });
 
 describe("workstation shell", { timeout: 30_000 }, () => {
+  it("keeps surrogate pairs intact across shell output pages", async () => {
+    const { context, primary } = await fixture();
+    const text = "😀a😀b😀";
+    const job = await startShellJob({ context, cwd: primary, timeoutMs: 10000,
+      command: shellCommand(`[Console]::OutputEncoding=[Text.UTF8Encoding]::new(); [Console]::Out.Write('${text}')`, `printf '%s' '${text}'`) });
+    await waitForTerminal(context, job.id);
+    for (const size of [1, 2, 3]) {
+      let result = "", offset: number | null = 0;
+      while (offset !== null) {
+        const page = (await getShellOutput({ context, id: job.id, stdoutOffset: offset, stderrOffset: 0, maxCharacters: size })).stdout;
+        expect(page.text).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u);
+        result += page.text; offset = page.nextOffset;
+      }
+      expect(result).toBe(text);
+    }
+  });
   it("redacts complete shell output before paging it", async () => {
     const { context, primary } = await fixture();
     const secret = "opaque-page-secret-123456";

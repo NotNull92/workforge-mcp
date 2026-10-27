@@ -1002,7 +1002,10 @@ export async function pruneShellJobs(input: { context: ProjectContext; olderThan
 }
 
 function pageText(text: string, offset: number, maxCharacters: number) {
-  const selected = text.slice(offset, offset + maxCharacters);
+  let selected = text.slice(offset, offset + maxCharacters);
+  if (/[\uD800-\uDBFF]$/u.test(selected) && /[\uDC00-\uDFFF]/u.test(text[offset + selected.length] ?? "")) {
+    selected = selected.length === 1 ? text.slice(offset, offset + 2) : selected.slice(0, -1);
+  }
   const nextOffset = offset + selected.length < text.length ? offset + selected.length : null;
   return { text: selected, nextOffset, totalCharacters: text.length };
 }
