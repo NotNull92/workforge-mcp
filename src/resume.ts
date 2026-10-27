@@ -72,14 +72,31 @@ function firstDiagnostic(result: ProcessResult, fallback: string): string {
   return (stderr || stdout || fallback).split(/\r?\n/u, 1)[0]?.slice(0, 1000) ?? fallback;
 }
 
-async function runGit(cwd: string, args: readonly string[], maxStdoutBytes = MAX_GIT_STDOUT_BYTES, configuration: readonly string[] = []): Promise<ProcessResult> {
+async function runGit(cwd: string, args: readonly string[], maxStdoutBytes = MAX_GIT_STDOUT_BYTES, configuration: readonly string[] = [], signal?: AbortSignal): Promise<ProcessResult> {
   return await runProcess(GIT_EXECUTABLE, [...SAFE_GIT_ARGS, ...configuration, ...args], {
     cwd,
     timeoutMs: GIT_TIMEOUT_MS,
     maxStdoutBytes,
     maxStderrBytes: MAX_GIT_STDERR_BYTES,
+    signal,
     env: makeSafeEnvironment(SAFE_GIT_ENV),
   });
+}
+
+export async function resolveAuthorizedRepositoryRoot(context: ProjectContext, workingDirectory: string, signal?: AbortSignal): Promise<{ root: string; error?: never; gitAvailable: true } | { root?: never; error: string; gitAvailable: boolean }> {
+  let result: ProcessResult;
+  try { result = await runGit(workingDirectory, ["rev-parse", "--show-toplevel"], 32 * 1024, [], signal); }
+  catch (error) {
+    signal?.throwIfAborted();
+    return { gitAvailable: false, error: `Git is unavailable: ${error instanceof Error ? error.message : String(error)}` };
+  }
+  if (result.exitCode !== 0 || result.timedOut || result.truncated) return { gitAvailable: true, error: firstDiagnostic(result, "The requested working directory is not inside a Git worktree.") };
+  const reportedRoot = result.stdout.trim();
+  if (!reportedRoot) return { gitAvailable: true, error: "Git returned an empty worktree root." };
+  const root = await realpath(resolve(reportedRoot));
+  await resolveAuthorizedWorkstationPath(context, root, "tree");
+  if (!isPathWithinOrEqual(root, await realpath(workingDirectory))) return { gitAvailable: true, error: "Git worktree root does not contain the requested working directory." };
+  return { root, gitAvailable: true };
 }
 
 function addUnique(target: string[], seen: Set<string>, path: string): void {
@@ -262,34 +279,9 @@ export async function getProjectResume(
     }));
   }
 
-  let rootResult: ProcessResult;
-  try {
-    rootResult = await runGit(workingDirectory, ["rev-parse", "--show-toplevel"], 32 * 1024);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return unavailableResult(context, workingDirectory, false, `Git is unavailable: ${message}`, resumeDocuments);
-  }
-
-  if (rootResult.exitCode !== 0 || rootResult.timedOut || rootResult.truncated) {
-    return unavailableResult(
-      context,
-      workingDirectory,
-      true,
-      firstDiagnostic(rootResult, "The requested working directory is not inside a Git worktree."),
-      resumeDocuments,
-    );
-  }
-
-  const reportedRoot = rootResult.stdout.trim();
-  if (reportedRoot.length === 0) {
-    return unavailableResult(context, workingDirectory, true, "Git returned an empty worktree root.", resumeDocuments);
-  }
-  const repositoryRoot = await realpath(resolve(reportedRoot));
-  await resolveAuthorizedWorkstationPath(context, repositoryRoot, "tree");
-  const canonicalWorkingDirectory = await realpath(workingDirectory);
-  if (!isPathWithinOrEqual(repositoryRoot, canonicalWorkingDirectory)) {
-    return unavailableResult(context, workingDirectory, true, "Git worktree root does not contain the requested working directory.", resumeDocuments);
-  }
+  const rootResult = await resolveAuthorizedRepositoryRoot(context, workingDirectory);
+  if (rootResult.error !== undefined) return unavailableResult(context, workingDirectory, rootResult.gitAvailable, rootResult.error, resumeDocuments);
+  const repositoryRoot = rootResult.root;
 
   const configuration: string[] = [];
   if (neutralizeFilters) {

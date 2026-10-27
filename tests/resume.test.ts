@@ -58,6 +58,17 @@ afterEach(async () => {
 });
 
 describe("project resume snapshot", () => {
+  it("rejects inspection when the actual Git root contains another profile", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "project-resume-root-"));
+    temporaryRoots.push(parent);
+    await initializeRepository(parent);
+    const primary = join(parent, "primary");
+    const foreign = join(parent, "foreign");
+    await mkdir(primary); await mkdir(foreign);
+    const { context } = await makeContext(primary);
+    const isolated = { ...context, managedProjectRoots: [...context.managedProjectRoots, { profileId: "foreign", primaryRoot: foreign }] };
+    await expect(inspectRun({ context: isolated, path: primary, preset: "git_log" })).rejects.toThrow("Cross-profile path denied");
+  });
   it("does not run lazy-fetch transport commands for missing partial-clone objects", async () => {
     const { root: source } = await makeContext();
     await initializeRepository(source);
