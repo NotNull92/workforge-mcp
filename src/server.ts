@@ -164,7 +164,8 @@ const shellStatusOutputSchema = {
 
 export function createServer(context: ProjectContext, options: { readOnly?: boolean; knownSecrets?: readonly string[];
   toolModeSource?: "default" | "env" | "argv"; tools?: string; redactionOptions?: RedactionOptions; customLiterals?: number;
-  redaction?: "on" | "off"; redactLogs?: boolean; readOnlyExtras?: boolean; multiFileEdit?: boolean } = {}): McpServer {
+  redaction?: "on" | "off"; redactLogs?: boolean; readOnlyExtras?: boolean; multiFileEdit?: boolean;
+  onSessionLock?: (posture: { toolMode: "read_only"; toolModeSource: "session_lock"; redaction: "on" | "off"; tools: number }) => void } = {}): McpServer {
   const readOnly = options.readOnly === true;
   let sessionLocked = false;
   const toolSet = new Set(enabledToolNames(readOnly, options.tools, options));
@@ -257,6 +258,7 @@ export function createServer(context: ProjectContext, options: { readOnly?: bool
     sessionLocked = true;
     const disabledTools = [...toolSet].filter(name => TOOL_MODES[name as keyof typeof TOOL_MODES] !== true && name !== "shell_cancel");
     for (const name of disabledTools) { registered.get(name)?.disable(); toolSet.delete(name); }
+    options.onSessionLock?.({ toolMode: "read_only", toolModeSource: "session_lock", redaction: options.redaction ?? "on", tools: toolSet.size });
     return responseFor({ toolMode: "read_only", toolModeSource: "session_lock", disabledTools });
   });
 

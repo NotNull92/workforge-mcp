@@ -229,7 +229,8 @@ describe("workstation filesystem", () => {
 
   it("locks a live session and rejects cached mutation calls while retaining shell_cancel", async () => {
     const { context } = await fixture();
-    const server = createServer(context);
+    const onSessionLock = vi.fn();
+    const server = createServer(context, { onSessionLock });
     const client = new Client({ name: "lock-test", version: "1" });
     const [a, b] = InMemoryTransport.createLinkedPair();
     try {
@@ -238,6 +239,7 @@ describe("workstation filesystem", () => {
       const result = await client.callTool({ name: "workstation_lock_read_only", arguments: { contextRevision: initial.contextRevision, confirm: "LOCK_READ_ONLY" } });
       expect(result.isError).not.toBe(true);
       const names = (await client.listTools()).tools.map(tool => tool.name).sort();
+      expect(onSessionLock).toHaveBeenCalledWith({ toolMode: "read_only", toolModeSource: "session_lock", redaction: "on", tools: names.length });
       expect(names).toEqual([...enabledToolNames(true), "shell_cancel"].sort());
       const posture = (await client.callTool({ name: "workstation_context", arguments: {} })).structuredContent;
       expect(posture).toMatchObject({ toolMode: "read_only", toolModeSource: "session_lock", enabledTools: names });

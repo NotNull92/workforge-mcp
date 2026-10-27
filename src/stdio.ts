@@ -39,7 +39,8 @@ if (readOnlyFlag && process.env.WORKFORGE_MCP_READ_ONLY === "0") console.error("
 console.error(`WorkForge MCP tool mode: ${readOnly ? "read_only" : "read_write"}`);
 const server = createServer(context, { readOnly, toolModeSource, tools, knownSecrets: rules.knownSecrets,
   redaction, redactLogs: redactLogsValue === "1", readOnlyExtras, multiFileEdit,
-  customLiterals: rules.customLiterals, redactionOptions: { extraKeyNames: rules.extraKeyNames, entropy: entropyValue === "1" } });
+  customLiterals: rules.customLiterals, redactionOptions: { extraKeyNames: rules.extraKeyNames, entropy: entropyValue === "1" },
+  onSessionLock: posture => console.error(`WorkForge MCP posture: ${JSON.stringify(posture)}`) });
 console.error(`WorkForge MCP posture: ${JSON.stringify({ toolMode: readOnly ? "read_only" : "read_write", toolModeSource, redaction, tools: enabledToolNames(readOnly, tools, { readOnlyExtras, multiFileEdit }).length })}`);
 const transport = new StdioServerTransport();
 

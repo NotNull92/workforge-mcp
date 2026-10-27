@@ -8,6 +8,7 @@ it("distinguishes current, stale and absent mode evidence without guessing", () 
   const text = 'WorkForge MCP posture: {"toolMode":"read_only","redaction":"on","tools":12}\n';
   const time = "2026-10-26T10:00:00.000Z";
   expect(parseModeEvidence(text, time, true, time)).toMatchObject({ evidence: "log", tools: 12 });
+  expect(parseModeEvidence('WorkForge MCP posture: {"toolMode":"read_write","redaction":"on","tools":25}\n' + text, time, true, time)).toMatchObject({ toolMode: "read_only", tools: 12 });
   expect(parseModeEvidence(text, time, true)).toMatchObject({ evidence: "stale" });
   expect(parseModeEvidence(text, time, false, time)).toMatchObject({ evidence: "stale" });
   expect(parseModeEvidence(text, time, true, "2026-10-27T10:00:00.000Z")).toMatchObject({ evidence: "stale" });

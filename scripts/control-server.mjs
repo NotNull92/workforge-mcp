@@ -657,6 +657,7 @@ async function performAction(action) {
     recordActivity('error', `${action} failed: ${error.message}`);
     throw error;
   } finally {
+    modeEvidenceCache = null;
     activeAction = null;
   }
 }

@@ -79,7 +79,7 @@ const strings = {
     "mode.tools": "{count} tools",
     "mode.stale": "MCP mode unverified · earlier record {time}",
     "mode.unknown": "MCP mode unverified",
-    "mode.hint": "Shown only when the tunnel log proves the mode of the running session. Confirm workstation_context.toolMode in ChatGPT.",
+    "mode.hint": "Shows the most recent session in the tunnel log. Confirm workstation_context.toolMode in ChatGPT.",
     "work.copy": "Copy resume",
     "work.copied": "Resume instruction copied.",
     "work.copyFailed": "Could not copy. Select the task ID below.",
@@ -344,7 +344,7 @@ const strings = {
     "mode.tools": "도구 {count}개",
     "mode.stale": "MCP 모드 확인 불가 · 이전 기록 {time}",
     "mode.unknown": "MCP 모드 확인 불가",
-    "mode.hint": "터널 로그가 실행 중인 세션의 모드를 증명할 때만 표시합니다. ChatGPT에서 workstation_context.toolMode를 확인하세요.",
+    "mode.hint": "터널 로그에 기록된 가장 최근 세션 기준입니다. ChatGPT에서 workstation_context.toolMode를 확인하세요.",
     "work.copy": "재개 문구 복사",
     "work.copied": "재개 문구를 복사했습니다.",
     "work.copyFailed": "복사하지 못했습니다. 아래 작업 ID를 선택하세요.",
@@ -609,7 +609,7 @@ const strings = {
     "mode.tools": "ツール {count} 個",
     "mode.stale": "MCPモード未確認 · 以前の記録 {time}",
     "mode.unknown": "MCPモード未確認",
-    "mode.hint": "トンネルログが実行中のセッションのモードを証明する場合にのみ表示します。ChatGPTでworkstation_context.toolModeを確認してください。",
+    "mode.hint": "トンネルログの直近のセッションを表示します。ChatGPTでworkstation_context.toolModeを確認してください。",
     "work.copy": "再開文をコピー",
     "work.copied": "再開文をコピーしました。",
     "work.copyFailed": "コピーできませんでした。下のタスクIDを選択してください。",
@@ -874,7 +874,7 @@ const strings = {
     "mode.tools": "{count} 个工具",
     "mode.stale": "MCP模式未验证 · 早前记录 {time}",
     "mode.unknown": "MCP模式未验证",
-    "mode.hint": "仅当隧道日志能证明运行中会话的模式时显示。请在ChatGPT中确认workstation_context.toolMode。",
+    "mode.hint": "显示隧道日志中最近的会话。请在ChatGPT中确认workstation_context.toolMode。",
     "work.copy": "复制恢复指令",
     "work.copied": "已复制恢复指令。",
     "work.copyFailed": "复制失败。请选中下方任务ID。",
@@ -1754,6 +1754,7 @@ async function runAction(action) {
   } finally {
     setBusy(false);
     await refreshStatus({ quiet: true });
+    await refreshModeEvidence();
   }
 }
 
