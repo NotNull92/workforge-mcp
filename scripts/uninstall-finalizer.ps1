@@ -15,6 +15,8 @@ Set-StrictMode -Version 3.0
 $Utf8 = [Text.UTF8Encoding]::new($false)
 $FinalizerPath = $PSCommandPath
 $FinalizerDirectory = Split-Path -Parent $FinalizerPath
+$EngineMutex = $null
+$EngineLockAcquired = $false
 
 function Write-FinalizerResult {
   param(
@@ -77,6 +79,10 @@ try {
     throw "Timed out waiting for the uninstaller process to exit."
   }
 
+  $EngineMutex = [Threading.Mutex]::new($false, 'Local\WorkForgeMcp-Engine')
+  try { $EngineLockAcquired = $EngineMutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $EngineLockAcquired = $true }
+  if (-not $EngineLockAcquired) { throw 'Another WorkForge update, rollback or uninstall is running.' }
+
   $ManifestPath = Join-Path $EngineRoot ".workforge-release.json"
   if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
     throw "Release manifest is missing."
@@ -133,6 +139,8 @@ try {
   Write-FinalizerResult -Removed $false -State "failed" -Detail $_.Exception.Message
   exit 1
 } finally {
+  if ($EngineLockAcquired) { $EngineMutex.ReleaseMutex() }
+  if ($null -ne $EngineMutex) { $EngineMutex.Dispose() }
   Remove-Item -LiteralPath $FinalizerPath -Force -ErrorAction SilentlyContinue
   if (Test-Path -LiteralPath $FinalizerDirectory -PathType Container) {
     $Remaining = @(Get-ChildItem -LiteralPath $FinalizerDirectory -Force -ErrorAction SilentlyContinue)

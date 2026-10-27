@@ -211,6 +211,11 @@ function Invoke-WorkForgeTransactionalUpgrade {
     [scriptblock]$ProgressCallback
   )
 
+  $EngineMutex = [Threading.Mutex]::new($false, 'Local\WorkForgeMcp-Engine')
+  $EngineLockAcquired = $false
+  try {
+  try { $EngineLockAcquired = $EngineMutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $EngineLockAcquired = $true }
+  if (-not $EngineLockAcquired) { throw 'Another WorkForge update, rollback or uninstall is running.' }
   $CurrentRuntime = Resolve-WorkForgePortableEngine
   $Release = Get-WorkForgePortableRelease -SourceRoot $SourceRoot
   if ((ConvertTo-WorkForgeStableVersion -Value $Release.Version) -le (ConvertTo-WorkForgeStableVersion -Value $CurrentRuntime.Version)) {
@@ -297,5 +302,9 @@ function Invoke-WorkForgeTransactionalUpgrade {
 
     $Suffix = if ($RollbackIssues.Count -eq 0) { "Rollback completed." } else { "Rollback had issues: $($RollbackIssues -join ', ')." }
     throw "WorkForge update failed: $OriginalError $Suffix"
+  }
+  } finally {
+    if ($EngineLockAcquired) { $EngineMutex.ReleaseMutex() }
+    $EngineMutex.Dispose()
   }
 }

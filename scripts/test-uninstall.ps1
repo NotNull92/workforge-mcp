@@ -172,6 +172,26 @@ try {
   $Registry = Set-TestRegistry -EngineRoot $Engine -Profiles @($Profile)
   $Desktop = Join-Path $TestRoot "keep-desktop"
   $Shortcut = New-TestShortcut -EngineRoot $Engine -DesktopDirectory $Desktop
+  $MutexScript = Join-Path $TestRoot 'hold-engine-mutex.ps1'
+  $MutexReady = Join-Path $TestRoot 'mutex-ready'
+  [IO.File]::WriteAllText($MutexScript, @'
+param([string]$Ready)
+$lock = [Threading.Mutex]::new($false, 'Local\WorkForgeMcp-Engine')
+$null = $lock.WaitOne()
+[IO.File]::WriteAllText($Ready, 'ready')
+Start-Sleep -Seconds 30
+'@, $Utf8)
+  $MutexHolder = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-File', ('"{0}"' -f $MutexScript), ('"{0}"' -f $MutexReady)) -WindowStyle Hidden -PassThru
+  try {
+    $Deadline = [DateTime]::UtcNow.AddSeconds(10)
+    while (-not (Test-Path -LiteralPath $MutexReady) -and [DateTime]::UtcNow -lt $Deadline) { Start-Sleep -Milliseconds 50 }
+    if (-not (Test-Path -LiteralPath $MutexReady)) { throw 'Mutex fixture did not start.' }
+    $Blocked = Invoke-UninstallProcess -EngineRoot $Engine -WorkspaceRoot $Profile.WorkspaceRoot -RegistryPath $Registry -DesktopDirectory $Desktop -AdditionalArguments @('-Mode', 'KeepWorkspace', '-NonInteractive', '-KeepEngine')
+    if ($Blocked.ExitCode -ne 1 -or $Blocked.Output -notmatch 'Another WorkForge update, rollback or uninstall is running' -or -not (Test-Path -LiteralPath $Registry)) { throw 'Concurrent uninstall was not rejected safely.' }
+  } finally {
+    if (-not $MutexHolder.HasExited) { Stop-Process -Id $MutexHolder.Id -Force -ErrorAction SilentlyContinue }
+    $MutexHolder.WaitForExit()
+  }
   $Result = Invoke-UninstallProcess -EngineRoot $Engine -WorkspaceRoot $Profile.WorkspaceRoot -RegistryPath $Registry -DesktopDirectory $Desktop -AdditionalArguments @("-Mode", "KeepWorkspace", "-NonInteractive", "-KeepEngine")
   if ($Result.ExitCode -ne 0) { throw "KeepWorkspace uninstall failed: $($Result.Output)" }
   if (-not (Test-Path -LiteralPath (Join-Path $Profile.WorkspaceRoot "user-owned.txt") -PathType Leaf)) { throw "KeepWorkspace removed user-owned content." }
@@ -260,6 +280,22 @@ try {
   $Hasher = [Security.Cryptography.SHA256]::Create()
   try { $ManifestHash = [BitConverter]::ToString($Hasher.ComputeHash([IO.File]::ReadAllBytes($PortableManifest))).Replace('-', '') }
   finally { $Hasher.Dispose() }
+  Remove-Item -LiteralPath $MutexReady -Force
+  $MutexHolder = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-File', ('"{0}"' -f $MutexScript), ('"{0}"' -f $MutexReady)) -WindowStyle Hidden -PassThru
+  try {
+    $Deadline = [DateTime]::UtcNow.AddSeconds(10)
+    while (-not (Test-Path -LiteralPath $MutexReady) -and [DateTime]::UtcNow -lt $Deadline) { Start-Sleep -Milliseconds 50 }
+    if (-not (Test-Path -LiteralPath $MutexReady)) { throw 'Finalizer mutex fixture did not start.' }
+    $FinalizerCopy = Join-Path $TestRoot 'finalizer-locked.ps1'
+    $ReceiptPath = Join-Path $TestRoot 'portable-finalizer-result.json'
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'uninstall-finalizer.ps1') -Destination $FinalizerCopy
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $FinalizerCopy -ParentProcessId 2147483647 -EngineRoot $PortableEngine -ExpectedManifestSha256 $ManifestHash -ResultPath $ReceiptPath -PortableProgramsRoot $Programs -PortableStateRoot $State -InUseTimeoutSeconds 1
+    $Receipt = Get-Content -Raw -LiteralPath $ReceiptPath | ConvertFrom-Json
+    if ($Receipt.state -cne 'failed' -or $Receipt.detail -notmatch 'Another WorkForge update' -or -not (Test-Path -LiteralPath (Join-Path $Dist 'stdio.js'))) { throw 'Finalizer did not respect the engine mutex.' }
+  } finally {
+    if (-not $MutexHolder.HasExited) { Stop-Process -Id $MutexHolder.Id -Force -ErrorAction SilentlyContinue }
+    $MutexHolder.WaitForExit()
+  }
   $NodePath = Join-Path $PortableEngine 'node.exe'
   Copy-Item -LiteralPath (Get-Command node.exe).Source -Destination $NodePath
   $RunningNode = $null

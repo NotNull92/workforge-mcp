@@ -295,7 +295,14 @@ function Confirm-StandardUninstall {
 }
 
 $CurrentStage = $null
+$EngineMutex = $null
+$EngineLockAcquired = $false
 try {
+  if (-not $script:UninstallWhatIf) {
+    $EngineMutex = [Threading.Mutex]::new($false, 'Local\WorkForgeMcp-Engine')
+    try { $EngineLockAcquired = $EngineMutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $EngineLockAcquired = $true }
+    if (-not $EngineLockAcquired) { throw 'Another WorkForge update, rollback or uninstall is running.' }
+  }
   Write-WorkForgeBanner -Action "UNINSTALL" -Subtitle "Remove the gateway without leaving a loose thread"
 
   if ($Mode -eq "Prompt") {
@@ -447,5 +454,7 @@ try {
   if ($Embedded) { throw }
   exit 1
 } finally {
+  if ($EngineLockAcquired) { $EngineMutex.ReleaseMutex() }
+  if ($null -ne $EngineMutex) { $EngineMutex.Dispose() }
   [Environment]::SetEnvironmentVariable("WORKFORGE_MCP_PROFILE_REGISTRY", $OriginalRegistryEnvironment, "Process")
 }

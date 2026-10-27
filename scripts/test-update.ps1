@@ -164,6 +164,29 @@ function Get-WorkForgeUpdateDescriptor { param([string]$CurrentVersion) if ($Cur
   $CurrentSource = New-UpdateFixture -Version "0.2.0" -Marker "current"
   $null = Install-WorkForgePortableVersion -SourceRoot $CurrentSource
   $TargetSource = New-UpdateFixture -Version "0.2.1" -Marker "target"
+  $MutexScript = Join-Path $TestRoot 'hold-engine-mutex.ps1'
+  $MutexReady = Join-Path $TestRoot 'mutex-ready'
+  Write-FixtureText -Path $MutexScript -Text @'
+param([string]$Ready)
+$lock = [Threading.Mutex]::new($false, 'Local\WorkForgeMcp-Engine')
+$null = $lock.WaitOne()
+[IO.File]::WriteAllText($Ready, 'ready')
+Start-Sleep -Seconds 30
+'@
+  $MutexHolder = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-File', ('"{0}"' -f $MutexScript), ('"{0}"' -f $MutexReady)) -WindowStyle Hidden -PassThru
+  try {
+    $Deadline = [DateTime]::UtcNow.AddSeconds(10)
+    while (-not (Test-Path -LiteralPath $MutexReady) -and [DateTime]::UtcNow -lt $Deadline) { Start-Sleep -Milliseconds 50 }
+    if (-not (Test-Path -LiteralPath $MutexReady)) { throw 'Mutex fixture did not start.' }
+    try { $null = Invoke-WorkForgeTransactionalUpgrade -SourceRoot $TargetSource; throw 'Concurrent upgrade was accepted.' }
+    catch { if ($_.Exception.Message -notmatch 'Another WorkForge update, rollback or uninstall is running') { throw } }
+    try { & (Join-Path $PSScriptRoot 'Portable-Runtime.ps1') -Action Rollback; throw 'Concurrent rollback was accepted.' }
+    catch { if ($_.Exception.Message -notmatch 'Another WorkForge update, rollback or uninstall is running') { throw } }
+    if ((Resolve-WorkForgePortableEngine).Version -cne '0.2.0') { throw 'Mutex rejection changed the engine.' }
+  } finally {
+    if (-not $MutexHolder.HasExited) { Stop-Process -Id $MutexHolder.Id -Force -ErrorAction SilentlyContinue }
+    $MutexHolder.WaitForExit()
+  }
   $ProgressEvents = [Collections.Generic.List[object]]::new()
   $ProgressCallback = {
     param([string]$Stage, [int]$Percent, [string]$Message)

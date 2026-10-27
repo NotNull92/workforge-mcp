@@ -16,6 +16,11 @@ switch ($Action) {
   }
   "Resolve" { Resolve-WorkForgePortableEngine }
   "Rollback" {
+    $EngineMutex = [Threading.Mutex]::new($false, 'Local\WorkForgeMcp-Engine')
+    $EngineLockAcquired = $false
+    try {
+    try { $EngineLockAcquired = $EngineMutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $EngineLockAcquired = $true }
+    if (-not $EngineLockAcquired) { throw 'Another WorkForge update, rollback or uninstall is running.' }
     . (Join-Path $PSScriptRoot "WorkForge.Update.ps1")
     $ActiveEngine = Resolve-WorkForgePortableEngine
     foreach ($Profile in @(Get-WorkForgeUpdateProfileRecords -EngineRoot $ActiveEngine.EngineRoot)) {
@@ -24,5 +29,9 @@ switch ($Action) {
       }
     }
     Invoke-WorkForgePortableRollback
+    } finally {
+      if ($EngineLockAcquired) { $EngineMutex.ReleaseMutex() }
+      $EngineMutex.Dispose()
+    }
   }
 }
