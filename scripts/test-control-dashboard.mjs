@@ -109,6 +109,23 @@ vm.runInContext(appSource.slice(appSource.indexOf('function updateButtons('), ap
   await vm.runInContext('refreshStatus()', busy);
   assert(!busy.actionInFlight && !busyElements.doctorButton.disabled, 'Buttons remained disabled after the server action ended.');
 }
+{
+  let pid = 42, remoteCalls = 0;
+  const statusContext = vm.createContext({ isMacOS: true, profileId: 'fixture', cachedStatus: null, cachedStatusAt: 0,
+    controlPlaneCache: null, statusPromise: null, statusCacheMs: 0, profileRegistrySetupMessage: 'missing',
+    sanitizeText: value => value, simplifyStatus: value => value, noteStatusTransition: () => {},
+    runMacOSScript: async (_script, args) => {
+      const skip = args.includes('--skip-control-plane');
+      if (!skip) remoteCalls++;
+      return { stdout: JSON.stringify({ running: true, localReady: true, pid, controlPlaneHealthy: skip ? null : true, ready: !skip }) };
+    } });
+  const serverCode = await readFile(serverPath, 'utf8');
+  vm.runInContext(serverCode.slice(serverCode.indexOf('async function getStatus('), serverCode.indexOf('async function getWork(')), statusContext);
+  for (let i = 0; i < 3; i++) assert((await vm.runInContext('getStatus({ force: true })', statusContext)).ready, 'Cached macOS status lost readiness.');
+  assert(remoteCalls === 1, 'macOS status did not cache the control-plane check.');
+  pid = 43;
+  assert((await vm.runInContext('getStatus({ force: true })', statusContext)).ready && remoteCalls === 2, 'A changed tunnel PID did not trigger a new control-plane check.');
+}
 vm.runInContext(appSource.slice(appSource.indexOf('function renderUpdate('), appSource.indexOf('function renderUpdateFailure(')), renderContext);
 for (const language of supportedLanguages) {
   renderContext.t = key => dictionaries[language][key];

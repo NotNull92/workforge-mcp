@@ -96,10 +96,10 @@ writeFileSync(resolve(stateRoot, "current.json"), `${JSON.stringify({
 writeFileSync(fakeTunnel, `#!/usr/bin/env node
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
-import { writeFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 const valueAfter = (name) => process.argv[process.argv.indexOf(name) + 1];
 if (process.argv.includes("--version")) { console.log("fake 0.0.11"); process.exit(0); }
-if (process.argv[2] === "doctor") process.exit(process.env.FAKE_CONTROL_PLANE_OK === "1" ? 0 : 2);
+if (process.argv[2] === "doctor") { appendFileSync(process.env.FAKE_DOCTOR_LOG, "doctor\\n"); process.exit(process.env.FAKE_CONTROL_PLANE_OK === "1" ? 0 : 2); }
 if (process.argv[2] !== "run") process.exit(0);
 const observedKeyHash = createHash("sha256").update(process.env.CONTROL_PLANE_API_KEY ?? "").digest("hex");
 if (observedKeyHash !== process.env.EXPECTED_KEY_SHA256) process.exit(9);
@@ -125,6 +125,7 @@ const environment = {
   CONTROL_PLANE_API_KEY: "poison-parent-value",
   EXPECTED_KEY_SHA256: keySha256,
   FAKE_CONTROL_PLANE_OK: "1",
+  FAKE_DOCTOR_LOG: resolve(fixture, "doctor-calls.log"),
 };
 const originalStateRoot = process.env.WORKFORGE_MACOS_STATE_ROOT;
 process.env.WORKFORGE_MACOS_STATE_ROOT = stateRoot;
@@ -190,6 +191,16 @@ try {
   assert.equal(running.controlPlaneHealthy, true);
   assert.equal(running.ready, true);
   assert.equal(running.supervised, true);
+  const doctorCount = () => existsSync(environment.FAKE_DOCTOR_LOG) ? readFileSync(environment.FAKE_DOCTOR_LOG, "utf8").trim().split("\n").length : 0;
+  const beforeSkip = doctorCount();
+  const skipped = JSON.parse(execFileSync(process.execPath, [resolve(root, "scripts", "macos", "tunnel-status.mjs"), "--profile", profileId, "--skip-control-plane"], { env: environment, encoding: "utf8" }));
+  assert.equal(skipped.controlPlaneHealthy, null);
+  assert.equal(doctorCount(), beforeSkip);
+  for (let index = 0; index < 3; index++) {
+    const status = await (await fetch(`${origin}/api/status`, { headers: { Cookie: cookie } })).json();
+    assert.equal(status.status.readyState, "ready");
+  }
+  assert.equal(doctorCount(), beforeSkip);
 
   const doctorResponse = await fetch(`${origin}/api/doctor`, { method: "POST", headers, body: "{}" });
   assert.equal(doctorResponse.status, 200, await doctorResponse.text());

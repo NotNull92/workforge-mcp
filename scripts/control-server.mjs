@@ -62,6 +62,7 @@ let shuttingDown = false;
 let activeAction = null;
 let cachedStatus = null;
 let cachedStatusAt = 0;
+let controlPlaneCache = null;
 let statusPromise = null;
 let workModulesPromise = null;
 let workPromise = null;
@@ -398,9 +399,10 @@ async function getStatus({ force = false } = {}) {
 
   const request = (async () => {
     let result;
+    let skipControlPlane = isMacOS && controlPlaneCache !== null && Date.now() - controlPlaneCache.at < 60_000;
     try {
       result = isMacOS
-        ? await runMacOSScript('tunnel-status.mjs', ['--profile', profileId], 15_000)
+        ? await runMacOSScript('tunnel-status.mjs', ['--profile', profileId, ...(skipControlPlane ? ['--skip-control-plane'] : [])], 15_000)
         : await runPowerShell('tunnel-status.ps1', ['-ProfileId', profileId, '-Snapshot'], 15_000);
     } catch (error) {
       if (error instanceof Error && (
@@ -414,6 +416,23 @@ async function getStatus({ force = false } = {}) {
     let parsed;
     try {
       parsed = JSON.parse(result.stdout);
+      if (isMacOS && skipControlPlane) {
+        if (parsed.running && parsed.localReady && parsed.pid != null && parsed.pid === controlPlaneCache?.pid) {
+          parsed.controlPlaneHealthy = controlPlaneCache.value;
+          parsed.ready = parsed.localReady && controlPlaneCache.value;
+        } else {
+          controlPlaneCache = null;
+          if (parsed.running && parsed.localReady) {
+            result = await runMacOSScript('tunnel-status.mjs', ['--profile', profileId], 15_000);
+            parsed = JSON.parse(result.stdout);
+            skipControlPlane = false;
+          }
+        }
+      }
+      if (isMacOS && !skipControlPlane) {
+        controlPlaneCache = parsed.running && parsed.localReady && parsed.pid != null && typeof parsed.controlPlaneHealthy === 'boolean'
+          ? { value: parsed.controlPlaneHealthy, at: Date.now(), pid: parsed.pid } : null;
+      }
     } catch {
       throw new Error(`Could not parse tunnel status: ${result.stdout.slice(0, 2000)}`);
     }
@@ -658,6 +677,7 @@ async function performAction(action) {
     throw error;
   } finally {
     modeEvidenceCache = null;
+    controlPlaneCache = null;
     activeAction = null;
   }
 }

@@ -30,11 +30,12 @@ if (running && existsSync(paths.healthUrlPath)) {
     localReady = readiness.ok;
   } catch { /* running but not ready */ }
 }
-let controlPlaneHealthy = false;
-if (running && localReady) {
+const skipControlPlane = process.argv.includes("--skip-control-plane");
+let controlPlaneHealthy = skipControlPlane ? null : false;
+if (!skipControlPlane && running && localReady) {
   try { controlPlaneHealthy = tunnelDoctor(installation, readStoredControlPlaneKey(profileId)); } catch { /* key unavailable */ }
 }
-const ready = localReady && controlPlaneHealthy;
+const ready = localReady && controlPlaneHealthy === true;
 let state = null;
 try { state = JSON.parse(readFileSync(paths.statusPath, "utf8")); } catch { /* no state yet */ }
 // A supervisor killed with SIGKILL leaves its last state behind, so trust the live process check
