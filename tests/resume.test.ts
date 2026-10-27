@@ -66,7 +66,8 @@ describe("project resume snapshot", () => {
     const foreign = join(parent, "foreign");
     await mkdir(primary); await mkdir(foreign);
     const { context } = await makeContext(primary);
-    const isolated = { ...context, managedProjectRoots: [...context.managedProjectRoots, { profileId: "foreign", primaryRoot: foreign }] };
+    // Registered roots are canonical (profile.ts); CI temp dirs are not (macOS /var symlink, Windows 8.3 names).
+    const isolated = { ...context, managedProjectRoots: [...context.managedProjectRoots, { profileId: "foreign", primaryRoot: await realpath(foreign) }] };
     await expect(inspectRun({ context: isolated, path: primary, preset: "git_log" })).rejects.toThrow("Cross-profile path denied");
   });
   it("does not run lazy-fetch transport commands for missing partial-clone objects", async () => {
