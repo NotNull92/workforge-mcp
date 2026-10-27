@@ -73,11 +73,13 @@ function Resolve-WorkForgeReleaseMetadata {
 }
 
 function Get-WorkForgeUpdateDescriptor {
-  $CurrentRuntime = Resolve-WorkForgePortableEngine
+  # CurrentVersion is passed only by source checkouts, which have no portable pointer.
+  param([string]$CurrentVersion, [int]$TimeoutSec = 30)
+  if ([string]::IsNullOrEmpty($CurrentVersion)) { $CurrentVersion = (Resolve-WorkForgePortableEngine).Version }
   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
   $Headers = @{ Accept = "application/vnd.github+json"; "User-Agent" = $script:WorkForgeUpdateUserAgent }
-  $Metadata = Invoke-RestMethod -UseBasicParsing -Uri $script:WorkForgeUpdateApiUrl -Headers $Headers -Method Get -TimeoutSec 30
-  return Resolve-WorkForgeReleaseMetadata -Metadata $Metadata -CurrentVersion $CurrentRuntime.Version
+  $Metadata = Invoke-RestMethod -UseBasicParsing -Uri $script:WorkForgeUpdateApiUrl -Headers $Headers -Method Get -TimeoutSec $TimeoutSec
+  return Resolve-WorkForgeReleaseMetadata -Metadata $Metadata -CurrentVersion $CurrentVersion
 }
 
 function Get-WorkForgeUpdateInfo {

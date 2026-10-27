@@ -111,7 +111,7 @@ try {
     Write-FixtureText -Path (Join-Path $FixtureRoot "scripts\WorkForge.Update.ps1") -Text @'
 function Get-WorkForgePortableRoots { return @{ ProgramsRoot = [IO.Path]::Combine($env:WORKFORGE_PORTABLE_PROGRAMS_ROOT.ToUpperInvariant(), '.') } }
 function Get-WorkForgeUpdateInfo { throw "PORTABLE_CHECK_REACHED" }
-function Get-WorkForgeUpdateDescriptor { throw "PORTABLE_APPLY_REACHED" }
+function Get-WorkForgeUpdateDescriptor { param([string]$CurrentVersion) if ($CurrentVersion -ceq "9.8.7") { return @{ LatestVersion = "9.9.0" } }; throw "PORTABLE_APPLY_REACHED" }
 '@
     foreach ($TestAction in @("Check", "Apply")) {
       $ErrorActionPreference = "Continue"
@@ -123,7 +123,7 @@ function Get-WorkForgeUpdateDescriptor { throw "PORTABLE_APPLY_REACHED" }
       } elseif ($TestAction -eq "Check") {
         if ($Code -ne 0) { throw "Source check failed: $Output" }
         $Check = $Output | ConvertFrom-Json
-        if ($Check.supported -ne $false -or $Check.reason -cne "source-checkout" -or $Check.currentVersion -cne "9.8.7" -or $null -ne $Check.latestVersion -or $Check.updateAvailable) { throw "Source check returned incorrect metadata." }
+        if ($Check.supported -ne $false -or $Check.reason -cne "source-checkout" -or $Check.currentVersion -cne "9.8.7" -or $Check.latestVersion -cne "9.9.0" -or $Check.updateAvailable) { throw "Source check returned incorrect metadata." }
       } elseif ($Code -eq 0 -or $Output -notmatch "unavailable for a source checkout") {
         throw "Source apply was not blocked: $Output"
       }

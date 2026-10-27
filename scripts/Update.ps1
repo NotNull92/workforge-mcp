@@ -36,11 +36,14 @@ try {
       throw "Automatic updates are unavailable for a source checkout. Run git pull and npm run build in the repository."
     }
     $Package = Get-Content -Raw -LiteralPath (Join-Path $EngineRoot "package.json") | ConvertFrom-Json
+    $LatestVersion = $null
+    # Informational only: a checkout updates with git pull, so a failed lookup stays unknown.
+    try { $LatestVersion = (Get-WorkForgeUpdateDescriptor -CurrentVersion ([string]$Package.version) -TimeoutSec 10).LatestVersion } catch { }
     $Result = [pscustomobject]@{
       supported = $false
       reason = "source-checkout"
       currentVersion = [string]$Package.version
-      latestVersion = $null
+      latestVersion = $LatestVersion
       updateAvailable = $false
     }
   } elseif ($Action -eq "Check") {

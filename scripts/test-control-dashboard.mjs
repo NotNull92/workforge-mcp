@@ -39,9 +39,9 @@ assert(appSource.includes("language.startsWith('ko')"), 'Control dashboard does 
 assert(appSource.includes("language.startsWith('ja')"), 'Control dashboard does not auto-detect Japanese.');
 assert(appSource.includes("language.startsWith('zh')"), 'Control dashboard does not auto-detect Chinese.');
 assert(appSource.includes('document.documentElement.lang = currentLanguage'), 'Control dashboard does not update the document language.');
-assert(appSource.includes("'brand.title': 'WorkForge 제어판'"), 'Control dashboard is missing Korean translations.');
-assert(appSource.includes("'brand.title': 'WorkForge コントロール'"), 'Control dashboard is missing Japanese translations.');
-assert(appSource.includes("'brand.title': 'WorkForge 控制台'"), 'Control dashboard is missing Chinese translations.');
+assert(appSource.includes("'brand.eyebrow': '대장간 · 로컬 상태'"), 'Control dashboard is missing Korean translations.');
+assert(appSource.includes("'brand.eyebrow': '鍛冶場 · ローカル状態'"), 'Control dashboard is missing Japanese translations.');
+assert(appSource.includes("'brand.eyebrow': '锻造坊 · 本地状态'"), 'Control dashboard is missing Chinese translations.');
 
 const dictionaryStartMarker = 'const strings = ';
 const dictionaryEndMarker = ';\n\nfunction normalizeLanguage';
@@ -311,6 +311,9 @@ try {
     ['/style.css', 'text/css'],
     ['/app.js', 'text/javascript'],
     ['/logo.png', 'image/png'],
+    // Every art file the page references must be served locally under CSP self.
+    ...[...new Set(`${await readFile(htmlPath, 'utf8')}${await readFile(path.join(toolRoot, 'control-ui', 'style.css'), 'utf8')}`
+      .match(/\/assets\/[\w-]+\.webp/g))].map(asset => [asset, 'image/webp']),
   ]) {
     const assetResponse = await fetch(`${origin}${asset}`);
     assert(assetResponse.status === 200, `${asset} returned ${assetResponse.status}.`);

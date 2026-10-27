@@ -711,6 +711,8 @@ async function serveStatic(pathname, response, setSession = false) {
     ['/app.js', [path.join(uiRoot, 'app.js'), 'text/javascript; charset=utf-8']],
     ['/style.css', [path.join(uiRoot, 'style.css'), 'text/css; charset=utf-8']],
     ['/logo.png', [path.join(toolRoot, 'docs', 'logo', 'logo.png'), 'image/png']],
+    ...['forge-backdrop', 'forge-banner', 'forge-crest', 'iron-plate'].map(name =>
+      [`/assets/${name}.webp`, [path.join(uiRoot, 'assets', `${name}.webp`), 'image/webp']]),
   ]);
   const entry = files.get(pathname);
   if (!entry) return false;
