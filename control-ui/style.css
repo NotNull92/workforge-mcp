@@ -193,8 +193,7 @@ h3 { margin-bottom: 10px; font-size: 0.86rem; letter-spacing: var(--track-wide, 
 .brand-logo {
   width: 68px;
   height: 68px;
-  object-fit: cover;
-  clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
+  object-fit: contain;
   filter: drop-shadow(0 0 12px rgba(255, 122, 24, 0.25));
 }
 
