@@ -262,7 +262,7 @@ try {
   Write-WorkForgeSummary -Title "WORKFORGE READY" -Values ([ordered]@{
     Profile = $WorkspaceRoot
     Tunnel = $(if ($TunnelConfigured -and -not $SkipStart) { "live or already running" } elseif ($TunnelConfigured) { "configured" } else { "not configured" })
-    Tools = "12 available after connection"
+    Tools = "Available after connection (see workstation_context)"
     Startup = "manual"
   }) -Tone "success"
   Write-WorkForgeNotice -Level "info" -Message "Nothing was registered to start with Windows."
