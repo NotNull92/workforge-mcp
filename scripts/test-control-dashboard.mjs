@@ -202,7 +202,7 @@ if (process.platform === 'win32') {
     terminateProcessTree: child => child.kill() });
   vm.runInContext(serverSource.slice(serverSource.indexOf('function runChildScript('), serverSource.indexOf('function simplifyStatus(')), powershellContext);
   try {
-    const fixtureName = "한글 ' output.ps1";
+    const fixtureName = "한글 ’ ' output.ps1";
     await writeFile(path.join(emptyStateRoot, fixtureName), '\ufeff' + `param([string]$Value, [switch]$Fail, [switch]$Throw)
 [Console]::Out.WriteLine($Value)
 [Console]::Error.WriteLine('한글 오류')
@@ -210,7 +210,7 @@ if (process.platform === 'win32') {
 if ($Throw) { throw '한글 예외' }
 if ($Fail) { exit 7 }
 `);
-    const literal = '한글 "quoted" \' ; $(throw "injection")';
+    const literal = '한글 "quoted" \' ’; Write-Output INJECTED; ’ $(throw "injection")';
     const lines = [];
     const result = await powershellContext.runPowerShell(fixtureName, ['-Value', literal], 10_000,
       { onStderrLine: line => { lines.push(line); return line.startsWith('WORKFORGE_UPDATE_PROGRESS '); } });

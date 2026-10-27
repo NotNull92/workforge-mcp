@@ -343,7 +343,7 @@ function runMacOSScript(scriptName, argumentsList = [], timeoutMs = 90_000, opti
 
 function runPowerShell(scriptName, argumentsList = [], timeoutMs = 90_000, options = {}) {
   const scriptPath = path.join(scriptDirectory, scriptName);
-  const literal = value => `'${String(value).replaceAll("'", "''")}'`;
+  const literal = value => `'${String(value).replace(/['\u2018-\u201b]/gu, '$&$&')}'`;
   // Only parameter names are syntax; paths and argument values remain literal strings.
   const argumentsText = argumentsList.map(value => /^-[A-Za-z]+$/.test(value) ? value : literal(value)).join(' ');
   const command = `$ProgressPreference = 'SilentlyContinue'; [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; $global:LASTEXITCODE = 0; & ${literal(scriptPath)} ${argumentsText}; $succeeded = $?; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; if (-not $succeeded) { exit 1 }; exit 0`;
