@@ -203,6 +203,9 @@ function Get-WorkForgeVerifiedTunnelProcess {
     return $null
   }
 
+  # A process created after the PID file cannot be the process that wrote it.
+  if ($Process.CreationDate -and $Process.CreationDate.ToUniversalTime() -gt (Get-Item -LiteralPath $RecordedPidPath).LastWriteTimeUtc) { return $null }
+
   $ObservedExecutableText = [string]$Process.ExecutablePath
   $ObservedCommandLineText = [string]$Process.CommandLine
   if ([string]::IsNullOrWhiteSpace($ObservedExecutableText) -or [string]::IsNullOrWhiteSpace($ObservedCommandLineText)) {
@@ -248,6 +251,9 @@ function Get-WorkForgeVerifiedTunnelSupervisorProcess {
   if (-not $Process) {
     return $null
   }
+
+  # A process created after the PID file cannot be the process that wrote it.
+  if ($Process.CreationDate -and $Process.CreationDate.ToUniversalTime() -gt (Get-Item -LiteralPath $RecordedPidPath).LastWriteTimeUtc) { return $null }
 
   $ObservedExecutableText = [string]$Process.ExecutablePath
   $ObservedCommandLineText = [string]$Process.CommandLine

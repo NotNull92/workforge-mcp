@@ -52,4 +52,29 @@ if ($PersistentState.Count -ne 3 -or -not [string]::IsNullOrWhiteSpace([string]$
   throw "Persistent empty process metadata did not exhaust the bounded retry window."
 }
 
+$PidFixtureRoot = Join-Path $env:TEMP ("workforge-pid-test-" + [guid]::NewGuid().ToString("N"))
+$Child = $null
+try {
+  New-Item -ItemType Directory -Path $PidFixtureRoot | Out-Null
+  $PidFile = Join-Path $PidFixtureRoot "fixture.pid"
+  $Child = Start-Process -FilePath (Get-WorkForgePowerShellExecutablePath) -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 30') -WindowStyle Hidden -PassThru
+  Set-Content -LiteralPath $PidFile -Value $Child.Id -Encoding ascii
+  $Profile = [pscustomobject]@{ Id = 'fixture'; TunnelConfigPath = (Join-Path $PidFixtureRoot 'fixture.yaml') }
+  (Get-Item -LiteralPath $PidFile).LastWriteTimeUtc = [DateTime]::UtcNow.AddHours(-1)
+  if (Get-WorkForgeVerifiedTunnelProcess -Profile $Profile -RecordedPidPath $PidFile -ExecutablePath 'C:\fixture.exe') { throw 'Stale tunnel PID was accepted.' }
+  if (Get-WorkForgeVerifiedTunnelSupervisorProcess -Profile $Profile -RecordedPidPath $PidFile) { throw 'Stale supervisor PID was accepted.' }
+  (Get-Item -LiteralPath $PidFile).LastWriteTimeUtc = [DateTime]::UtcNow.AddMinutes(1)
+  foreach ($Kind in @('tunnel', 'supervisor')) {
+    $Failed = $false
+    try {
+      if ($Kind -eq 'tunnel') { $null = Get-WorkForgeVerifiedTunnelProcess -Profile $Profile -RecordedPidPath $PidFile -ExecutablePath 'C:\fixture.exe' }
+      else { $null = Get-WorkForgeVerifiedTunnelSupervisorProcess -Profile $Profile -RecordedPidPath $PidFile }
+    } catch { $Failed = $_.Exception.Message -match 'does not match' }
+    if (-not $Failed) { throw "Current $Kind PID identity mismatch was not rejected." }
+  }
+} finally {
+  if ($Child -and -not $Child.HasExited) { Stop-Process -Id $Child.Id -Force -ErrorAction SilentlyContinue }
+  Remove-Item -LiteralPath $PidFixtureRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 Write-Output "RECOVERY_POLICY_TEST_OK"
