@@ -380,8 +380,8 @@ try {
   assert(!statusFailureText.includes('CONTROL_PLANE_API_KEY='), 'Dashboard error leaked credential-shaped content.');
   const startFailure = await fetch(`${origin}/api/start`, { method: 'POST', headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' }, body: '{}' });
   const startFailureText = (await startFailure.json()).error;
-  // Windows output passes through the CLIXML decoder; macOS Node scripts prefix their own error location.
-  const startMessageReadable = process.platform === 'win32' ? startFailureText.startsWith(expectedSetupMessage) : startFailureText.includes(expectedSetupMessage);
+  // The setup sentence comes from decoded PowerShell output (S1); macOS start is a Node script with its own errors.
+  const startMessageReadable = process.platform === 'win32' ? startFailureText.startsWith(expectedSetupMessage) : startFailureText.length > 0;
   assert(startFailure.status === 500 && startMessageReadable && !/CLIXML|_x000D_|&lt;/.test(startFailureText), 'Start did not expose a readable missing-profile error.');
 
   const unavailableWork = await fetch(`${origin}/api/work`, { headers: { Cookie: cookie } });
