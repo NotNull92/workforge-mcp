@@ -183,7 +183,7 @@ export function createServer(context: ProjectContext, options: { readOnly?: bool
   const projectName = context.profile.displayName;
   const server = new McpServer(
     { name: context.profile.serverName, version: SERVER_VERSION },
-    { instructions: (options.redaction === "off" ? "Responses are not redacted. " : "") + serverInstructions(context, readOnly, options.readOnlyExtras === true) + " Discover task IDs with task_list and read reported checkpoints with task_resume; inspect shell_output and files separately before trusting completion. When redaction is on, responses redact known credentials and token patterns with the WORKFORGE_REDACTED bracket marker. Marker text is not original data and cannot be submitted in mutation inputs. Hashes, offsets, and line numbers refer to original bytes/text. Images are not redacted. Shell logs are redacted only when shellLogRedaction is line. Detection is best-effort, especially across pages." },
+    { instructions: (options.redaction === "off" ? "Responses are not redacted. " : "") + serverInstructions(context, readOnly, options.readOnlyExtras === true) + " Discover task IDs with task_list and read reported checkpoints with task_resume; inspect shell_output and files separately before trusting completion. When redaction is on, responses redact known credentials and token patterns with the WORKFORGE_REDACTED bracket marker. Marker text is not original data and cannot be submitted in mutation inputs. Shell output offsets refer to redacted text; other hashes, offsets and line numbers refer to original bytes/text. Images are not redacted. Shell logs are redacted only when shellLogRedaction is line. Detection is best-effort." },
   );
 
   const registerTool = ((name: string, config: {
@@ -603,7 +603,7 @@ export function createServer(context: ProjectContext, options: { readOnly?: bool
     "shell_output",
     {
       title: "Read shell job output",
-      description: "Read bounded paged stdout and stderr and check complete before treating output as final. Set waitMs to wait server-side for up to that duration before returning output and the current state.",
+      description: "Read bounded paged stdout and stderr; offsets refer to redacted text. Check complete before treating output as final. Set waitMs to wait server-side for up to that duration before returning output and the current state.",
       inputSchema: {
         id: SHELL_ID_SCHEMA,
         waitMs: SHELL_WAIT_SCHEMA,
@@ -626,7 +626,7 @@ export function createServer(context: ProjectContext, options: { readOnly?: bool
     },
     async ({ waitMs, ...input }, extra) => {
       await waitForShellSettled(context, input.id, waitMs, extra.signal);
-      return responseFor(await getShellOutput({ context, ...input }));
+      return responseFor(await getShellOutput({ context, ...input, redactText: text => redact(text).value }));
     },
   );
 

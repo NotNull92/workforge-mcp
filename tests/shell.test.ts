@@ -80,6 +80,32 @@ afterEach(async () => {
 });
 
 describe("workstation shell", { timeout: 30_000 }, () => {
+  it("redacts complete shell output before paging it", async () => {
+    const { context, primary } = await fixture();
+    const secret = "opaque-page-secret-123456";
+    const token = "ghp_" + "a".repeat(36);
+    const started = await startShellJob({ context, cwd: primary, timeoutMs: 10000,
+      command: shellCommand(`[Console]::Out.Write('${secret} ${token}'); Start-Sleep -Seconds 3`, `printf '%s' '${secret} ${token}'; sleep 3`) });
+    const client = new Client({ name: "redaction-test", version: "1" });
+    const server = createServer(context, { knownSecrets: [secret] });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    try {
+      await server.connect(serverTransport); await client.connect(clientTransport);
+      const read = async (offset: number, size: number) => (await client.callTool({ name: "shell_output", arguments: { id: started.id, stdoutOffset: offset, maxCharacters: size } })).structuredContent as { stdout: { text: string; nextOffset: number | null } };
+      while (getShellStatus(context, started.id).stdoutBytes < Buffer.byteLength(`${secret} ${token}`)) await new Promise(resolve => setTimeout(resolve, 30));
+      expect(getShellStatus(context, started.id).trackingState).toBe("attached");
+      for (const state of ["attached", "archived_terminal"]) {
+        if (state === "archived_terminal") await waitForTerminal(context, started.id);
+        const whole = (await read(0, 1000)).stdout.text;
+        for (const size of [1, 5]) {
+          let text = "", offset: number | null = 0;
+          while (offset !== null) { const page = (await read(offset, size)).stdout; text += page.text; offset = page.nextOffset; }
+          expect(text).toBe(whole);
+          expect(text).not.toContain(secret); expect(text).not.toContain(token);
+        }
+      }
+    } finally { await client.close(); await server.close(); }
+  });
   it("previews old records and protects checkpoint references during confirmed pruning", async () => {
     const { context, primary } = await fixture();
     const ids = ["a", "b", "c"].map(char => `shell_${char.repeat(32)}`);

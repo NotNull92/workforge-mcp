@@ -733,7 +733,7 @@ WorkForge는 [MIT License](LICENSE)로 배포됩니다.
 
 도구의 structured/text 응답과 handler 오류에 알려진 비밀값 및 패턴 마스킹을 적용합니다. 시작 시 자격 증명형 환경 값을 수집하되 경로는 제외하며 최대256개/각4096자/전체64KiB입니다. 상한 초과 값은 개수만 stderr에 표시합니다. 토큰 접두사, 대입문, Bearer, URL 비밀번호, PEM 경계도 처리하고 `_meta.redactionCount`에 치환 횟수를 넣습니다. text JSON은 마스킹된 structured 결과에서 만듭니다.
 
-WORKFORGE_REDACTED 대괄호 marker는 원본이 아니므로 이를 포함하는 mutation 입력은 거부하며 marker 자체의 리터럴 기록도 지원하지 않습니다. 원본 해시·페이지 offset·줄 번호는 바꾸지 않으므로 반환된 continuation 필드를 사용하세요. 모든 비밀을 검출하는 기능은 아닙니다. 알 수 없는 값의 다음 페이지 조각, PEM 내부만 있는 페이지, 인코딩된 값, 이미지, 디스크 원본 로그는 보호 범위 밖입니다. 원문 응답 해제 도구는 제공하지 않습니다.
+WORKFORGE_REDACTED 대괄호 marker는 원본이 아니므로 이를 포함하는 mutation 입력은 거부하며 marker 자체의 리터럴 기록도 지원하지 않습니다. 해시와 줄 번호는 원본 기준이며 shell 출력 offset은 마스킹된 텍스트 기준입니다. 반환된 continuation 필드를 사용하세요. 모든 비밀을 검출하는 기능은 아닙니다. 알 수 없는 값의 다음 페이지 조각, PEM 내부만 있는 페이지, 인코딩된 값, 이미지, 디스크 원본 로그는 보호 범위 밖입니다. 원문 응답 해제 도구는 제공하지 않습니다.
 
 `task_list`로 작업 ID를 찾고 `task_resume`로 보고된 상태와 별도 실행 근거를 읽습니다. `task_checkpoint`는 상태 전체를 교체하며 첫 저장은 `expectedSha256: "absent"`, 이후는 현재 체크포인트 원본 해시를 전달합니다. 충돌 시 덮어쓰지 않습니다. ID는 소문자 기반 이식 가능한 이름(Windows 예약명 제외), 저장 한도는128KiB이며 탐지된 비밀값/marker는 저장 전에 거부합니다. 필드별 상한 합계가 저장 한도를 넘을 수 있고 크기 오류에는 실제 바이트 수가 나옵니다.
 

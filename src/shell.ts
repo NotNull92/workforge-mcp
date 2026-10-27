@@ -1013,6 +1013,7 @@ export async function getShellOutput(input: {
   stdoutOffset: number;
   stderrOffset: number;
   maxCharacters: number;
+  redactText?: (text: string) => string;
 }) {
   assertJobId(input.id);
   const job = jobs.get(input.id);
@@ -1042,8 +1043,8 @@ export async function getShellOutput(input: {
       }
     }
   }
-  const stdout = stdoutBytes.toString("utf8");
-  const stderr = stderrBytes.toString("utf8");
+  const stdout = input.redactText?.(stdoutBytes.toString("utf8")) ?? stdoutBytes.toString("utf8");
+  const stderr = input.redactText?.(stderrBytes.toString("utf8")) ?? stderrBytes.toString("utf8");
   return {
     id: status.id,
     status: status.status,
