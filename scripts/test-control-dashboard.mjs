@@ -92,8 +92,23 @@ for (const key of ['currentVersionMetric', 'latestVersionMetric', 'updateTitle',
   renderElements[key] = element();
 }
 Object.assign(renderContext, { currentStatus: null, currentUpdateProgress: null, currentMeta: { capabilities: { update: true } },
-  currentUpdate: null, updateFailureMessage: null, actionInFlight: false });
+  currentUpdate: null, updateFailureMessage: null, actionInFlight: false, serverAction: null });
 vm.runInContext(appSource.slice(appSource.indexOf('function updateButtons('), appSource.indexOf('function setChip(')), renderContext);
+{
+  const busyElements = { busyBadge: element() };
+  for (const key of ['startButton', 'stopButton', 'refreshButton', 'doctorButton', 'checkUpdateButton', 'updateButton', 'openUninstallButton']) busyElements[key] = element();
+  const busy = vm.createContext({ elements: busyElements, currentStatus: null, currentUpdateProgress: null,
+    currentMeta: null, currentUpdate: null, actionInFlight: false, serverAction: null, localActionLabel: null,
+    labelState: value => value, t: value => value, renderStatus: () => {}, renderActivity: () => {},
+    renderStatusFailure: () => {}, toast: () => {}, api: async () => ({ status: {}, activity: [], activeAction: 'doctor' }) });
+  vm.runInContext(appSource.slice(appSource.indexOf('function setBusy('), appSource.indexOf('function setChip(')), busy);
+  vm.runInContext(appSource.slice(appSource.indexOf('async function refreshStatus('), appSource.indexOf('async function runAction(')), busy);
+  await vm.runInContext('refreshStatus()', busy);
+  assert(!busy.actionInFlight && busyElements.doctorButton.disabled, 'A server action must disable buttons without setting the local action flag.');
+  busy.api = async () => ({ status: {}, activity: [], activeAction: null });
+  await vm.runInContext('refreshStatus()', busy);
+  assert(!busy.actionInFlight && !busyElements.doctorButton.disabled, 'Buttons remained disabled after the server action ended.');
+}
 vm.runInContext(appSource.slice(appSource.indexOf('function renderUpdate('), appSource.indexOf('function renderUpdateFailure(')), renderContext);
 for (const language of supportedLanguages) {
   renderContext.t = key => dictionaries[language][key];

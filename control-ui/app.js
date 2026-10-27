@@ -1166,6 +1166,8 @@ let pollTimer = null;
 let updateProgressTimer = null;
 let toastTimer = null;
 let actionInFlight = false;
+let serverAction = null;
+let localActionLabel = null;
 let lastPreviewMode = null;
 
 function t(key, variables = {}) {
@@ -1264,7 +1266,13 @@ async function api(path, options = {}) {
 
 function setBusy(active, label = null) {
   actionInFlight = active;
-  elements.busyBadge.textContent = active ? label || t('state.working') : t('state.idle');
+  localActionLabel = active ? label : null;
+  renderBusy();
+}
+
+function renderBusy() {
+  const active = actionInFlight || Boolean(serverAction);
+  elements.busyBadge.textContent = active ? localActionLabel || (serverAction ? labelState(serverAction) : t('state.working')) : t('state.idle');
   elements.busyBadge.className = active ? 'badge badge-warning' : 'badge badge-neutral';
   updateButtons();
 }
@@ -1274,13 +1282,14 @@ function updateButtons() {
   const updating = currentUpdateProgress?.status === 'running' || currentUpdateProgress?.status === 'rollback';
   const updateSupported = currentMeta?.capabilities?.update !== false && currentUpdate?.supported !== false;
   const uninstallSupported = currentMeta?.capabilities?.uninstall !== false;
-  elements.startButton.disabled = actionInFlight || updating || running;
-  elements.stopButton.disabled = actionInFlight || updating || !running;
-  elements.refreshButton.disabled = actionInFlight || updating;
-  elements.doctorButton.disabled = actionInFlight || updating;
-  elements.checkUpdateButton.disabled = actionInFlight || updating || !updateSupported;
-  elements.updateButton.disabled = actionInFlight || updating || !updateSupported || !currentUpdate?.updateAvailable;
-  elements.openUninstallButton.disabled = actionInFlight || updating || !uninstallSupported;
+  const busy = actionInFlight || Boolean(serverAction) || updating;
+  elements.startButton.disabled = busy || running;
+  elements.stopButton.disabled = busy || !running;
+  elements.refreshButton.disabled = busy;
+  elements.doctorButton.disabled = busy;
+  elements.checkUpdateButton.disabled = busy || !updateSupported;
+  elements.updateButton.disabled = busy || !updateSupported || !currentUpdate?.updateAvailable;
+  elements.openUninstallButton.disabled = busy || !uninstallSupported;
 }
 
 function setChip(kind, text) {
@@ -1712,11 +1721,8 @@ async function refreshStatus({ quiet = false } = {}) {
     const payload = await api('/api/status');
     renderStatus(payload.status);
     renderActivity(payload.activity);
-    if (payload.activeAction) {
-      setBusy(true, labelState(payload.activeAction));
-    } else if (!actionInFlight) {
-      setBusy(false);
-    }
+    serverAction = payload.activeAction || null;
+    renderBusy();
   } catch (error) {
     renderStatusFailure(error.message);
     if (!quiet) toast(error.message, 'error');
@@ -1870,10 +1876,11 @@ async function refreshUpdate({ force = false, quiet = false } = {}) {
     renderUpdate(payload.update);
     renderUpdateProgress(payload.updateProgress);
     if (payload.activity) renderActivity(payload.activity);
-    if (payload.activeAction === 'update') {
-      setBusy(true, `${labelState('update')}…`);
+    serverAction = payload.activeAction || null;
+    renderBusy();
+    if (serverAction === 'update' && !['completed', 'failed'].includes(payload.updateProgress?.status)) {
       if (!updateProgressTimer) startUpdateProgressPolling();
-    }
+    } else if (updateProgressTimer) stopUpdateProgressPolling();
   } catch (error) {
     if (currentUpdateProgress?.status === 'running' || currentUpdateProgress?.status === 'rollback') {
       elements.updateProgressLabel.textContent = t('update.waitingService');
