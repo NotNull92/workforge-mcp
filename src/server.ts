@@ -349,7 +349,7 @@ export function createServer(context: ProjectContext, options: { readOnly?: bool
     "search_files",
     {
       title: "Search workstation files",
-      description: "Search with ripgrep under result, time and output budgets. sort:path uses single-threaded rg sorting. basename applies only to path mode. columns bounds long content lines and allows replacement decoding for invalid UTF-8. Partial matches remain usable; check stoppedBecause and warning.",
+      description: "Search with ripgrep under result, time and output budgets. Path regex uses case-insensitive ripgrep syntax; lookaround and backreferences are unsupported. sort:path uses single-threaded rg sorting. basename applies only to path mode. columns bounds long content lines and allows replacement decoding for invalid UTF-8. Partial matches remain usable; check stoppedBecause and warning.",
       inputSchema: {
         path: PATH_SCHEMA.default("."),
         query: z.string().min(1).max(4096),

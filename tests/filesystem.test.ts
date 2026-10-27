@@ -425,6 +425,26 @@ describe("workstation filesystem", () => {
     expect(invalid).toMatchObject({ stoppedBecause: "error", truncated: true });
   });
 
+  it("rejects unsupported path regex without blocking the server", async () => {
+    const { context, primary } = await fixture();
+    await writeFile(join(primary, "search.txt"), "x");
+    const input = { context, path: primary, query: "(?=search)", mode: "path" as const, regex: true, globs: [], includeHidden: true, respectIgnoreFiles: true, maxResults: 10 };
+    expect(await searchFiles(input)).toMatchObject({ stoppedBecause: "error", truncated: true });
+  });
+
+  it("bounds pathological path regex and maps matching records", async () => {
+    const { context, primary } = await fixture();
+    for (const name of ["a".repeat(40) + "!", "Search.txt", "search2.txt", "search3.txt"]) await writeFile(join(primary, name), "x");
+    const input = { context, path: primary, mode: "path" as const, regex: true, globs: [], includeHidden: true, respectIgnoreFiles: true, maxResults: 10, timeoutMs: 2000, match: "basename" as const };
+    for (const query of ["^(a+)+$", "(.+)+\\u0000"]) {
+      const result = await searchFiles({ ...input, query });
+      expect(result.matches).toHaveLength(0);
+      expect(result.elapsedMs).toBeLessThan(5000);
+    }
+    expect((await searchFiles({ ...input, query: "search\\.txt$" })).matches).toHaveLength(1);
+    expect(await searchFiles({ ...input, query: "SEARCH", maxResults: 2 })).toMatchObject({ stoppedBecause: "result_limit", matches: expect.arrayContaining([expect.any(Object)]) });
+  }, 15000);
+
   it("parses chunked Unicode JSON and NUL paths without accepting unfinished records", async () => {
     const { context, primary } = await fixture();
     const record = JSON.stringify({ type: "match", data: { path: { text: "한글.txt" }, lines: { text: "😀\n" }, line_number: 1, submatches: [{ start: 0 }] } });

@@ -143,6 +143,8 @@ Use `read_text_files` for up to 20 known UTF-8 files in one call, for example `{
 
 `search_files` stops the actual search when it finds an extra match beyond `maxResults`, reaches its output budget, or reaches `timeoutMs` (default 10 seconds, configurable up to 120 seconds). `stoppedBecause` distinguishes `complete`, `result_limit`, `timeout`, `output_limit`, and `error`; `elapsedMs` reports elapsed time. Partial matches remain usable even on errors. Results are not globally sorted, and a JSON record from a very long line can exceed the output budget before a complete match is returned. User ripgrep configuration is ignored so its output format and traversal options cannot override the tool contract.
 
+Path regular expressions use case-insensitive ripgrep syntax; backreferences and lookaround are not supported.
+
 ```text
 "Show me the structure of this project."
 "Find files related to inventory."

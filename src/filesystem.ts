@@ -193,13 +193,9 @@ export async function listDirectory(input: {
   return { path: root, entries, errors, truncated };
 }
 
-function compilePathQuery(query: string, regex: boolean): (value: string) => boolean {
-  if (!regex) {
-    const needle = query.toLocaleLowerCase("en-US");
-    return (value) => value.toLocaleLowerCase("en-US").includes(needle);
-  }
-  const expression = new RegExp(query, "iu");
-  return (value) => expression.test(value);
+function compilePathQuery(query: string): (value: string) => boolean {
+  const needle = query.toLocaleLowerCase("en-US");
+  return (value) => value.toLocaleLowerCase("en-US").includes(needle);
 }
 
 export async function searchFiles(input: {
@@ -230,7 +226,8 @@ export async function searchFiles(input: {
   const rootInfo = await stat(root);
   const cwd = rootInfo.isDirectory() ? root : dirname(root);
   const target = rootInfo.isDirectory() ? "." : basename(root);
-  const matchesQuery = input.mode === "path" ? compilePathQuery(input.query, input.regex) : undefined;
+  const pathRegex = input.mode === "path" && input.regex;
+  const matchesQuery = input.mode === "path" && !input.regex ? compilePathQuery(input.query) : undefined;
   const columns = input.lineFormat === "columns";
   const args = input.mode === "path" ? ["--no-config", "--files", "--null"] : columns
     ? ["--no-config", "--null", "--with-filename", "--line-number", "--column", "--no-heading", "--color", "never", "--max-columns", "1024", "--max-columns-preview"]
@@ -244,6 +241,7 @@ export async function searchFiles(input: {
   if (input.mode === "content" && !input.regex) args.push("--fixed-strings");
   args.push("--", ...(input.mode === "content" ? [input.query] : []), target);
   const matches: Array<{ path: string; line: number | null; column: number | null; text: string | null }> = [];
+  const candidatePaths: string[] = [];
   const delimiter = input.mode === "path" ? 0 : 10;
   let pending: Buffer[] = [];
   let stats: { searches: number; searchesWithMatch: number; bytesSearched: number; matchedLines: number } | null = null;
@@ -252,6 +250,7 @@ export async function searchFiles(input: {
     if (input.mode === "path") {
       if (!record) return false;
       const path = resolve(cwd, record);
+      if (pathRegex) { candidatePaths.push(path); return false; }
       if (!matchesQuery!(input.match === "basename" ? basename(path) : path)) return false;
       match = { path, line: null, column: null, text: null };
     } else if (columns) {
@@ -288,7 +287,7 @@ export async function searchFiles(input: {
     matches.push(match);
     return false;
   };
-  const result = await runProcess(resolveToolExecutable("rg"), args, {
+  let result = await runProcess(resolveToolExecutable("rg"), args, {
     cwd, timeoutMs: input.timeoutMs ?? 10_000,
     maxStdoutBytes: MAX_SEARCH_OUTPUT_BYTES, maxStderrBytes: 512 * 1024,
     env: makeWorkstationEnvironment(), stopOnOutputLimit: true, signal: input.signal,
@@ -306,6 +305,35 @@ export async function searchFiles(input: {
       return false;
     },
   });
+  const firstResult = result;
+  if (pathRegex && (result.exitCode === 0 || result.exitCode === 1 || result.stopReason === "output_limit")) {
+    const remaining = (input.timeoutMs ?? 10_000) - (performance.now() - startedAt);
+    if (remaining <= 0) result = { ...result, stopReason: "timeout", timedOut: true };
+    else {
+      let partial = Buffer.alloc(0);
+      result = await runProcess(resolveToolExecutable("rg"), ["--no-config", "--null-data", "--line-number", "--ignore-case", "--color", "never", "--no-heading", "-e", input.query, "-"], {
+        cwd, timeoutMs: remaining, maxStdoutBytes: MAX_SEARCH_OUTPUT_BYTES * 2, maxStderrBytes: 512 * 1024,
+        env: makeWorkstationEnvironment(), stopOnOutputLimit: true, signal: input.signal,
+        stdin: Buffer.from(candidatePaths.map(path => input.match === "basename" ? basename(path) : path).join("\0") + (candidatePaths.length ? "\0" : "")),
+        onStdoutChunk: chunk => {
+          partial = Buffer.concat([partial, chunk]);
+          let end: number;
+          while ((end = partial.indexOf(0)) >= 0) {
+            const record = partial.subarray(0, end).toString("utf8");
+            partial = partial.subarray(end + 1);
+            const index = Number(record.slice(0, record.indexOf(":"))) - 1;
+            if (!Number.isInteger(index) || index < 0 || index >= candidatePaths.length) continue;
+            if (matches.length >= input.maxResults) return true;
+            matches.push({ path: candidatePaths[index]!, line: null, column: null, text: null });
+          }
+          return false;
+        },
+      });
+      if (firstResult.stopReason === "output_limit" && result.stopReason === null && (result.exitCode === 0 || result.exitCode === 1)) {
+        result = { ...result, stopReason: "output_limit", truncated: true };
+      }
+    }
+  }
   // rg terminates every path/JSON record; an unterminated tail is never a match.
   const stoppedBecause = result.stopReason === "callback" ? "result_limit" as const
     : result.stopReason === "timeout" ? "timeout" as const
