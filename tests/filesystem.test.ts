@@ -137,6 +137,24 @@ describe("workstation filesystem", () => {
     expect(await readFile(path, "utf8")).toBe("after");
   });
 
+  it("creates new patch parent directories only after validation and removes them on failure", async () => {
+    const { context, primary, foreign } = await fixture();
+    const patch = "--- /dev/null\n+++ b/newdir/sub/file.txt\n@@ -0,0 +1 @@\n+new\n";
+    const existing = join(primary, "existing.txt");
+    await writeFile(existing, "before\n");
+    const badPatch = patch + "--- a/existing.txt\n+++ b/existing.txt\n@@ -1 +1 @@\n-before\n+after\n";
+    await expect(applyUnifiedPatch({ context, patch: badPatch, expectedSha256: { "newdir/sub/file.txt": "absent", "existing.txt": "a".repeat(64) } })).rejects.toThrow();
+    await expect(fs.access(join(primary, "newdir"))).rejects.toThrow();
+    await applyUnifiedPatch({ context, patch, expectedSha256: { "newdir/sub/file.txt": "absent" } });
+    expect(await readFile(join(primary, "newdir/sub/file.txt"), "utf8")).toBe("new\n");
+    await symlink(foreign, join(primary, "foreign-alias"), process.platform === "win32" ? "junction" : "dir");
+    await expect(applyUnifiedPatch({ context, patch: patch.replaceAll("newdir/sub", "foreign-alias/sub"), expectedSha256: { "foreign-alias/sub/file.txt": "absent" } })).rejects.toThrow("Cross-profile");
+    const failPatch = patch.replaceAll("newdir", "rollbackdir");
+    vi.spyOn(fs, "open").mockRejectedValueOnce(new Error("injected staging failure"));
+    await expect(applyUnifiedPatch({ context, patch: failPatch, expectedSha256: { "rollbackdir/sub/file.txt": "absent" } })).rejects.toThrow();
+    await expect(fs.access(join(primary, "rollbackdir"))).rejects.toThrow();
+  });
+
   it("keeps opt-in tools disabled by default and raw responses still reject masked writes", async () => {
     expect(enabledToolNames(false)).toHaveLength(25);
     expect(enabledToolNames(true)).toHaveLength(14);

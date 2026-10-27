@@ -10,6 +10,7 @@ import {
   realpath,
   rename,
   rm,
+  rmdir,
   stat,
   writeFile,
 } from "node:fs/promises";
@@ -17,7 +18,7 @@ import { basename, dirname, extname, resolve } from "node:path";
 import type { ProjectContext } from "./profile.js";
 import { makeWorkstationEnvironment, resolveToolExecutable, runProcess } from "./process.js";
 import { resolveAuthorizedWorkstationPath } from "./workstation.js";
-import { normalizePathForComparison } from "./path-policy.js";
+import { canonicalizeExistingAncestor, isSamePath, normalizePathForComparison } from "./path-policy.js";
 
 const MAX_TEXT_BYTES = 64 * 1024 * 1024;
 const MAX_WRITE_BYTES = 16 * 1024 * 1024;
@@ -530,7 +531,7 @@ async function resolveWriteTarget(path: string): Promise<{ requestedPath: string
     if (info.nlink > 1) throw new Error(`Hardlinked text mutation is not supported; copy the file before editing: ${path}`);
     return { requestedPath: path, actualPath, exists: true };
   }
-  const parent = await realpath(dirname(path));
+  const parent = await canonicalizeExistingAncestor(dirname(path));
   return { requestedPath: path, actualPath: resolve(parent, basename(path)), exists: false };
 }
 
@@ -759,7 +760,7 @@ export function replaceText(input: Parameters<typeof replaceTextInternal>[0]) {
 }
 
 export type MultiEditFile = { path: string; expectedSha256: string; edits?: NonNullable<Parameters<typeof replaceTextInternal>[0]["edits"]>; content?: string };
-export async function replaceTextMulti(input: { context: ProjectContext; files: readonly MultiEditFile[] }) {
+export async function replaceTextMulti(input: { context: ProjectContext; files: readonly MultiEditFile[]; createParents?: boolean }) {
   if (!Array.isArray(input.files) || input.files.length < 1 || input.files.length > 10) throw new Error("Select 1 to 10 files.");
   let payload = 0;
   const targets: Array<Awaited<ReturnType<typeof resolveWriteTarget>> & { index: number; file: MultiEditFile }> = [];
@@ -808,6 +809,8 @@ export async function replaceTextMulti(input: { context: ProjectContext; files: 
       if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Unsafe multi-edit journal directory.");
     }
     const applied: typeof plans = [];
+    const createdDirectories: string[] = [];
+    let committed = false;
     const publicationWarnings: Array<{ path: string; code: "exclusive_write_fallback" }> = [];
     try {
       for (const plan of plans) {
@@ -815,6 +818,23 @@ export async function replaceTextMulti(input: { context: ProjectContext; files: 
       }
       await writeFile(resolve(journalRoot, "journal.json"), JSON.stringify(plans.map(plan => ({ index: plan.index, path: plan.actualPath,
         previousSha256: plan.result.previousSha256, sha256: plan.result.sha256 }))), { flag: "wx", mode: 0o600 });
+      if (input.createParents) for (const plan of plans.filter(plan => !plan.original)) {
+        const parent = dirname(plan.actualPath);
+        const missing: string[] = [];
+        let current = parent;
+        while (!(await lstat(current).catch(error => { if (errorCode(error) === "ENOENT") return undefined; throw error; }))) {
+          missing.push(current);
+          const next = dirname(current);
+          if (next === current) throw new Error("Cannot resolve patch parent directory.");
+          current = next;
+        }
+        for (const directory of missing.reverse()) {
+          try { await mkdir(directory); createdDirectories.push(directory); }
+          catch (error) { if (errorCode(error) !== "EEXIST") throw error; }
+        }
+        if (!isSamePath(await realpath(dirname(plan.requestedPath)), parent)) throw new Error("Patch parent changed during creation.");
+        await resolveAuthorizedWorkstationPath(input.context, plan.requestedPath);
+      }
       for (const plan of plans) {
         const handle = await open(plan.temporaryPath, "wx", 0o600);
         try { await handle.writeFile(plan.bytes); await handle.sync(); } finally { await handle.close(); }
@@ -843,6 +863,7 @@ export async function replaceTextMulti(input: { context: ProjectContext; files: 
         }
         applied.push(plan);
       }
+      committed = true;
     } catch (error) {
       let rollback = "complete";
       for (const plan of applied.reverse()) {
@@ -857,6 +878,7 @@ export async function replaceTextMulti(input: { context: ProjectContext; files: 
       throw new Error(`MULTI_EDIT_FAILED: rollback=${rollback}; journal=${journalRoot}; ${errorMessage(error)}. After inspection, remove any leftover .workforge-multi-*.tmp link to restore nlink=1; never replay automatically.`);
     } finally {
       for (const plan of plans) await rm(plan.temporaryPath, { force: true }).catch(() => undefined);
+      if (!committed) for (const directory of createdDirectories.reverse()) await rmdir(directory).catch(() => undefined);
     }
     let cleanupWarning: string | null = null;
     try { await rm(journalRoot, { recursive: true }); }

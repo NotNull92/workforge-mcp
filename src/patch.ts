@@ -62,5 +62,5 @@ export function parseUnifiedPatch(patch: string, expectedSha256: Record<string, 
 }
 
 export async function applyUnifiedPatch(input: { context: ProjectContext; patch: string; expectedSha256: Record<string, string> }) {
-  return replaceTextMulti({ context: input.context, files: parseUnifiedPatch(input.patch, input.expectedSha256) });
+  return replaceTextMulti({ context: input.context, files: parseUnifiedPatch(input.patch, input.expectedSha256), createParents: true });
 }

@@ -759,7 +759,7 @@ export function createServer(context: ProjectContext, options: { readOnly?: bool
     await assertCurrentContextRevision(context, contextRevision); return responseFor(await replaceTextMulti({ context, files }));
   });
   if (!readOnly && options.multiFileEdit) registerTool("apply_patch", {
-    title: "Apply a bounded unified diff", description: "Opt-in unified diff edits/new files with explicit hashes for every path. Unique context required; deletion, rename and binary patches rejected. Best-effort rollback is not a transaction.",
+    title: "Apply a bounded unified diff", description: "Opt-in unified diff edits/new files with explicit hashes for every path. Creates missing parent directories for new files. Unique context required; deletion, rename and binary patches rejected. Best-effort rollback is not a transaction.",
     inputSchema: { contextRevision: CONTEXT_REVISION_SCHEMA, patch: z.string().min(1).max(4 * 1024 * 1024),
       expectedSha256: z.record(PATH_SCHEMA, z.union([SHA256_SCHEMA, z.literal("absent")])) },
     outputSchema: multiEditOutput, annotations: localWriteAnnotations,
