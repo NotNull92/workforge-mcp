@@ -49,7 +49,13 @@ export async function readTextStream(input: { context: ProjectContext; path: str
       const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
       if (!bytesRead) { reachedEof = true; consume(decoder.decode()); break; }
       scannedBytes += bytesRead;
-      consume(decoder.decode(buffer.subarray(0, bytesRead), { stream: true }));
+      let start = 0;
+      while (start < bytesRead && !done) {
+        const newline = buffer.indexOf(10, start);
+        const end = newline < 0 || newline >= bytesRead ? bytesRead : newline + 1;
+        consume(decoder.decode(buffer.subarray(start, end), { stream: true }));
+        start = end;
+      }
     }
     if (reachedEof && !done && line >= startLine && endLine < line) {
       if (endLine >= startLine && characters < maxCharacters) pieces.push("\n");

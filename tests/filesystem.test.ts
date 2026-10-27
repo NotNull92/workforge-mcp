@@ -169,6 +169,17 @@ describe("workstation filesystem", () => {
     await expect(applyUnifiedPatch({ context, patch: patch.replace("-1,3 +1,3", "-1,4 +1,4"), expectedSha256: { "a.txt": sha256 } })).rejects.toThrow();
   });
 
+  it("decodes streaming reads only through the requested line", async () => {
+    const { context, primary } = await fixture();
+    const path = join(primary, "stream.txt");
+    await writeFile(path, Buffer.concat([Buffer.from("first\n"), Buffer.from([0xff]), Buffer.from("\nthird\n")]));
+    expect((await readTextStream({ context, path, startLine: 1, maxLines: 1 })).text).toBe("first");
+    await expect(readTextStream({ context, path, startLine: 2, maxLines: 1 })).rejects.toThrow();
+    await writeFile(path, "a".repeat(65535) + "😀\nnext\n");
+    const result = await readTextStream({ context, path, maxLines: 1, maxCharacters: 100000 });
+    expect(result.text).toBe("a".repeat(65535) + "😀");
+  });
+
   it("keeps opt-in tools disabled by default and raw responses still reject masked writes", async () => {
     expect(enabledToolNames(false)).toHaveLength(25);
     expect(enabledToolNames(true)).toHaveLength(14);
