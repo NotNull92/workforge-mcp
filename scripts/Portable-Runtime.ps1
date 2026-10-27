@@ -15,5 +15,14 @@ switch ($Action) {
     Install-WorkForgePortableVersion -SourceRoot $SourceRoot
   }
   "Resolve" { Resolve-WorkForgePortableEngine }
-  "Rollback" { Invoke-WorkForgePortableRollback }
+  "Rollback" {
+    . (Join-Path $PSScriptRoot "WorkForge.Update.ps1")
+    $ActiveEngine = Resolve-WorkForgePortableEngine
+    foreach ($Profile in @(Get-WorkForgeUpdateProfileRecords -EngineRoot $ActiveEngine.EngineRoot)) {
+      if (Get-WorkForgeUpdateTunnelRunning -EngineRoot $ActiveEngine.EngineRoot -ProfileId $Profile.Id) {
+        throw "Stop all WorkForge tunnels before rolling back."
+      }
+    }
+    Invoke-WorkForgePortableRollback
+  }
 }

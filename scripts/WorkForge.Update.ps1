@@ -182,7 +182,7 @@ function Get-WorkForgeUpdateTunnelRunning {
   )
   $Text = (& (Join-Path $EngineRoot "scripts\tunnel-status.ps1") -ProfileId $ProfileId -Snapshot | Out-String)
   $Snapshot = $Text | ConvertFrom-Json -ErrorAction Stop
-  return [bool]$Snapshot.running
+  return ([bool]$Snapshot.running -or ($null -ne $Snapshot.PSObject.Properties['supervised'] -and [bool]$Snapshot.supervised))
 }
 
 function Write-WorkForgeUpdateAtomicBytes {

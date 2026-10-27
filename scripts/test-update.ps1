@@ -63,7 +63,8 @@ function Get-WorkForgeRegistry {
     "scripts\tunnel-status.ps1" = @'
 param([string]$ProfileId,[switch]$Snapshot)
 $running = Test-Path -LiteralPath (Join-Path $env:WORKFORGE_PORTABLE_STATE_ROOT ("tunnel-" + $ProfileId + ".running")) -PathType Leaf
-@{ running = [bool]$running } | ConvertTo-Json -Compress
+$supervised = Test-Path -LiteralPath (Join-Path $env:WORKFORGE_PORTABLE_STATE_ROOT ("tunnel-" + $ProfileId + ".supervised")) -PathType Leaf
+@{ running = [bool]$running; supervised = [bool]$supervised } | ConvertTo-Json -Compress
 '@
     "scripts\start-tunnel.ps1" = @'
 param([string]$ProfileId)
@@ -72,6 +73,7 @@ param([string]$ProfileId)
     "scripts\stop-tunnel.ps1" = @'
 param([string]$ProfileId)
 Remove-Item -LiteralPath (Join-Path $env:WORKFORGE_PORTABLE_STATE_ROOT ("tunnel-" + $ProfileId + ".running")) -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath (Join-Path $env:WORKFORGE_PORTABLE_STATE_ROOT ("tunnel-" + $ProfileId + ".supervised")) -Force -ErrorAction SilentlyContinue
 '@
     "scripts\Doctor.ps1" = "param([string]`$ProfileId)`nWrite-Output doctor-$Marker"
     "control-ui\app.js" = "console.log('ui-$Marker')"
@@ -192,7 +194,13 @@ function Get-WorkForgeUpdateDescriptor { param([string]$CurrentVersion) if ($Cur
   } | ConvertTo-Json -Depth 5) + [Environment]::NewLine)
 
   $RunningMarker = Join-Path $StateRoot "tunnel-workstation.running"
-  Write-FixtureText -Path $RunningMarker -Text "running"
+  $SupervisedMarker = Join-Path $StateRoot "tunnel-workstation.supervised"
+  Write-FixtureText -Path $SupervisedMarker -Text "supervised"
+  if (-not (Get-WorkForgeUpdateTunnelRunning -EngineRoot (Resolve-WorkForgePortableEngine).EngineRoot -ProfileId 'workstation')) { throw 'Supervisor-only tunnel was not detected.' }
+  try {
+    & (Join-Path $PSScriptRoot 'Portable-Runtime.ps1') -Action Rollback
+    throw 'Rollback accepted a running supervisor.'
+  } catch { if ($_.Exception.Message -notmatch 'Stop all WorkForge tunnels') { throw } }
   $FailingSource = New-UpdateFixture -Version "0.2.2" -Marker "failing" -FailRebind
   $ProgressEvents.Clear()
   try {
