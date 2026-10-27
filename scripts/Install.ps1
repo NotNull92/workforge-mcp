@@ -202,7 +202,7 @@ function Merge-ProfileRegistry {
     $Registry = Read-StrictJson -Path $Path -Description "WorkForge profile registry"
     if ([string]$Registry.version -cne "1") { throw "WorkForge profile registry has an unsupported version." }
     $Entries = @($Registry.profiles)
-    if ($Entries.Count -gt 256) { throw "WorkForge profile registry contains too many profiles." }
+    if ($Entries.Count -gt $script:WorkForgeContract.MaxProfiles) { throw "WorkForge profile registry contains too many profiles." }
     foreach ($Entry in $Entries) {
       if ($null -eq $Entry) { throw "WorkForge profile registry contains a null entry." }
       $EntryId = [string]$Entry.id
@@ -252,8 +252,8 @@ function Merge-ProfileRegistry {
       profileSha256 = $CurrentProfileHash
     })
   }
-  if ($OutputEntries.Count -lt 1 -or $OutputEntries.Count -gt 256) {
-    throw "WorkForge profile registry must contain between 1 and 256 profiles."
+  if ($OutputEntries.Count -lt 1 -or $OutputEntries.Count -gt $script:WorkForgeContract.MaxProfiles) {
+    throw "WorkForge profile registry contains too many profiles (maximum $($script:WorkForgeContract.MaxProfiles))."
   }
 
   $Payload = [ordered]@{ version = 1; profiles = @($OutputEntries) }

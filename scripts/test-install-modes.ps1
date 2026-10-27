@@ -10,6 +10,24 @@ $RegistryPath = Join-Path $TestRoot "runtime\profile_registry.json"
 $Utf8 = [Text.UTF8Encoding]::new($false)
 
 try {
+  New-Item -ItemType Directory -Path $TestRoot -Force | Out-Null
+  . (Join-Path $PSScriptRoot 'WorkForge.Contract.ps1')
+  $StrictUtf8 = [Text.UTF8Encoding]::new($false, $true)
+  $ProfileId = 'new-profile'
+  $Tokens = $null; $ParseErrors = $null
+  $InstallerAst = [Management.Automation.Language.Parser]::ParseFile($InstallerPath, [ref]$Tokens, [ref]$ParseErrors)
+  foreach ($Name in @('Read-StrictJson', 'Write-AtomicUtf8', 'Merge-ProfileRegistry')) {
+    $Function = $InstallerAst.Find({ param($Node) $Node -is [Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -eq $Name }, $true)
+    if (-not $Function) { throw "Installer function missing: $Name" }
+    . ([scriptblock]::Create($Function.Extent.Text))
+  }
+  $LimitPath = Join-Path $TestRoot 'limit-registry.json'
+  $Entries = @(0..127 | ForEach-Object { [ordered]@{ id = "profile-$_"; profilePath = (Join-Path $TestRoot "profile-$_\profile.json"); profileSha256 = ('a' * 64) } })
+  $RegistryBytes = [Text.Encoding]::UTF8.GetBytes((@{ version = 1; profiles = $Entries } | ConvertTo-Json -Depth 5))
+  [IO.File]::WriteAllBytes($LimitPath, $RegistryBytes)
+  try { Merge-ProfileRegistry -Path $LimitPath -CurrentProfilePath (Join-Path $TestRoot 'new-profile\profile.json') -CurrentProfileHash ('b' * 64); throw '129th profile was accepted.' }
+  catch { if ($_.Exception.Message -notmatch 'too many profiles') { throw } }
+  if ([Convert]::ToBase64String($RegistryBytes) -cne [Convert]::ToBase64String([IO.File]::ReadAllBytes($LimitPath))) { throw 'Rejected registry merge changed the registry.' }
   & $InstallerPath `
     -WorkspaceRoot $WorkspaceRoot `
     -RegistryPath $RegistryPath `
