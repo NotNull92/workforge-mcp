@@ -211,6 +211,8 @@ try {
         -RedirectStandardError $Paths.TunnelStderrPath `
         -WindowStyle Hidden `
         -PassThru
+      # Pin the OS handle so ExitCode survives and the PID cannot be reused under us.
+      $null = $TunnelProcess.Handle
     } finally {
       Exit-WorkForgeTunnelOperationLock -Lock $OperationLock
     }

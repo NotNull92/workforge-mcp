@@ -56,6 +56,10 @@ $PidFixtureRoot = Join-Path $env:TEMP ("workforge-pid-test-" + [guid]::NewGuid()
 $Child = $null
 try {
   New-Item -ItemType Directory -Path $PidFixtureRoot | Out-Null
+  $ExitFixture = Start-Process -FilePath (Get-WorkForgePowerShellExecutablePath) -ArgumentList @('-NoProfile', '-Command', 'exit 3') -RedirectStandardOutput (Join-Path $PidFixtureRoot 'stdout.txt') -WindowStyle Hidden -PassThru
+  $null = $ExitFixture.Handle
+  $ExitFixture.WaitForExit()
+  if ($ExitFixture.ExitCode -ne 3) { throw 'Pinned process handle did not preserve its exit code.' }
   $PidFile = Join-Path $PidFixtureRoot "fixture.pid"
   $Child = Start-Process -FilePath (Get-WorkForgePowerShellExecutablePath) -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 30') -WindowStyle Hidden -PassThru
   Set-Content -LiteralPath $PidFile -Value $Child.Id -Encoding ascii

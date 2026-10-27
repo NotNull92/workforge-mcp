@@ -92,6 +92,8 @@ try {
     -RedirectStandardError $Paths.SupervisorStderrPath `
     -WindowStyle Hidden `
     -PassThru
+  # Pin the OS handle so ExitCode survives and the PID cannot be reused under us.
+  $null = $SupervisorProcess.Handle
 } catch {
   if ($RunIntentWritten -and $null -eq $SupervisorProcess) {
     Remove-Item -LiteralPath $Paths.DesiredRunningPath -Force -ErrorAction SilentlyContinue
