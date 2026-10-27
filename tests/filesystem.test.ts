@@ -60,6 +60,22 @@ afterEach(async () => {
 });
 
 describe("workstation filesystem", () => {
+  it("preserves existing CRLF-only line endings for writes and replacements", async () => {
+    const { context, primary } = await fixture();
+    const path = join(primary, "lines.txt");
+    await writeFile(path, "one\r\ntwo\r\n");
+    const original = await readTextFile({ context, path, startLine: 1, maxLines: 10 });
+    const written = await writeTextFile({ context, path, expectedSha256: original.sha256, content: original.text.replace("two", "changed"), createParents: false });
+    expect(await readFile(path, "utf8")).toBe("one\r\nchanged\r\n");
+    await replaceText({ context, path, expectedSha256: written.sha256, oldText: "changed", newText: "two\nextra" });
+    expect(await readFile(path, "utf8")).toBe("one\r\ntwo\r\nextra\r\n");
+    for (const content of ["one\ntwo\n", "one\r\ntwo\n"]) {
+      await writeFile(path, content);
+      const current = await readTextFile({ context, path, startLine: 1, maxLines: 10 });
+      await writeTextFile({ context, path, expectedSha256: current.sha256, content: "new\ntext\n", createParents: false });
+      expect(await readFile(path, "utf8")).toBe("new\ntext\n");
+    }
+  });
   it("reports exclusive-write fallback when publishing a new patch without hardlink support", async () => {
     const { context, primary } = await fixture();
     vi.spyOn(fs, "link").mockRejectedValue(Object.assign(new Error("unsupported"), { code: "ENOTSUP" }));

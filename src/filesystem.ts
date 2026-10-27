@@ -580,6 +580,10 @@ async function atomicReplace(path: string, bytes: Buffer, expectedSha256: string
   }
 }
 
+function matchCrlf(currentText: string, text: string): string {
+  return currentText.includes("\r\n") && !/(?<!\r)\n|\r(?!\n)/u.test(currentText) ? text.replace(/(?<!\r)\n/gu, "\r\n") : text;
+}
+
 export async function writeTextFile(input: {
   context: ProjectContext;
   path: string;
@@ -610,7 +614,7 @@ export async function writeTextFile(input: {
   return await withTargetWriteLease(input.context, target.actualPath, async () => {
     const current = await readTextBytes(target.actualPath);
     if (current.sha256 !== input.expectedSha256) throw new Error("The file changed after it was read; no write was applied.");
-    const updatedBytes = encodeUtf8(input.content, current.hasBom);
+    const updatedBytes = encodeUtf8(matchCrlf(current.text, input.content), current.hasBom);
     if (updatedBytes.byteLength > MAX_WRITE_BYTES) throw new Error(`Write exceeds the ${MAX_WRITE_BYTES}-byte tool limit.`);
     await atomicReplace(target.actualPath, updatedBytes, input.expectedSha256);
     return {
@@ -644,7 +648,7 @@ function replacementForCurrentText(
     if (expectedCount === 1 && matches.length > 1) throw new Error("oldText matches multiple locations.");
     return matches.length === expectedCount ? matches : undefined;
   };
-  const exact = locate(oldText, newText);
+  const exact = locate(oldText, matchCrlf(currentText, newText));
   if (exact) return exact;
   if (oldText.includes("\n") && !oldText.includes("\r\n") && currentText.includes("\r\n")) {
     const normalized = locate(oldText.replaceAll("\n", "\r\n"), newText.replace(/\r\n|\r|\n/gu, "\r\n"));

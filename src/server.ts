@@ -479,7 +479,7 @@ export function createServer(context: ProjectContext, options: { readOnly?: bool
     "write_text_file",
     {
       title: "Write a workstation text file",
-      description: "Create or atomically replace one UTF-8 text file after workstation_context. Creation requires expectedSha256='absent'; replacement requires the exact current hash.",
+      description: "Create or atomically replace one UTF-8 text file after workstation_context. Creation requires expectedSha256='absent'; replacement requires the exact current hash. Line endings follow an existing CRLF-only file.",
       inputSchema: {
         contextRevision: CONTEXT_REVISION_SCHEMA,
         path: PATH_SCHEMA,
@@ -506,7 +506,7 @@ export function createServer(context: ProjectContext, options: { readOnly?: bool
     "replace_text",
     {
       title: "Replace exact text in a workstation file",
-      description: "Atomically apply one oldText/newText pair or 1–100 edits against the same original file. expectedCount defaults to 1 and must match the number of nonoverlapping occurrences. Ranges cannot overlap; no sequential dependencies. dryRun previews hashes and resulting line ranges without writing. Requires unchanged SHA-256. Batch text is limited to 1 Mi UTF-16 code units per string and 16 MiB combined UTF-8 after parsing.",
+      description: "Atomically apply one oldText/newText pair or 1–100 edits against the same original file. Line endings follow an existing CRLF-only file. expectedCount defaults to 1 and must match the number of nonoverlapping occurrences. Ranges cannot overlap; no sequential dependencies. dryRun previews hashes and resulting line ranges without writing. Requires unchanged SHA-256. Batch text is limited to 1 Mi UTF-16 code units per string and 16 MiB combined UTF-8 after parsing.",
       inputSchema: {
         contextRevision: CONTEXT_REVISION_SCHEMA,
         path: PATH_SCHEMA,
