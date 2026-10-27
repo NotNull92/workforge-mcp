@@ -450,8 +450,8 @@ async function getWork({ force = false } = {}) {
       const registryPath = isMacOS
         ? (await import('./macos/tunnel-common.mjs')).loadInstallation(profileId).registryPath
         : process.env.WORKFORGE_MCP_PROFILE_REGISTRY;
-      if (!registryPath || !path.isAbsolute(registryPath)) return unavailable(failureCode);
-      const context = await profiles.loadProjectProfile(profileId, { registryPath });
+      if (registryPath !== undefined && !path.isAbsolute(registryPath)) return unavailable(failureCode);
+      const context = await profiles.loadProjectProfile(profileId, registryPath === undefined ? {} : { registryPath });
       failureCode = 'profile_unavailable';
       const [history, checkpoints] = await Promise.all([
         shell.listShellJobs({ context, limit: 5, signal: abort.signal }), tasks.listTasks(context, 5, abort.signal),
@@ -492,9 +492,9 @@ async function getModeEvidence() {
         logPath = runtimePaths(loadInstallation(profileId)).tunnelStderrPath;
       } else {
         const registryPath = process.env.WORKFORGE_MCP_PROFILE_REGISTRY;
-        if (!registryPath || !path.isAbsolute(registryPath)) return { ...empty, code: 'registry_invalid' };
+        if (registryPath !== undefined && !path.isAbsolute(registryPath)) return { ...empty, code: 'registry_invalid' };
         const { loadProjectProfile } = await import('../dist/profile.js');
-        const context = await loadProjectProfile(profileId, { registryPath });
+        const context = await loadProjectProfile(profileId, registryPath === undefined ? {} : { registryPath });
         // Derived from Get-WorkForgeTunnelRuntimePaths.
         logPath = path.join(context.primaryRoot, 'artifacts', 'workforge-mcp', 'tunnel', 'tunnel.stderr.log');
       }
@@ -530,8 +530,8 @@ async function getWorkTask(id) {
       const registryPath = isMacOS
         ? (await import('./macos/tunnel-common.mjs')).loadInstallation(profileId).registryPath
         : process.env.WORKFORGE_MCP_PROFILE_REGISTRY;
-      if (!registryPath || !path.isAbsolute(registryPath)) return unavailable(failureCode);
-      const context = await profiles.loadProjectProfile(profileId, { registryPath });
+      if (registryPath !== undefined && !path.isAbsolute(registryPath)) return unavailable(failureCode);
+      const context = await profiles.loadProjectProfile(profileId, registryPath === undefined ? {} : { registryPath });
       failureCode = 'profile_unavailable';
       abort.signal.throwIfAborted();
       const resumed = tasks.resumeTask(context, id);

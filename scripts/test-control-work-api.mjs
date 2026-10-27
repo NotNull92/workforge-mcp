@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile, rm, realpath } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, writeFile, rm, realpath, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -76,6 +76,52 @@ try {
   const exited = once(child, 'exit');
   await fetch(`${origin}/api/shutdown`, { method: 'POST', headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' }, body: '{}' });
   assert.equal((await exited)[0], 0);
+  if (process.platform === 'win32') {
+    const engine = join(root, 'engine');
+    await mkdir(join(engine, 'scripts'), { recursive: true });
+    await mkdir(join(engine, 'runtime'));
+    await Promise.all([
+      cp(join(engineRoot, 'dist'), join(engine, 'dist'), { recursive: true }),
+      cp(join(engineRoot, 'control-ui'), join(engine, 'control-ui'), { recursive: true }),
+      cp(join(engineRoot, 'scripts', 'control-server.mjs'), join(engine, 'scripts', 'control-server.mjs')),
+      cp(join(engineRoot, 'package.json'), join(engine, 'package.json')),
+      cp(join(engineRoot, 'workforge-contract.json'), join(engine, 'workforge-contract.json')),
+      cp(registryPath, join(engine, 'runtime', 'profile_registry.json')),
+      symlink(join(engineRoot, 'node_modules'), join(engine, 'node_modules'), 'junction'),
+    ]);
+    for (const registry of [undefined, 'relative-registry.json']) {
+      const environment = { ...process.env, WORKFORGE_CONTROL_TEST_MODE: '1' };
+      delete environment.WORKFORGE_MCP_PROFILE_REGISTRY;
+      if (registry !== undefined) environment.WORKFORGE_MCP_PROFILE_REGISTRY = registry;
+      child = spawn(process.execPath, [join(engine, 'scripts', 'control-server.mjs'), '--profile', profile.id, '--no-browser', '--port', '0'],
+        { cwd: engine, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: environment });
+      let log = ''; child.stdout.on('data', chunk => { log += chunk; }); child.stderr.resume();
+      let info;
+      const end = Date.now() + 8000;
+      while (!info && Date.now() < end) {
+        assert.equal(child.exitCode, null);
+        const line = log.split(/\r?\n/).find(value => value.startsWith('WORKFORGE_CONTROL_TEST_READY '));
+        if (line) info = JSON.parse(line.slice('WORKFORGE_CONTROL_TEST_READY '.length));
+        else await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      assert(info, 'Fixture engine did not start.');
+      const base = `http://127.0.0.1:${info.port}`;
+      const auth = await fetch(`${base}/?k=${info.launchToken}`, { redirect: 'manual' });
+      const cookie = auth.headers.get('set-cookie').split(';', 1)[0];
+      const headers = { Cookie: cookie };
+      const work = await (await fetch(`${base}/api/work`, { headers })).json();
+      const detail = await (await fetch(`${base}/api/work/task?id=example`, { headers })).json();
+      const mode = await (await fetch(`${base}/api/mode-evidence`, { headers })).json();
+      if (registry === undefined) {
+        assert.equal(work.available, true); assert.equal(detail.available, true); assert.notEqual(mode.code, 'registry_invalid');
+      } else {
+        assert.equal(work.code, 'registry_invalid'); assert.equal(detail.code, 'registry_invalid'); assert.equal(mode.code, 'registry_invalid');
+      }
+      const finished = once(child, 'exit');
+      await fetch(`${base}/api/shutdown`, { method: 'POST', headers: { ...headers, Origin: base }, body: '{}' });
+      assert.equal((await finished)[0], 0);
+    }
+  }
 } finally {
   if (child && child.exitCode === null) { const exited = once(child, 'exit'); child.kill(); await exited; }
   await rm(root, { recursive: true, force: true });
