@@ -214,6 +214,21 @@ Start-Sleep -Seconds 30
     if (-not (Test-Path -LiteralPath $Path)) { throw "WhatIf changed fixture state: $Path" }
   }
 
+  foreach ($RetryMode in @('KeepWorkspace', 'RemoveEverything')) {
+    $RetryEngine = New-TestEngine -Name "retry-$RetryMode-engine"
+    $RetryProfile = Add-ProfileId -Profile (New-TestProfile -WorkspaceRoot (Join-Path $TestRoot "retry-$RetryMode-workspace") -ProfileId 'workstation' -Port 2197) -Id 'workstation'
+    $RetryRegistry = Set-TestRegistry -EngineRoot $RetryEngine -Profiles @($RetryProfile)
+    $RetryArgs = @('-Mode', $RetryMode, '-NonInteractive', '-KeepEngine')
+    if ($RetryMode -eq 'RemoveEverything') { $RetryArgs += '-ConfirmFullRemoval' }
+    $Locked = [IO.File]::Open((Join-Path $RetryProfile.ArtifactRoot 'fixture.log'), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    try {
+      $Failed = Invoke-UninstallProcess -EngineRoot $RetryEngine -WorkspaceRoot $RetryProfile.WorkspaceRoot -RegistryPath $RetryRegistry -DesktopDirectory $Desktop -AdditionalArguments $RetryArgs
+      if ($Failed.ExitCode -eq 0 -or -not (Test-Path -LiteralPath $RetryRegistry) -or -not (Test-Path -LiteralPath $RetryProfile.ProfilePath) -or -not (Test-Path -LiteralPath (Join-Path $RetryProfile.WorkspaceRoot 'workstation.marker'))) { throw "Failed $RetryMode uninstall lost identity or registry." }
+    } finally { $Locked.Dispose() }
+    $Retried = Invoke-UninstallProcess -EngineRoot $RetryEngine -WorkspaceRoot $RetryProfile.WorkspaceRoot -RegistryPath $RetryRegistry -DesktopDirectory $Desktop -AdditionalArguments $RetryArgs
+    if ($Retried.ExitCode -ne 0 -or (Test-Path -LiteralPath $RetryRegistry)) { throw "Retried $RetryMode uninstall failed: $($Retried.Output)" }
+  }
+
   # Full removal rejects automation without the explicit destructive switch.
   $Engine = New-TestEngine -Name "confirm-engine"
   $Profile = Add-ProfileId -Profile (New-TestProfile -WorkspaceRoot (Join-Path $TestRoot "confirm-workspace") -ProfileId "workstation" -Port 2200) -Id "workstation"

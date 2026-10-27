@@ -323,8 +323,8 @@ try {
   Write-WorkForgePlan -Items @(
     "Verify installation identity",
     "Stop the secure tunnel",
-    "Detach the profile registry",
     "Remove shortcut and local runtime data",
+    "Detach the profile registry",
     $(if ($Mode -eq "RemoveEverything") { "Remove the workspace permanently" } else { "Preserve the workspace" }),
     "Remove the verified release engine when safe"
   )
@@ -383,9 +383,42 @@ try {
     Skip-WorkForgeStage -Stage $CurrentStage -Reason "No running tunnel state was recorded"
   }
 
-  $CurrentStage = Start-WorkForgeStage -Number 4 -Total 7 -Name "Profile registry"
-  $RemainingProfileCount = Remove-UninstallRegistryEntry -State $RegistryState
-  Complete-WorkForgeStage -Stage $CurrentStage -Detail ("{0} profile(s) remain" -f $RemainingProfileCount)
+  $CurrentStage = Start-WorkForgeStage -Number 4 -Total 7 -Name "Local data"
+  $SharedRuntimeRoot = Get-WorkForgeRunsRoot
+  $LocalCredentialPath = Join-Path $SharedRuntimeRoot ".env.local"
+  if ($Mode -eq "RemoveEverything") {
+    $ArtifactsRoot = Join-Path $WorkspaceRoot 'artifacts'
+    $ToolsRoot = Join-Path $WorkspaceRoot 'tools'
+    $null = Remove-UninstallPath -Path $ArtifactsRoot -Description 'workspace artifacts' -Recurse
+    foreach ($Item in @(Get-ChildItem -LiteralPath $WorkspaceRoot -Force)) {
+      if ($Item.Name -ieq 'tools' -or $Item.Name -ieq 'workstation.marker' -or $Item.Name -ieq 'artifacts') { continue }
+      $null = Remove-UninstallPath -Path $Item.FullName -Description 'workspace content' -Recurse
+    }
+    if (Test-Path -LiteralPath $ToolsRoot -PathType Container) {
+      $null = Assert-WorkForgePathHasNoReparsePoint -Path $ToolsRoot -Description 'workspace tools'
+      foreach ($Item in @(Get-ChildItem -LiteralPath $ToolsRoot -Force)) {
+        if ($Item.Name -ieq 'workforge-mcp') { continue }
+        $null = Remove-UninstallPath -Path $Item.FullName -Description 'workspace tools' -Recurse
+      }
+    }
+  } else {
+    $null = Remove-UninstallPath -Path $ArtifactDirectory -Description 'runtime logs and command evidence' -Recurse
+  }
+  if (Test-Path -LiteralPath $ProfileDirectory -PathType Container) {
+    foreach ($Item in @(Get-ChildItem -LiteralPath $ProfileDirectory -Force)) {
+      if ($Item.Name -ieq 'profile.json') { continue }
+      $null = Remove-UninstallPath -Path $Item.FullName -Description 'profile configuration' -Recurse
+    }
+    $null = Remove-UninstallPath -Path $ProfilePath -Description 'profile manifest'
+    $null = Remove-UninstallPath -Path $ProfileDirectory -Description 'profile configuration' -Recurse
+  }
+  if ($Mode -eq "RemoveEverything") {
+    $null = Remove-UninstallPath -Path $MarkerPath -Description 'workspace identity marker'
+    $null = Remove-UninstallPath -Path $WorkspaceRoot -Description 'complete WorkForge workspace' -Recurse
+    Complete-WorkForgeStage -Stage $CurrentStage -Detail "Workspace removal requested"
+  } else {
+    Complete-WorkForgeStage -Stage $CurrentStage -Detail "Workspace preserved"
+  }
 
   $CurrentStage = Start-WorkForgeStage -Number 5 -Total 7 -Name "Shortcut"
   $ShortcutResult = Remove-VerifiedShortcut
@@ -395,20 +428,12 @@ try {
     Skip-WorkForgeStage -Stage $CurrentStage -Reason $ShortcutResult.Detail
   }
 
-  $CurrentStage = Start-WorkForgeStage -Number 6 -Total 7 -Name "Local data"
-  $SharedRuntimeRoot = Get-WorkForgeRunsRoot
-  $LocalCredentialPath = Join-Path $SharedRuntimeRoot ".env.local"
+  $CurrentStage = Start-WorkForgeStage -Number 6 -Total 7 -Name "Profile registry"
+  try { $RemainingProfileCount = Remove-UninstallRegistryEntry -State $RegistryState }
+  catch { throw "Profile registry update failed after local data removal. Remove the selected profile entry from the registry manually after verifying its path. $($_.Exception.Message)" }
+  Complete-WorkForgeStage -Stage $CurrentStage -Detail ("{0} profile(s) remain" -f $RemainingProfileCount)
   if ($IsLastProfile) {
     $null = Remove-UninstallPath -Path $LocalCredentialPath -Description "the protected local runtime credential"
-  }
-
-  if ($Mode -eq "RemoveEverything") {
-    $null = Remove-UninstallPath -Path $WorkspaceRoot -Description "the complete WorkForge workspace" -Recurse
-    Complete-WorkForgeStage -Stage $CurrentStage -Detail "Workspace removal requested"
-  } else {
-    $null = Remove-UninstallPath -Path $ProfileDirectory -Description "profile configuration" -Recurse
-    $null = Remove-UninstallPath -Path $ArtifactDirectory -Description "runtime logs and command evidence" -Recurse
-    Complete-WorkForgeStage -Stage $CurrentStage -Detail "Workspace preserved"
   }
 
   if ($IsLastProfile -and ($KeepEngine -or $EngineState.Kind -ne "release")) {
