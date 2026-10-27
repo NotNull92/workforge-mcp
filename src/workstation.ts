@@ -121,8 +121,14 @@ export async function resolveAuthorizedWorkstationPath(
   scope: WorkstationPathScope = "exact",
 ): Promise<string> {
   const requestedPath = resolveWorkstationPath(context, rawPath);
+  const disallowDevicePaths = process.platform === "win32" && context.managedProjectRoots.some(root => root.profileId !== context.profile.id);
+  const assertNotDevicePath = (path: string) => {
+    if (disallowDevicePaths && path.startsWith("\\\\")) throw new Error("Cross-profile path denied: UNC and device paths are not allowed while other WorkForge profiles are registered.");
+  };
+  assertNotDevicePath(requestedPath);
   assertManagedProjectBoundary(context, requestedPath, scope);
   const canonicalPath = await canonicalizeExistingAncestor(requestedPath);
+  assertNotDevicePath(canonicalPath);
   assertManagedProjectBoundary(context, canonicalPath, scope);
   return requestedPath;
 }

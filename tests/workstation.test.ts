@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ProjectContext, ProjectProfile } from "../src/profile.js";
-import { assertCurrentContextRevision, getWorkstationContext } from "../src/workstation.js";
+import { assertCurrentContextRevision, getWorkstationContext, resolveAuthorizedWorkstationPath } from "../src/workstation.js";
 
 const temporaryRoots: string[] = [];
 
@@ -38,6 +38,18 @@ afterEach(async () => {
 });
 
 describe("workstation bootstrap context", () => {
+  it.runIf(process.platform === "win32")("denies Windows device paths when other profiles exist", async () => {
+    const { context, root } = await fixture();
+    const other = await fixture();
+    const isolated = { ...context, managedProjectRoots: [...context.managedProjectRoots, { profileId: "foreign", primaryRoot: other.root }] };
+    const foreignPath = `\\\\?\\${join(other.root, "AGENTS.md")}`;
+    await expect(resolveAuthorizedWorkstationPath(isolated, foreignPath)).rejects.toThrow("UNC and device paths");
+    const uncPath = `\\\\localhost\\${other.root[0]}$${join(other.root.slice(2), "AGENTS.md")}`;
+    if (await access(uncPath).then(() => true, () => false)) {
+      await expect(resolveAuthorizedWorkstationPath(isolated, uncPath)).rejects.toThrow("UNC and device paths");
+    } else console.info("Windows administrative share unavailable; UNC integration case skipped.");
+    await expect(resolveAuthorizedWorkstationPath(context, `\\\\?\\${join(root, "AGENTS.md")}`)).resolves.toBeTruthy();
+  });
   it("returns complete configured bootstrap content with a deterministic revision", async () => {
     const { context } = await fixture();
     const first = await getWorkstationContext(context);
